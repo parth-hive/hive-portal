@@ -11,6 +11,7 @@
     "db:types": "supabase gen types typescript --linked | sed '/^Initialising login role/d; /^A new version of Supabase CLI/d; /^We recommend updating/d' > src/lib/supabase/types.ts"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "^0.95.2",
     "@supabase/ssr": "^0.10.3",
     "@supabase/supabase-js": "^2.105.4",
     "@types/papaparse": "^5.5.2",
@@ -18,7 +19,8 @@
     "next": "16.2.6",
     "papaparse": "^5.5.3",
     "react": "19.2.4",
-    "react-dom": "19.2.4"
+    "react-dom": "19.2.4",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
