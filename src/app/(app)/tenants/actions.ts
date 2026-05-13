@@ -39,6 +39,9 @@ export async function createTenant(
     formData.get("security_deposit") ?? "",
   ).trim();
   const start_date = String(formData.get("start_date") ?? "").trim() || null;
+  const first_month_rent_str = String(
+    formData.get("first_month_rent") ?? "",
+  ).trim();
   const leaseFile = formData.get("lease_pdf");
 
   if (room_id) {
@@ -94,6 +97,20 @@ export async function createTenant(
       lease_pdf_path = filename;
     }
 
+    const first_month_rent = first_month_rent_str
+      ? Number(first_month_rent_str)
+      : null;
+    if (
+      first_month_rent !== null &&
+      (!Number.isFinite(first_month_rent) || first_month_rent < 0)
+    ) {
+      if (lease_pdf_path) {
+        await supabase.storage.from("leases").remove([lease_pdf_path]);
+      }
+      await supabase.from("tenants").delete().eq("id", tenant.id);
+      return { error: "First month rent must be a non-negative number." };
+    }
+
     const { error: leErr } = await supabase.from("tenancies").insert({
       room_id,
       tenant_id: tenant.id,
@@ -102,6 +119,7 @@ export async function createTenant(
       security_deposit,
       status: "active",
       lease_pdf_path,
+      first_month_rent,
     });
 
     if (leErr) {

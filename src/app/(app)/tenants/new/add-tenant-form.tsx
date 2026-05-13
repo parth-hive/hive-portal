@@ -117,6 +117,23 @@ export function AddTenantForm({ rooms }: { rooms: RoomOption[] }) {
             <input type="date" name="start_date" className={fieldInput} />
           </label>
           <label className="flex flex-col gap-1.5 sm:col-span-2">
+            <span className={fieldLabel}>
+              First month rent (optional — leave blank if not prorated)
+            </span>
+            <input
+              type="number"
+              name="first_month_rent"
+              min="0"
+              step="1"
+              placeholder="e.g. 1207 if they're moving in mid-month"
+              className={fieldInput}
+            />
+            <span className="text-xs text-muted">
+              Used only for the calendar month the tenancy starts in. Every
+              month after that uses the monthly rent above.
+            </span>
+          </label>
+          <label className="flex flex-col gap-1.5 sm:col-span-2">
             <span className={fieldLabel}>Lease PDF (optional)</span>
             <input
               type="file"

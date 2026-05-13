@@ -593,10 +593,35 @@ export type Database = {
           },
         ]
       }
+      telegram_chat_messages: {
+        Row: {
+          chat_id: number
+          content: Json
+          created_at: string
+          id: number
+          role: string
+        }
+        Insert: {
+          chat_id: number
+          content: Json
+          created_at?: string
+          id?: number
+          role: string
+        }
+        Update: {
+          chat_id?: number
+          content?: Json
+          created_at?: string
+          id?: number
+          role?: string
+        }
+        Relationships: []
+      }
       tenancies: {
         Row: {
           created_at: string
           end_date: string | null
+          first_month_rent: number | null
           id: string
           lease_pdf_path: string | null
           monthly_rent: number
@@ -611,6 +636,7 @@ export type Database = {
         Insert: {
           created_at?: string
           end_date?: string | null
+          first_month_rent?: number | null
           id?: string
           lease_pdf_path?: string | null
           monthly_rent: number
@@ -625,6 +651,7 @@ export type Database = {
         Update: {
           created_at?: string
           end_date?: string | null
+          first_month_rent?: number | null
           id?: string
           lease_pdf_path?: string | null
           monthly_rent?: number

@@ -28,6 +28,7 @@ type RoomRel = {
 type Row = {
   id: string;
   monthly_rent: number;
+  first_month_rent: number | null;
   start_date: string;
   end_date: string | null;
   tenant_id: string;
@@ -58,48 +59,26 @@ function endOfMonth() {
     .slice(0, 10);
 }
 
-/** Days between two ISO dates, inclusive. */
-function daysInclusive(aIso: string, bIso: string) {
-  const a = new Date(aIso + "T00:00:00Z").getTime();
-  const b = new Date(bIso + "T00:00:00Z").getTime();
-  return Math.round((b - a) / (24 * 60 * 60 * 1000)) + 1;
-}
-
 /**
  * What's owed for a single tenancy in the given calendar month.
- * Pro-rates if the tenancy started mid-month or ends mid-month.
- *  • Tenancy doesn't overlap the month at all → 0
- *  • Tenancy covers the whole month → full monthly_rent
- *  • Partial overlap → monthly_rent × overlap_days ÷ days_in_month
+ *  • Tenancy starts after this month → 0 (shouldn't happen here since we
+ *    only fetch active tenancies, but defensive).
+ *  • Starting month AND tenancy has first_month_rent set → use that.
+ *  • Otherwise → monthly_rent (full month).
  */
 function dueForMonth(
   startDate: string,
-  endDate: string | null,
   monthlyRent: number,
+  firstMonthRent: number | null,
   monthStart: string,
   monthEnd: string,
-): { due: number; prorated: boolean; daysActive: number; daysInMonth: number } {
-  const start = startDate < monthStart ? monthStart : startDate;
-  const end = endDate && endDate < monthEnd ? endDate : monthEnd;
-  if (start > end) {
-    return {
-      due: 0,
-      prorated: false,
-      daysActive: 0,
-      daysInMonth: daysInclusive(monthStart, monthEnd),
-    };
+): number {
+  if (startDate > monthEnd) return 0;
+  const isStartingMonth = startDate >= monthStart && startDate <= monthEnd;
+  if (isStartingMonth && firstMonthRent !== null) {
+    return firstMonthRent;
   }
-  const daysActive = daysInclusive(start, end);
-  const daysInMonth = daysInclusive(monthStart, monthEnd);
-  if (daysActive >= daysInMonth) {
-    return { due: monthlyRent, prorated: false, daysActive, daysInMonth };
-  }
-  return {
-    due: Math.round((monthlyRent * daysActive) / daysInMonth),
-    prorated: true,
-    daysActive,
-    daysInMonth,
-  };
+  return monthlyRent;
 }
 
 type PageProps = { searchParams: Promise<{ q?: string }> };
@@ -118,7 +97,7 @@ export default async function TenantsPage({ searchParams }: PageProps) {
   const { data, error } = await supabase
     .from("tenancies")
     .select(
-      `id, monthly_rent, start_date, end_date, tenant_id,
+      `id, monthly_rent, first_month_rent, start_date, end_date, tenant_id,
        tenants(id, full_name, email, phone),
        rooms(id, room_number,
              properties(id, building_name, street_address, unit_number)),
@@ -130,9 +109,9 @@ export default async function TenantsPage({ searchParams }: PageProps) {
 
   const rows = data ?? [];
 
-  // Compute paid-this-month + prorated due totals + portfolio totals.
-  // If a tenancy started mid-month (or ends mid-month), the "due" amount is
-  // pro-rated by overlap_days / days_in_month — same way the spreadsheet does it.
+  // Compute paid-this-month + due totals + portfolio totals. "Due" is the
+  // tenancy's first_month_rent for the starting calendar month (when set)
+  // and the regular monthly_rent every other month.
   let expectedTotal = 0;
   let paidTotal = 0;
   const rowsWithStatus = rows.map((row) => {
@@ -144,17 +123,17 @@ export default async function TenantsPage({ searchParams }: PageProps) {
           p.paid_on <= monthEnd,
       )
       .reduce((sum, p) => sum + Number(p.amount), 0);
-    const proration = dueForMonth(
+    const due = dueForMonth(
       row.start_date,
-      row.end_date,
       Number(row.monthly_rent),
+      row.first_month_rent !== null ? Number(row.first_month_rent) : null,
       monthStart,
       monthEnd,
     );
-    const balance = proration.due - paidThisMonth;
-    expectedTotal += proration.due;
+    const balance = due - paidThisMonth;
+    expectedTotal += due;
     paidTotal += paidThisMonth;
-    return { ...row, paidThisMonth, balance, due: proration.due, prorated: proration.prorated, daysActive: proration.daysActive, daysInMonth: proration.daysInMonth };
+    return { ...row, paidThisMonth, balance, due };
   });
 
   const visibleRows = query
@@ -322,6 +301,7 @@ function PropertyGroup({
     id: string;
     tenant_id: string;
     monthly_rent: number;
+    first_month_rent: number | null;
     start_date: string;
     end_date: string | null;
     tenants: TenantRel | TenantRel[] | null;
@@ -330,9 +310,6 @@ function PropertyGroup({
     paidThisMonth: number;
     balance: number;
     due: number;
-    prorated: boolean;
-    daysActive: number;
-    daysInMonth: number;
   }>;
   subDue: number;
   subPaid: number;
@@ -377,20 +354,8 @@ function PropertyGroup({
             <td className="px-5 py-3 text-ink">
               {room?.room_number ?? "—"}
             </td>
-            <td
-              className="px-5 py-3 text-right text-ink"
-              title={
-                r.prorated
-                  ? `Prorated — ${r.daysActive}/${r.daysInMonth} days @ ${fmtMoney(Number(r.monthly_rent))}/mo`
-                  : undefined
-              }
-            >
+            <td className="px-5 py-3 text-right text-ink tabular-nums">
               {fmtMoney(r.due)}
-              {r.prorated && (
-                <span className="ml-1 text-[10px] uppercase tracking-wide text-accent-text">
-                  pro
-                </span>
-              )}
             </td>
             <td className="px-5 py-3 text-right text-ink">
               {fmtMoney(r.paidThisMonth)}
