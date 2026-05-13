@@ -24,6 +24,14 @@ type PropertyRel = {
   neighborhood: string | null;
 };
 
+type TenantRel = { full_name: string };
+type TenancyRel = {
+  status: "active" | "ended" | "upcoming";
+  start_date: string;
+  end_date: string | null;
+  tenants: TenantRel | TenantRel[] | null;
+};
+
 type Row = {
   id: string;
   room_number: string | null;
@@ -36,6 +44,7 @@ type Row = {
   ad_url: string | null;
   ad_boosted: boolean;
   properties: PropertyRel | PropertyRel[] | null;
+  tenancies: TenancyRel[] | null;
 };
 
 function fmtMoney(n: number | null) {
@@ -108,7 +117,8 @@ export default async function VacanciesPage({ searchParams }: PageProps) {
     .select(
       `id, room_number, total_rent, available_from, status,
        marketing_description, photos_url, listing_action, ad_url, ad_boosted,
-       properties(id, building_name, street_address, unit_number, neighborhood)`,
+       properties(id, building_name, street_address, unit_number, neighborhood),
+       tenancies(status, start_date, end_date, tenants(full_name))`,
     )
     .or(
       `status.eq.available,and(status.eq.occupied,available_from.gte.${today})`,
@@ -322,6 +332,22 @@ function VacancyCard({ room, now }: { room: Row; now: boolean }) {
     ? `${p.building_name?.trim() || p.street_address} Apt ${p.unit_number}`
     : "—";
 
+  // Pick the most relevant tenancy for context:
+  //   - If currently occupied with a scheduled future end → that active one (outgoing).
+  //   - Otherwise the most recent ended tenancy (previous occupant).
+  const tenancies = (room.tenancies ?? [])
+    .slice()
+    .sort((a, b) => (a.start_date < b.start_date ? 1 : -1));
+  const activeOutgoing = tenancies.find(
+    (t) => t.status === "active" && t.end_date,
+  );
+  const previous = tenancies.find((t) => t.status === "ended");
+  const featured = activeOutgoing ?? previous;
+  const featuredTenantName = featured
+    ? one(featured.tenants)?.full_name ?? null
+    : null;
+  const featuredLabel = activeOutgoing ? "Outgoing" : "Previous";
+
   return (
     <li
       className={`rounded-xl border-l-4 ${ACTION_BORDER[room.listing_action]} ${ACTION_TINT[room.listing_action]} p-4 shadow-sm`}
@@ -340,6 +366,12 @@ function VacancyCard({ room, now }: { room: Row; now: boolean }) {
             </Link>
           </h3>
           <p className="text-xs text-muted">{room.room_number ?? "Room"}</p>
+          {featuredTenantName && (
+            <p className="mt-1 text-[11px] text-muted">
+              <span className="uppercase tracking-wide">{featuredLabel}:</span>{" "}
+              <span className="text-ink">{featuredTenantName}</span>
+            </p>
+          )}
         </div>
         <ListingActionSelector
           roomId={room.id}
