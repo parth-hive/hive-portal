@@ -7,7 +7,6 @@ import { CopyListing } from "./copy-listing";
 import { ListingActionSelector } from "./listing-action";
 import {
   ACTION_BORDER,
-  ACTION_TINT,
   ACTION_LABELS,
   ACTION_ORDER,
   ACTION_SWATCH,
@@ -146,18 +145,9 @@ export default async function InventoryPage({ searchParams }: PageProps) {
     ? rooms.filter((r) => matchesFilter(r, activeFilter, today))
     : rooms;
 
-  const filteredNow = filtered.filter(
-    (r) => r.status === "available" && (!r.available_from || r.available_from <= today),
-  );
-  const filteredUpcoming = filtered.filter(
-    (r) =>
-      r.status === "occupied" ||
-      (r.available_from !== null && r.available_from > today),
-  );
-
   return (
-    <div className="mx-auto w-full max-w-6xl">
-      <header className="border-b border-stone/60 pb-6">
+    <div className="mx-auto w-full max-w-7xl">
+      <header className="border-b border-stone/60 pb-4">
         <h1 className="text-3xl tracking-tight text-ink">
           <span className="font-display text-accent-text">Inventory</span>
         </h1>
@@ -167,21 +157,21 @@ export default async function InventoryPage({ searchParams }: PageProps) {
         </p>
       </header>
 
-      <section className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <KpiCard
+      <section className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
+        <KpiTile
           label="Total"
           value={counts.total}
           href="/inventory"
           active={activeFilter === null}
         />
-        <KpiCard
+        <KpiTile
           label="Available now"
           value={counts.now}
           href={activeFilter === "now" ? "/inventory" : "/inventory?filter=now"}
           active={activeFilter === "now"}
-          accent="bg-accent text-white"
+          dot="bg-accent"
         />
-        <KpiCard
+        <KpiTile
           label="Scheduled"
           value={counts.upcoming}
           href={
@@ -190,18 +180,18 @@ export default async function InventoryPage({ searchParams }: PageProps) {
               : "/inventory?filter=upcoming"
           }
           active={activeFilter === "upcoming"}
-          accent="bg-ink text-white"
+          dot="bg-ink"
         />
-        <KpiCard
+        <KpiTile
           label="No ad yet"
           value={counts.no_ad}
           href={
             activeFilter === "no_ad" ? "/inventory" : "/inventory?filter=no_ad"
           }
           active={activeFilter === "no_ad"}
-          accent="bg-red-100 text-red-900"
+          dot="bg-red-500"
         />
-        <KpiCard
+        <KpiTile
           label="Boosted"
           value={counts.boosted}
           href={
@@ -210,18 +200,18 @@ export default async function InventoryPage({ searchParams }: PageProps) {
               : "/inventory?filter=boosted"
           }
           active={activeFilter === "boosted"}
-          accent="bg-orange-100 text-orange-900"
+          dot="bg-orange-500"
         />
       </section>
 
-      <ul className="mt-4 flex flex-wrap gap-2">
+      <ul className="mt-3 flex flex-wrap gap-1.5">
         {ACTION_ORDER.map((a) => {
           const isActive = activeFilter === a;
           return (
             <li key={a}>
               <Link
                 href={isActive ? "/inventory" : `/inventory?filter=${a}`}
-                className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition ${
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition ${
                   isActive
                     ? "border-ink bg-ink text-white"
                     : "border-stone bg-white text-ink hover:bg-warm"
@@ -240,14 +230,14 @@ export default async function InventoryPage({ searchParams }: PageProps) {
       {error && <p className="mt-6 text-sm text-red-700">{error.message}</p>}
 
       {rooms.length === 0 && (
-        <p className="mt-10 rounded-2xl bg-white px-6 py-12 text-center text-sm text-muted shadow-sm">
+        <p className="mt-10 rounded-xl bg-white px-6 py-10 text-center text-sm text-muted shadow-sm">
           No rooms to list right now. A room appears here when its status is
           <em> Available </em>or when an active tenancy is scheduled to end.
         </p>
       )}
 
       {rooms.length > 0 && filtered.length === 0 && (
-        <p className="mt-10 rounded-2xl bg-white px-6 py-12 text-center text-sm text-muted shadow-sm">
+        <p className="mt-10 rounded-xl bg-white px-6 py-10 text-center text-sm text-muted shadow-sm">
           No rooms match this filter.{" "}
           <Link href="/inventory" className="text-accent-text">
             Clear filter
@@ -256,69 +246,66 @@ export default async function InventoryPage({ searchParams }: PageProps) {
         </p>
       )}
 
-      {filteredNow.length > 0 && (
-        <section className="mt-8">
-          <h2 className="text-xs uppercase tracking-wide text-muted">
-            Available now ({filteredNow.length})
-          </h2>
-          <ul className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {filteredNow.map((r) => (
-              <VacancyCard key={r.id} room={r} now />
-            ))}
-          </ul>
-        </section>
-      )}
-
-      {filteredUpcoming.length > 0 && (
-        <section className="mt-8">
-          <h2 className="text-xs uppercase tracking-wide text-muted">
-            Upcoming ({filteredUpcoming.length})
-          </h2>
-          <ul className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {filteredUpcoming.map((r) => (
-              <VacancyCard key={r.id} room={r} now={false} />
-            ))}
-          </ul>
-        </section>
+      {filtered.length > 0 && (
+        <div className="mt-4 overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-stone/40">
+          <table className="w-full min-w-[1100px] text-sm">
+            <thead className="sticky top-0 z-10 bg-warm/60 text-left text-[11px] uppercase tracking-wide text-muted">
+              <tr>
+                <th className="w-1.5" />
+                <th className="px-3 py-2 font-medium">Unit</th>
+                <th className="px-3 py-2 font-medium">Room</th>
+                <th className="px-3 py-2 font-medium">Status</th>
+                <th className="px-3 py-2 text-right font-medium">Rent</th>
+                <th className="px-3 py-2 font-medium">Tenant</th>
+                <th className="px-3 py-2 font-medium">Listing action</th>
+                <th className="px-3 py-2 font-medium">Ad</th>
+                <th className="px-3 py-2 text-right font-medium" />
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((r, i) => (
+                <InventoryRow key={r.id} room={r} today={today} striped={i % 2 === 1} />
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
     </div>
   );
 }
 
-function KpiCard({
+function KpiTile({
   label,
   value,
   href,
   active,
-  accent,
+  dot,
 }: {
   label: string;
   value: number;
   href: string;
   active: boolean;
-  accent?: string;
+  dot?: string;
 }) {
   return (
     <Link
       href={href}
-      className={`rounded-2xl p-4 shadow-sm transition ${
-        active
-          ? "bg-ink text-white ring-2 ring-ink"
-          : "bg-white hover:shadow"
+      className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 shadow-sm transition ${
+        active ? "bg-ink text-white" : "bg-white hover:shadow"
       }`}
     >
-      <div className="flex items-start justify-between gap-2">
+      <div className="flex items-center gap-2 min-w-0">
+        {dot && !active && (
+          <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} />
+        )}
         <p
-          className={`text-xs uppercase tracking-wide ${active ? "text-white/70" : "text-muted"}`}
+          className={`truncate text-[11px] uppercase tracking-wide ${active ? "text-white/70" : "text-muted"}`}
         >
           {label}
         </p>
-        {accent && !active && (
-          <span className={`h-2 w-2 rounded-full ${accent.split(" ")[0]}`} />
-        )}
       </div>
       <p
-        className={`mt-2 text-3xl font-light ${active ? "text-white" : "text-ink"}`}
+        className={`text-2xl font-light ${active ? "text-white" : "text-ink"}`}
       >
         {value}
       </p>
@@ -326,15 +313,24 @@ function KpiCard({
   );
 }
 
-function VacancyCard({ room, now }: { room: Row; now: boolean }) {
+function InventoryRow({
+  room,
+  today,
+  striped,
+}: {
+  room: Row;
+  today: string;
+  striped: boolean;
+}) {
   const p = one(room.properties);
   const unitTitle = p
     ? `${p.building_name?.trim() || p.street_address} Apt ${p.unit_number}`
     : "—";
 
-  // Pick the most relevant tenancy for context:
-  //   - If currently occupied with a scheduled future end → that active one (outgoing).
-  //   - Otherwise the most recent ended tenancy (previous occupant).
+  const now =
+    room.status === "available" &&
+    (!room.available_from || room.available_from <= today);
+
   const tenancies = (room.tenancies ?? [])
     .slice()
     .sort((a, b) => (a.start_date < b.start_date ? 1 : -1));
@@ -346,98 +342,103 @@ function VacancyCard({ room, now }: { room: Row; now: boolean }) {
   const featuredTenantName = featured
     ? one(featured.tenants)?.full_name ?? null
     : null;
-  const featuredLabel = activeOutgoing ? "Outgoing" : "Previous";
+  const featuredLabel = activeOutgoing ? "Out" : "Prev";
 
   return (
-    <li
-      className={`rounded-xl border-l-4 ${ACTION_BORDER[room.listing_action]} ${ACTION_TINT[room.listing_action]} p-4 shadow-sm`}
+    <tr
+      className={`border-t border-stone/30 ${striped ? "bg-cream/40" : "bg-white"} hover:bg-warm/30`}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0 flex-1">
-          <p className="text-xs uppercase tracking-wide text-muted">
-            {p?.neighborhood ?? "—"}
-          </p>
-          <h3 className="mt-0.5 truncate text-sm font-medium text-ink">
-            <Link
-              href={`/inventory/${room.id}`}
-              className="hover:text-accent-text"
-            >
-              {unitTitle}
-            </Link>
-          </h3>
-          <p className="text-xs text-muted">{room.room_number ?? "Room"}</p>
-          {featuredTenantName && (
-            <p className="mt-1 text-[11px] text-muted">
-              <span className="uppercase tracking-wide">{featuredLabel}:</span>{" "}
-              <span className="text-ink">{featuredTenantName}</span>
-            </p>
-          )}
-        </div>
-        <ListingActionSelector
-          roomId={room.id}
-          current={room.listing_action}
-        />
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-        <div className="flex items-baseline gap-1">
-          <span className="text-xl font-medium text-ink">
-            {fmtMoney(room.total_rent)}
-          </span>
-          <span className="text-[10px] text-muted">/mo</span>
-        </div>
+      <td className={`w-1.5 p-0 ${ACTION_BORDER[room.listing_action].replace("border-l-", "bg-")}`} />
+      <td className="px-3 py-2.5">
+        <Link
+          href={`/inventory/${room.id}`}
+          className="text-ink hover:text-accent-text"
+        >
+          {unitTitle}
+        </Link>
+        {p?.neighborhood && (
+          <div className="text-[11px] text-muted">{p.neighborhood}</div>
+        )}
+      </td>
+      <td className="px-3 py-2.5 text-ink">{room.room_number ?? "—"}</td>
+      <td className="px-3 py-2.5">
         <span
           className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
             now ? "bg-accent text-white" : "bg-ink text-white"
           }`}
         >
-          <span className="opacity-80">
-            {now ? "Avail." : "Avail."}
-          </span>
-          {room.available_from && <span>{formatDate(room.available_from)}</span>}
+          {now ? "Now" : "Sched"}
+          {room.available_from && (
+            <span className="opacity-90">· {formatDate(room.available_from)}</span>
+          )}
         </span>
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-center gap-1.5">
-        {room.ad_url ? (
-          <a
-            href={room.ad_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-900 hover:bg-green-200"
-          >
-            Ad ↗
-          </a>
+      </td>
+      <td className="px-3 py-2.5 text-right tabular-nums text-ink">
+        {fmtMoney(room.total_rent)}
+      </td>
+      <td className="px-3 py-2.5 text-[12px]">
+        {featuredTenantName ? (
+          <>
+            <span className="text-muted">{featuredLabel}: </span>
+            <span className="text-ink">{featuredTenantName}</span>
+          </>
         ) : (
-          <span className="rounded-full border border-stone bg-white px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted">
-            No ad
-          </span>
+          <span className="text-muted">—</span>
         )}
-        {room.ad_boosted && (
-          <span className="inline-flex items-center gap-1 rounded-full bg-orange-100 px-2 py-0.5 text-[11px] font-medium text-orange-900">
-            ✓ Boost
-          </span>
-        )}
-        {room.marketing_description && (
-          <CopyListing text={room.marketing_description} />
-        )}
-        {room.photos_url && (
-          <a
-            href={room.photos_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-full border border-stone bg-white px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink hover:bg-warm"
+      </td>
+      <td className="px-3 py-2.5">
+        <ListingActionSelector
+          roomId={room.id}
+          current={room.listing_action}
+        />
+      </td>
+      <td className="px-3 py-2.5">
+        <div className="flex flex-wrap items-center gap-1.5">
+          {room.ad_url ? (
+            <a
+              href={room.ad_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-900 hover:bg-green-200"
+            >
+              Live ↗
+            </a>
+          ) : (
+            <span className="rounded-full border border-stone bg-white px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted">
+              None
+            </span>
+          )}
+          {room.ad_boosted && (
+            <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[11px] font-medium text-orange-900">
+              ✓ Boost
+            </span>
+          )}
+        </div>
+      </td>
+      <td className="px-3 py-2.5 text-right">
+        <div className="flex items-center justify-end gap-2">
+          {room.marketing_description && (
+            <CopyListing text={room.marketing_description} />
+          )}
+          {room.photos_url && (
+            <a
+              href={room.photos_url}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="rounded-full border border-stone bg-white px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink hover:bg-warm"
+            >
+              Photos ↗
+            </a>
+          )}
+          <Link
+            href={`/inventory/${room.id}`}
+            className="text-[11px] uppercase tracking-wide text-muted hover:text-accent-text"
           >
-            Photos ↗
-          </a>
-        )}
-        <Link
-          href={`/inventory/${room.id}`}
-          className="ml-auto text-[11px] uppercase tracking-wide text-muted hover:text-accent-text"
-        >
-          Open →
-        </Link>
-      </div>
-    </li>
+            Open →
+          </Link>
+        </div>
+      </td>
+    </tr>
   );
 }
+
