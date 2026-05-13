@@ -5,6 +5,7 @@ import { formatDate } from "@/lib/date";
 import { processExpiredTenancies } from "../tenants/actions";
 import { CopyListing } from "./copy-listing";
 import { ListingActionSelector } from "./listing-action";
+import { InlineRentEdit, InlineDateEdit } from "./inline-edit";
 import {
   ACTION_BORDER,
   ACTION_LABELS,
@@ -355,11 +356,11 @@ function InventoryRow({
         )}
       </td>
       <td className="px-3 py-2.5 text-ink">{room.room_number ?? "—"}</td>
-      <td className="px-3 py-2.5 tabular-nums text-ink">
-        {room.available_from ? formatDate(room.available_from) : "—"}
+      <td className="px-2 py-1.5">
+        <InlineDateEdit roomId={room.id} date={room.available_from} />
       </td>
-      <td className="px-3 py-2.5 text-right tabular-nums text-ink">
-        {fmtMoney(room.total_rent)}
+      <td className="px-2 py-1.5 text-right">
+        <InlineRentEdit roomId={room.id} totalRent={room.total_rent} />
       </td>
       <td className="px-3 py-2.5 text-[12px]">
         {featuredTenantName ? (

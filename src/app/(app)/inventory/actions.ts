@@ -81,3 +81,53 @@ export async function setRoomRent(
   revalidatePath(`/inventory/${roomId}`);
   return undefined;
 }
+
+/**
+ * Set the displayed total rent for a room. Computes new base_rent so that
+ * base + existing bundle_fee = total. Used by the inline editor on /inventory.
+ */
+export async function setRoomTotalRent(
+  roomId: string,
+  total: number,
+): Promise<{ ok: true } | { error: string }> {
+  if (!Number.isFinite(total) || total < 0) {
+    return { error: "Rent must be a non-negative number." };
+  }
+
+  const supabase = await createClient();
+  const { data: room } = await supabase
+    .from("rooms")
+    .select("bundle_fee")
+    .eq("id", roomId)
+    .maybeSingle();
+  const bundle = Number(room?.bundle_fee ?? 0);
+  const base_rent = Math.max(0, Math.round((total - bundle) * 100) / 100);
+
+  const { error } = await supabase
+    .from("rooms")
+    .update({ base_rent })
+    .eq("id", roomId);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/inventory");
+  revalidatePath(`/inventory/${roomId}`);
+  return { ok: true };
+}
+
+/** Set rooms.available_from. Pass null/empty to clear. */
+export async function setRoomAvailableFrom(
+  roomId: string,
+  date: string | null,
+): Promise<{ ok: true } | { error: string }> {
+  const supabase = await createClient();
+  const value = date === null || date.trim() === "" ? null : date;
+  const { error } = await supabase
+    .from("rooms")
+    .update({ available_from: value })
+    .eq("id", roomId);
+  if (error) return { error: error.message };
+  revalidatePath("/inventory");
+  revalidatePath(`/inventory/${roomId}`);
+  return { ok: true };
+}
