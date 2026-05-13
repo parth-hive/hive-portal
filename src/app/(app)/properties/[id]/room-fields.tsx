@@ -48,7 +48,7 @@ export function RoomFields({ initial }: { initial?: Initial }) {
         />
       </label>
       <label className="flex flex-col gap-1.5">
-        <span className={fieldLabel}>Bundle fee ($)</span>
+        <span className={fieldLabel}>Services ($)</span>
         <input
           type="number"
           name="bundle_fee"

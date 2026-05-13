@@ -1,7 +1,11 @@
 "use client";
 
 import { useState, useTransition } from "react";
-import { setRoomAvailableFrom, setRoomTotalRent } from "./actions";
+import {
+  setRoomAvailableFrom,
+  setRoomBaseRent,
+  setRoomServicesFee,
+} from "./actions";
 
 function fmtMoney(n: number | null) {
   if (n === null || n === undefined) return "—";
@@ -19,12 +23,12 @@ function fmtDate(s: string | null) {
 const cellButton =
   "w-full rounded px-1.5 py-0.5 text-left hover:bg-warm/60 focus:outline-none focus:ring-1 focus:ring-accent";
 
-export function InlineRentEdit({
-  roomId,
-  totalRent,
+function MoneyCellEditor({
+  value,
+  onCommit,
 }: {
-  roomId: string;
-  totalRent: number | null;
+  value: number | null;
+  onCommit: (n: number) => Promise<unknown>;
 }) {
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
@@ -36,19 +40,19 @@ export function InlineRentEdit({
         onClick={() => setEditing(true)}
         className={`${cellButton} text-right tabular-nums text-ink ${pending ? "opacity-60" : ""}`}
       >
-        {fmtMoney(totalRent)}
+        {fmtMoney(value)}
       </button>
     );
   }
 
-  const commit = (value: string) => {
-    const n = Number(value);
+  const commit = (raw: string) => {
+    const n = Number(raw);
     if (!Number.isFinite(n) || n < 0) {
       setEditing(false);
       return;
     }
     startTransition(async () => {
-      await setRoomTotalRent(roomId, n);
+      await onCommit(n);
       setEditing(false);
     });
   };
@@ -59,7 +63,7 @@ export function InlineRentEdit({
       min={0}
       step={1}
       autoFocus
-      defaultValue={totalRent ?? ""}
+      defaultValue={value ?? ""}
       onFocus={(e) => e.currentTarget.select()}
       onBlur={(e) => commit(e.currentTarget.value)}
       onKeyDown={(e) => {
@@ -70,7 +74,41 @@ export function InlineRentEdit({
           setEditing(false);
         }
       }}
-      className="w-24 rounded border border-accent bg-white px-1.5 py-0.5 text-right tabular-nums text-ink focus:outline-none"
+      className="w-20 rounded border border-accent bg-white px-1.5 py-0.5 text-right tabular-nums text-ink focus:outline-none"
+    />
+  );
+}
+
+export function InlineBaseRentEdit({
+  roomId,
+  value,
+}: {
+  roomId: string;
+  value: number | null;
+}) {
+  return (
+    <MoneyCellEditor
+      value={value}
+      onCommit={async (n) => {
+        await setRoomBaseRent(roomId, n);
+      }}
+    />
+  );
+}
+
+export function InlineServicesEdit({
+  roomId,
+  value,
+}: {
+  roomId: string;
+  value: number | null;
+}) {
+  return (
+    <MoneyCellEditor
+      value={value}
+      onCommit={async (n) => {
+        await setRoomServicesFee(roomId, n);
+      }}
     />
   );
 }

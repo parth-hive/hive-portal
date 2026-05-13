@@ -82,34 +82,39 @@ export async function setRoomRent(
   return undefined;
 }
 
-/**
- * Set the displayed total rent for a room. Computes new base_rent so that
- * base + existing bundle_fee = total. Used by the inline editor on /inventory.
- */
-export async function setRoomTotalRent(
+/** Edit base_rent inline from the inventory table. */
+export async function setRoomBaseRent(
   roomId: string,
-  total: number,
+  value: number,
 ): Promise<{ ok: true } | { error: string }> {
-  if (!Number.isFinite(total) || total < 0) {
-    return { error: "Rent must be a non-negative number." };
+  if (!Number.isFinite(value) || value < 0) {
+    return { error: "Base rent must be a non-negative number." };
   }
-
   const supabase = await createClient();
-  const { data: room } = await supabase
-    .from("rooms")
-    .select("bundle_fee")
-    .eq("id", roomId)
-    .maybeSingle();
-  const bundle = Number(room?.bundle_fee ?? 0);
-  const base_rent = Math.max(0, Math.round((total - bundle) * 100) / 100);
-
   const { error } = await supabase
     .from("rooms")
-    .update({ base_rent })
+    .update({ base_rent: value })
     .eq("id", roomId);
-
   if (error) return { error: error.message };
+  revalidatePath("/inventory");
+  revalidatePath(`/inventory/${roomId}`);
+  return { ok: true };
+}
 
+/** Edit services / bundle fee inline from the inventory table. */
+export async function setRoomServicesFee(
+  roomId: string,
+  value: number,
+): Promise<{ ok: true } | { error: string }> {
+  if (!Number.isFinite(value) || value < 0) {
+    return { error: "Services fee must be a non-negative number." };
+  }
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("rooms")
+    .update({ bundle_fee: value })
+    .eq("id", roomId);
+  if (error) return { error: error.message };
   revalidatePath("/inventory");
   revalidatePath(`/inventory/${roomId}`);
   return { ok: true };

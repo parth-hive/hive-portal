@@ -5,7 +5,11 @@ import { formatDate } from "@/lib/date";
 import { processExpiredTenancies } from "../tenants/actions";
 import { CopyListing } from "./copy-listing";
 import { ListingActionSelector } from "./listing-action";
-import { InlineRentEdit, InlineDateEdit } from "./inline-edit";
+import {
+  InlineBaseRentEdit,
+  InlineServicesEdit,
+  InlineDateEdit,
+} from "./inline-edit";
 import {
   ACTION_BORDER,
   ACTION_LABELS,
@@ -35,6 +39,8 @@ type TenancyRel = {
 type Row = {
   id: string;
   room_number: string | null;
+  base_rent: number | null;
+  bundle_fee: number | null;
   total_rent: number | null;
   available_from: string | null;
   status: "occupied" | "available" | "reserved" | "maintenance";
@@ -115,7 +121,7 @@ export default async function InventoryPage({ searchParams }: PageProps) {
   const { data, error } = await supabase
     .from("rooms")
     .select(
-      `id, room_number, total_rent, available_from, status,
+      `id, room_number, base_rent, bundle_fee, total_rent, available_from, status,
        marketing_description, photos_url, listing_action, ad_url, ad_boosted,
        properties(id, building_name, street_address, unit_number, neighborhood),
        tenancies(status, start_date, end_date, tenants(full_name))`,
@@ -256,7 +262,9 @@ export default async function InventoryPage({ searchParams }: PageProps) {
                 <th className="px-3 py-2 font-medium">Unit</th>
                 <th className="px-3 py-2 font-medium">Room</th>
                 <th className="px-3 py-2 font-medium">Available</th>
-                <th className="px-3 py-2 text-right font-medium">Rent</th>
+                <th className="px-3 py-2 text-right font-medium">Base</th>
+                <th className="px-3 py-2 text-right font-medium">Services</th>
+                <th className="px-3 py-2 text-right font-medium">Total</th>
                 <th className="px-3 py-2 font-medium">Tenant</th>
                 <th className="px-3 py-2 font-medium">Listing action</th>
                 <th className="px-3 py-2 font-medium">Ad</th>
@@ -360,7 +368,13 @@ function InventoryRow({
         <InlineDateEdit roomId={room.id} date={room.available_from} />
       </td>
       <td className="px-2 py-1.5 text-right">
-        <InlineRentEdit roomId={room.id} totalRent={room.total_rent} />
+        <InlineBaseRentEdit roomId={room.id} value={room.base_rent} />
+      </td>
+      <td className="px-2 py-1.5 text-right">
+        <InlineServicesEdit roomId={room.id} value={room.bundle_fee} />
+      </td>
+      <td className="px-3 py-1.5 text-right tabular-nums font-medium text-ink">
+        {fmtMoney(room.total_rent)}
       </td>
       <td className="px-3 py-2.5 text-[12px]">
         {featuredTenantName ? (

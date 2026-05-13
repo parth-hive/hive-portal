@@ -110,7 +110,7 @@ export function RoomRow({
           <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted">
             <span>Total: {fmtMoney(room.total_rent)}</span>
             <span>Base: {fmtMoney(room.base_rent)}</span>
-            <span>Bundle: {fmtMoney(room.bundle_fee)}</span>
+            <span>Services: {fmtMoney(room.bundle_fee)}</span>
             {room.available_from && (
               <span>Available {formatDate(room.available_from)}</span>
             )}

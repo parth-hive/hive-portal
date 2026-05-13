@@ -56,7 +56,7 @@ export function RentEdit({
           <span className="text-xs text-muted">/ month</span>
         </div>
         <p className="mt-2 text-xs text-muted">
-          Base {fmtMoney(baseRent)} + Bundle {fmtMoney(bundleFee)}
+          Base {fmtMoney(baseRent)} + Services {fmtMoney(bundleFee)}
         </p>
       </div>
     );
@@ -88,7 +88,7 @@ export function RentEdit({
           />
         </label>
         <label className="flex flex-col gap-1.5">
-          <span className={fieldLabel}>Bundle fee ($)</span>
+          <span className={fieldLabel}>Services ($)</span>
           <input
             type="number"
             name="bundle_fee"
