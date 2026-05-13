@@ -209,6 +209,41 @@ export default async function TenantsPage({ searchParams }: PageProps) {
         </section>
       )}
 
+      {rows.length > 0 && (() => {
+        const pct =
+          expectedTotal > 0
+            ? Math.min(100, Math.round((paidTotal / expectedTotal) * 100))
+            : 0;
+        const fullyPaid = paidTotal >= expectedTotal && expectedTotal > 0;
+        return (
+          <section className="mt-4 rounded-2xl bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+              <span className="flex flex-wrap items-baseline gap-2">
+                <span className="uppercase tracking-wide text-muted">
+                  Collected this month
+                </span>
+                <span
+                  className={`tabular-nums ${fullyPaid ? "text-green-700" : "text-ink"}`}
+                >
+                  {fmtMoney(paidTotal)}
+                  <span className="text-muted">
+                    {" "}
+                    / {fmtMoney(expectedTotal)}
+                  </span>
+                </span>
+              </span>
+              <span className="tabular-nums text-muted">{pct}%</span>
+            </div>
+            <div className="relative mt-2 h-2.5 w-full overflow-hidden rounded-full bg-warm/60">
+              <div
+                className={`absolute inset-y-0 left-0 rounded-full ${fullyPaid ? "bg-green-600" : "bg-accent"}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+          </section>
+        );
+      })()}
+
       <div className="mt-6">
         <SearchInput
           placeholder="Search by tenant, email, phone, or unit…"
@@ -330,6 +365,9 @@ function PropertyGroup({
         const room = one(r.rooms);
         const tenantName = tenant?.full_name ?? "—";
         const isPaid = r.balance <= 0;
+        const mismatched =
+          r.due > 0 && Math.abs(r.due - r.paidThisMonth) >= 0.005;
+        const rowTxt = mismatched ? "text-red-700" : "text-ink";
         return (
           <tr
             key={r.id}
@@ -338,7 +376,7 @@ function PropertyGroup({
             <td className="px-5 py-3">
               <Link
                 href={`/tenants/${r.tenant_id}`}
-                className="text-ink hover:text-accent-text"
+                className={`${rowTxt} hover:text-accent-text`}
               >
                 {tenantName}
               </Link>
@@ -354,10 +392,10 @@ function PropertyGroup({
             <td className="px-5 py-3 text-ink">
               {room?.room_number ?? "—"}
             </td>
-            <td className="px-5 py-3 text-right text-ink tabular-nums">
+            <td className={`px-5 py-3 text-right tabular-nums ${rowTxt}`}>
               {fmtMoney(r.due)}
             </td>
-            <td className="px-5 py-3 text-right text-ink">
+            <td className={`px-5 py-3 text-right ${rowTxt}`}>
               {fmtMoney(r.paidThisMonth)}
             </td>
             <td className="px-5 py-3 text-right">
@@ -365,7 +403,7 @@ function PropertyGroup({
                 className={
                   isPaid
                     ? "rounded-full bg-accent/15 px-2 py-0.5 text-xs uppercase tracking-wide text-accent-text"
-                    : "text-ink"
+                    : rowTxt
                 }
               >
                 {isPaid ? "Paid" : fmtMoney(r.balance)}
@@ -374,26 +412,36 @@ function PropertyGroup({
           </tr>
         );
       })}
-      <tr className="border-t border-stone/40 bg-cream/60 text-sm font-medium">
-        <td colSpan={2} className="px-5 py-2 text-right text-muted">
-          Subtotal
-        </td>
-        <td className="px-5 py-2 text-right text-ink tabular-nums">
-          {fmtMoney(subDue)}
-        </td>
-        <td className="px-5 py-2 text-right text-ink tabular-nums">
-          {fmtMoney(subPaid)}
-        </td>
-        <td className="px-5 py-2 text-right text-ink tabular-nums">
-          {subBalance <= 0 ? (
-            <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs uppercase tracking-wide text-accent-text">
-              Paid
-            </span>
-          ) : (
-            fmtMoney(subBalance)
-          )}
-        </td>
-      </tr>
+      {(() => {
+        const matched = subDue > 0 && Math.abs(subDue - subPaid) < 0.005;
+        const rowCls = matched
+          ? "text-green-700"
+          : subDue > 0
+            ? "text-red-700"
+            : "text-muted";
+        return (
+          <tr className="border-t border-stone/40 bg-cream/60 text-sm font-medium">
+            <td colSpan={2} className="px-5 py-2 text-right text-muted">
+              Subtotal
+            </td>
+            <td className={`px-5 py-2 text-right tabular-nums ${rowCls}`}>
+              {fmtMoney(subDue)}
+            </td>
+            <td className={`px-5 py-2 text-right tabular-nums ${rowCls}`}>
+              {fmtMoney(subPaid)}
+            </td>
+            <td className="px-5 py-2 text-right tabular-nums">
+              {subBalance <= 0 && subDue > 0 ? (
+                <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs uppercase tracking-wide text-accent-text">
+                  Paid
+                </span>
+              ) : (
+                <span className={rowCls}>{fmtMoney(subBalance)}</span>
+              )}
+            </td>
+          </tr>
+        );
+      })()}
     </>
   );
 }
