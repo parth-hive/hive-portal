@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { logout } from "../login/actions";
 
@@ -22,6 +23,12 @@ export default async function AppLayout({
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  // Defensive backup to the proxy: never render the app shell for an
+  // unauthenticated user, even if proxy.ts doesn't fire for any reason.
+  if (!user) {
+    redirect("/login");
+  }
 
   return (
     <div className="flex min-h-full">
