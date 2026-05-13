@@ -1,0 +1,25 @@
+{
+  "name": "hive-portal-mcp",
+  "version": "0.1.0",
+  "description": "MCP server exposing HivePortal data + write actions for AI agents",
+  "type": "module",
+  "main": "dist/index.js",
+  "bin": {
+    "hive-portal-mcp": "dist/index.js"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "@supabase/supabase-js": "^2.105.4",
+    "zod": "^4.4.3"
+  },
+  "devDependencies": {
+    "@types/node": "^25.7.0",
+    "tsx": "^4.21.0",
+    "typescript": "^6.0.3"
+  }
+}

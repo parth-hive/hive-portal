@@ -1,26 +1,33 @@
 @import "tailwindcss";
 
-:root {
-  --background: #ffffff;
-  --foreground: #171717;
+/* Hive brand tokens — must match hiveny.com (see AGENTS.md). */
+@theme {
+  --color-ink: #1a1a18;
+  --color-accent: #d4920b;
+  --color-accent-dark: #b87d09;
+  --color-accent-text: #9a6f08;
+  --color-cream: #f5f2ed;
+  --color-warm: #e8e3db;
+  --color-stone: #c4bdb3;
+  --color-muted: #8a8378;
+  --color-white: #fefdfb;
+
+  --font-sans: var(--font-dm-sans), -apple-system, "Segoe UI", sans-serif;
+  --font-serif: var(--font-cormorant), Georgia, serif;
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
-  --font-mono: var(--font-geist-mono);
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
+html,
 body {
-  background: var(--background);
-  color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  background: var(--color-cream);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  font-weight: 400;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Italic display accent (e.g. *Vacancy*) */
+.font-display {
+  font-family: var(--font-serif);
+  font-style: italic;
+  font-weight: 400;
 }
