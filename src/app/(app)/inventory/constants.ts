@@ -3,11 +3,11 @@ import type { Database } from "@/lib/supabase/types";
 export type Action = Database["public"]["Enums"]["listing_action"];
 
 export const ACTION_LABELS: Record<Action, string> = {
-  new_ad: "Create new ad",
-  update_price_or_date: "Change price or date",
-  delete_listing: "Delete listing",
-  boost_post: "Boost post",
-  priority: "Priority listing",
+  new_ad: "New ad",
+  update_price_or_date: "Price/date",
+  delete_listing: "Delete",
+  boost_post: "Boost",
+  priority: "Priority",
 };
 
 export const ACTION_ORDER: Action[] = [
