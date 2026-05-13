@@ -1,7 +1,6 @@
 "use client";
 
 type Initial = {
-  room_number?: string | null;
   base_rent?: number | null;
   bundle_fee?: number | null;
   status?: "occupied" | "available" | "reserved" | "maintenance";
@@ -24,16 +23,6 @@ export function RoomFields({ initial }: { initial?: Initial }) {
   const v = initial ?? {};
   return (
     <div className="grid gap-3 sm:grid-cols-2">
-      <label className="flex flex-col gap-1.5">
-        <span className={fieldLabel}>Room label</span>
-        <input
-          type="text"
-          name="room_number"
-          defaultValue={v.room_number ?? ""}
-          placeholder="e.g. Room 1, Master, A"
-          className={fieldInput}
-        />
-      </label>
       <label className="flex flex-col gap-1.5">
         <span className={fieldLabel}>Status</span>
         <select

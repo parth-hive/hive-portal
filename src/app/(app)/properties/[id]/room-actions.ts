@@ -15,7 +15,6 @@ const VALID_STATUSES: RoomStatus[] = [
 export type RoomFormState = { error?: string } | undefined;
 
 type RoomValues = {
-  room_number: string | null;
   base_rent: number | null;
   bundle_fee: number | null;
   status: RoomStatus;
@@ -28,8 +27,6 @@ type RoomValues = {
 };
 
 function parseRoom(formData: FormData): RoomValues | { error: string } {
-  const room_number = String(formData.get("room_number") ?? "").trim() || null;
-
   const numOrNull = (k: string) => {
     const v = String(formData.get(k) ?? "").trim();
     if (v === "") return null;
@@ -44,7 +41,6 @@ function parseRoom(formData: FormData): RoomValues | { error: string } {
     String(formData.get("available_from") ?? "").trim() || null;
 
   return {
-    room_number,
     base_rent: numOrNull("base_rent"),
     bundle_fee: numOrNull("bundle_fee"),
     status,
@@ -67,9 +63,24 @@ export async function addRoom(
   if ("error" in parsed) return parsed;
 
   const supabase = await createClient();
+
+  // Auto-number this room as "Room N". N = max existing N for this property
+  // plus one (using max, not count, so deleting Room 2 and re-adding doesn't
+  // create a duplicate Room 3).
+  const { data: existing } = await supabase
+    .from("rooms")
+    .select("room_number")
+    .eq("property_id", propertyId);
+  const maxN = (existing ?? []).reduce((m, r) => {
+    const match = r.room_number?.match(/Room (\d+)/);
+    if (!match) return m;
+    return Math.max(m, parseInt(match[1], 10));
+  }, 0);
+  const room_number = `Room ${maxN + 1}`;
+
   const { error } = await supabase
     .from("rooms")
-    .insert({ ...parsed, property_id: propertyId });
+    .insert({ ...parsed, property_id: propertyId, room_number });
 
   if (error) return { error: error.message };
 
