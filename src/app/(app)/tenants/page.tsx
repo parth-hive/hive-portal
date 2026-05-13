@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { one } from "@/lib/relations";
 import { formatDate } from "@/lib/date";
+import { SearchInput } from "@/components/search-input";
 import { processExpiredTenancies } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -57,7 +58,12 @@ function endOfMonth() {
     .slice(0, 10);
 }
 
-export default async function TenantsPage() {
+type PageProps = { searchParams: Promise<{ q?: string }> };
+
+export default async function TenantsPage({ searchParams }: PageProps) {
+  const { q } = await searchParams;
+  const query = (q ?? "").trim().toLowerCase();
+
   // Finalize any tenancies whose end_date has passed since the last visit.
   await processExpiredTenancies();
 
@@ -97,6 +103,27 @@ export default async function TenantsPage() {
     paidTotal += paidThisMonth;
     return { ...row, paidThisMonth, balance };
   });
+
+  const visibleRows = query
+    ? rowsWithStatus.filter((r) => {
+        const tenant = one(r.tenants);
+        const room = one(r.rooms);
+        const property = one(room?.properties ?? null);
+        const haystack = [
+          tenant?.full_name,
+          tenant?.email,
+          tenant?.phone,
+          room?.room_number,
+          property?.building_name,
+          property?.street_address,
+          property?.unit_number,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(query);
+      })
+    : rowsWithStatus;
 
   return (
     <div className="mx-auto w-full max-w-6xl">
@@ -142,6 +169,13 @@ export default async function TenantsPage() {
         </section>
       )}
 
+      <div className="mt-6">
+        <SearchInput
+          placeholder="Search by tenant, email, phone, or unit…"
+          ariaLabel="Search tenants"
+        />
+      </div>
+
       {error && <p className="mt-6 text-sm text-red-700">{error.message}</p>}
 
       {rows.length === 0 && (
@@ -151,7 +185,13 @@ export default async function TenantsPage() {
         </p>
       )}
 
-      {rowsWithStatus.length > 0 && (
+      {rows.length > 0 && visibleRows.length === 0 && (
+        <p className="mt-10 rounded-2xl bg-white px-6 py-12 text-center text-sm text-muted shadow-sm">
+          No tenants match &ldquo;{query}&rdquo;.
+        </p>
+      )}
+
+      {visibleRows.length > 0 && (
         <section className="mt-8 overflow-hidden rounded-2xl bg-white shadow-sm">
           <table className="w-full text-sm">
             <thead className="bg-warm/60 text-left text-xs uppercase tracking-wide text-muted">
@@ -164,7 +204,7 @@ export default async function TenantsPage() {
               </tr>
             </thead>
             <tbody>
-              {rowsWithStatus.map((r) => {
+              {visibleRows.map((r) => {
                 const tenant = one(r.tenants);
                 const room = one(r.rooms);
                 const p = one(room?.properties ?? null);

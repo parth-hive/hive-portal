@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { one } from "@/lib/relations";
+import { SearchInput } from "@/components/search-input";
 
 export const dynamic = "force-dynamic";
 
@@ -10,28 +11,50 @@ type PropertyRow = {
   building_name: string | null;
   street_address: string;
   unit_number: string;
+  cross_street: string | null;
   neighborhood: string | null;
   bedrooms: number | null;
   leaseholders: LeaseholderRel | LeaseholderRel[] | null;
   rooms: { id: string; status: string }[];
 };
 
-export default async function PropertiesPage() {
+type PageProps = { searchParams: Promise<{ q?: string }> };
+
+export default async function PropertiesPage({ searchParams }: PageProps) {
+  const { q } = await searchParams;
+  const query = (q ?? "").trim().toLowerCase();
+
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("properties")
     .select(
-      "id, building_name, street_address, unit_number, neighborhood, bedrooms, leaseholders(name), rooms(id, status)",
+      "id, building_name, street_address, unit_number, cross_street, neighborhood, bedrooms, leaseholders(name), rooms(id, status)",
     )
     .order("street_address", { ascending: true })
     .order("unit_number", { ascending: true })
     .returns<PropertyRow[]>();
 
-  const properties = data ?? [];
+  const all = data ?? [];
+  const properties = query
+    ? all.filter((p) => {
+        const haystack = [
+          p.building_name,
+          p.street_address,
+          p.unit_number,
+          p.cross_street,
+          p.neighborhood,
+          one(p.leaseholders)?.name,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(query);
+      })
+    : all;
 
   return (
     <div className="mx-auto w-full max-w-6xl">
-      <header className="flex items-end justify-between border-b border-stone/60 pb-6">
+      <header className="flex flex-wrap items-end justify-between gap-3 border-b border-stone/60 pb-6">
         <div>
           <h1 className="text-3xl tracking-tight text-ink">
             <span className="font-display text-accent-text">Properties</span>
@@ -48,11 +71,24 @@ export default async function PropertiesPage() {
         </Link>
       </header>
 
+      <div className="mt-6">
+        <SearchInput
+          placeholder="Search by address, unit, neighborhood, leaseholder…"
+          ariaLabel="Search properties"
+        />
+      </div>
+
       {error && <p className="mt-6 text-sm text-red-700">{error.message}</p>}
 
-      {properties.length === 0 && (
+      {all.length === 0 && (
         <p className="mt-10 rounded-2xl bg-white px-6 py-12 text-center text-sm text-muted shadow-sm">
           No properties yet. Click <em>Add property</em> to enter your first unit.
+        </p>
+      )}
+
+      {all.length > 0 && properties.length === 0 && (
+        <p className="mt-10 rounded-2xl bg-white px-6 py-12 text-center text-sm text-muted shadow-sm">
+          No properties match &ldquo;{query}&rdquo;.
         </p>
       )}
 
