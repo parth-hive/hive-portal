@@ -136,12 +136,20 @@ export default async function TenantsPage({ searchParams }: PageProps) {
             Active tenancies and their rent status for the current month.
           </p>
         </div>
-        <Link
-          href="/tenants/new"
-          className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-accent-dark"
-        >
-          Add tenant
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            href="/tenants/history"
+            className="text-xs uppercase tracking-wide text-muted hover:text-accent-text"
+          >
+            Past tenants →
+          </Link>
+          <Link
+            href="/tenants/new"
+            className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-accent-dark"
+          >
+            Add tenant
+          </Link>
+        </div>
       </header>
 
       {rows.length > 0 && (
