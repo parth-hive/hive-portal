@@ -132,10 +132,10 @@ export default async function VacancyDetailPage({ params }: PageProps) {
         <header className="flex flex-wrap items-start justify-between gap-3 border-b border-stone/60 pb-6">
           <div>
             <Link
-              href="/vacancies"
+              href="/inventory"
               className="text-xs uppercase tracking-wide text-muted hover:text-ink"
             >
-              ← Vacancies
+              ← Inventory
             </Link>
             <h1 className="mt-2 text-3xl tracking-tight text-ink">
               <span className="font-display text-accent-text">Listing:</span>{" "}

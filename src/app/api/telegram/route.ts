@@ -126,7 +126,7 @@ export async function POST(req: Request) {
       "Hi — I'm the Hive ops assistant.\n\n" +
         "Ask things like:\n" +
         "• Who's overdue on rent this month?\n" +
-        "• Show me vacancies in JSQ\n" +
+        "• Show me available rooms in JSQ\n" +
         "• Which units are due for cleaning?\n" +
         "• What's the ClickPay password for 90 Washington?\n" +
         "• Record a $2000 rent payment for Tom today, Zelle\n" +

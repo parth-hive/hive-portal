@@ -191,7 +191,7 @@ export default async function TenantDetailPage({ params }: PageProps) {
               </div>
               <p className="mt-3 text-xs text-muted">
                 A future end date keeps the room occupied until then, but marks
-                it as <em>Available from</em> that date on the Vacancies page.
+                it as <em>Available from</em> that date on the Inventory page.
               </p>
             </>
           ) : (

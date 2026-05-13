@@ -6,7 +6,7 @@ import { logout } from "../login/actions";
 const NAV = [
   { href: "/", label: "Dashboard" },
   { href: "/properties", label: "Properties" },
-  { href: "/vacancies", label: "Vacancies" },
+  { href: "/inventory", label: "Inventory" },
   { href: "/tenants", label: "Tenants & Rent" },
   { href: "/reconciliation", label: "Reconciliation" },
   { href: "/cleaning", label: "Cleaning" },

@@ -104,7 +104,7 @@ type PageProps = {
   searchParams: Promise<{ filter?: string }>;
 };
 
-export default async function VacanciesPage({ searchParams }: PageProps) {
+export default async function InventoryPage({ searchParams }: PageProps) {
   await processExpiredTenancies();
 
   const params = await searchParams;
@@ -159,7 +159,7 @@ export default async function VacanciesPage({ searchParams }: PageProps) {
     <div className="mx-auto w-full max-w-6xl">
       <header className="border-b border-stone/60 pb-6">
         <h1 className="text-3xl tracking-tight text-ink">
-          <span className="font-display text-accent-text">Vacancies</span>
+          <span className="font-display text-accent-text">Inventory</span>
         </h1>
         <p className="mt-1 text-sm text-muted">
           Rooms you can list right now — available today, and scheduled to open
@@ -171,13 +171,13 @@ export default async function VacanciesPage({ searchParams }: PageProps) {
         <KpiCard
           label="Total"
           value={counts.total}
-          href="/vacancies"
+          href="/inventory"
           active={activeFilter === null}
         />
         <KpiCard
           label="Available now"
           value={counts.now}
-          href={activeFilter === "now" ? "/vacancies" : "/vacancies?filter=now"}
+          href={activeFilter === "now" ? "/inventory" : "/inventory?filter=now"}
           active={activeFilter === "now"}
           accent="bg-accent text-white"
         />
@@ -186,8 +186,8 @@ export default async function VacanciesPage({ searchParams }: PageProps) {
           value={counts.upcoming}
           href={
             activeFilter === "upcoming"
-              ? "/vacancies"
-              : "/vacancies?filter=upcoming"
+              ? "/inventory"
+              : "/inventory?filter=upcoming"
           }
           active={activeFilter === "upcoming"}
           accent="bg-ink text-white"
@@ -196,7 +196,7 @@ export default async function VacanciesPage({ searchParams }: PageProps) {
           label="No ad yet"
           value={counts.no_ad}
           href={
-            activeFilter === "no_ad" ? "/vacancies" : "/vacancies?filter=no_ad"
+            activeFilter === "no_ad" ? "/inventory" : "/inventory?filter=no_ad"
           }
           active={activeFilter === "no_ad"}
           accent="bg-red-100 text-red-900"
@@ -206,8 +206,8 @@ export default async function VacanciesPage({ searchParams }: PageProps) {
           value={counts.boosted}
           href={
             activeFilter === "boosted"
-              ? "/vacancies"
-              : "/vacancies?filter=boosted"
+              ? "/inventory"
+              : "/inventory?filter=boosted"
           }
           active={activeFilter === "boosted"}
           accent="bg-orange-100 text-orange-900"
@@ -220,7 +220,7 @@ export default async function VacanciesPage({ searchParams }: PageProps) {
           return (
             <li key={a}>
               <Link
-                href={isActive ? "/vacancies" : `/vacancies?filter=${a}`}
+                href={isActive ? "/inventory" : `/inventory?filter=${a}`}
                 className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs transition ${
                   isActive
                     ? "border-ink bg-ink text-white"
@@ -248,8 +248,8 @@ export default async function VacanciesPage({ searchParams }: PageProps) {
 
       {rooms.length > 0 && filtered.length === 0 && (
         <p className="mt-10 rounded-2xl bg-white px-6 py-12 text-center text-sm text-muted shadow-sm">
-          No vacancies match this filter.{" "}
-          <Link href="/vacancies" className="text-accent-text">
+          No rooms match this filter.{" "}
+          <Link href="/inventory" className="text-accent-text">
             Clear filter
           </Link>
           .
@@ -359,7 +359,7 @@ function VacancyCard({ room, now }: { room: Row; now: boolean }) {
           </p>
           <h3 className="mt-0.5 truncate text-sm font-medium text-ink">
             <Link
-              href={`/vacancies/${room.id}`}
+              href={`/inventory/${room.id}`}
               className="hover:text-accent-text"
             >
               {unitTitle}
@@ -432,7 +432,7 @@ function VacancyCard({ room, now }: { room: Row; now: boolean }) {
           </a>
         )}
         <Link
-          href={`/vacancies/${room.id}`}
+          href={`/inventory/${room.id}`}
           className="ml-auto text-[11px] uppercase tracking-wide text-muted hover:text-accent-text"
         >
           Open →

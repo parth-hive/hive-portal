@@ -40,7 +40,7 @@ export function EndTenancyForm({
         const todayStr = new Date().toISOString().slice(0, 10);
         const isFuture = endDate > todayStr;
         const msg = isFuture
-          ? `End on ${endDate}? Tenant stays in the room until that date; the room will be listed as "Available from ${endDate}" on Vacancies.`
+          ? `End on ${endDate}? Tenant stays in the room until that date; the room will be listed as "Available from ${endDate}" on Inventory.`
           : "End this tenancy now? The room will be marked Available.";
         if (!confirm(msg)) {
           e.preventDefault();

@@ -120,7 +120,7 @@ export async function createTenant(
   }
 
   revalidatePath("/tenants");
-  revalidatePath("/vacancies");
+  revalidatePath("/inventory");
   revalidatePath("/properties");
   redirect(`/tenants/${tenant.id}`);
 }
@@ -178,7 +178,7 @@ export async function updateTenant(
 // If end_date is in the future     → tenant is still there until that date;
 //                                    room stays Occupied but we set
 //                                    `rooms.available_from = end_date` so it
-//                                    surfaces on /vacancies as "Available from X".
+//                                    surfaces on /inventory as "Available from X".
 //                                    Tenancy stays 'active' and is auto-finalized
 //                                    when end_date passes (see processExpiredTenancies).
 
@@ -222,7 +222,7 @@ export async function endTenancy(formData: FormData) {
 
   revalidatePath("/tenants");
   if (tenant_id) revalidatePath(`/tenants/${tenant_id}`);
-  revalidatePath("/vacancies");
+  revalidatePath("/inventory");
 }
 
 // ----- Undo an end-tenancy (or revive a finalized one) -----
@@ -254,7 +254,7 @@ export async function reactivateTenancy(formData: FormData) {
 
   revalidatePath("/tenants");
   if (tenant_id) revalidatePath(`/tenants/${tenant_id}`);
-  revalidatePath("/vacancies");
+  revalidatePath("/inventory");
 }
 
 // ----- Auto-finalize any tenancies whose end_date has now passed -----
@@ -315,7 +315,7 @@ export async function deleteTenant(formData: FormData) {
   }
 
   revalidatePath("/tenants");
-  revalidatePath("/vacancies");
+  revalidatePath("/inventory");
   redirect("/tenants");
 }
 

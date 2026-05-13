@@ -147,7 +147,7 @@ export async function getProperty(id: string) {
   };
 }
 
-export async function listVacancies() {
+export async function listInventory() {
   const supabase = admin();
   const today = todayISO();
   const { data, error } = await supabase
@@ -503,11 +503,11 @@ export const tools = [
     run: async (args) => JSON.stringify(await getProperty(args.id)),
   }),
   betaZodTool({
-    name: "list_vacancies",
+    name: "list_inventory",
     description:
-      "Listable rooms — currently vacant or with a scheduled future move-out.",
+      "Listable rooms (the inventory queue) — currently vacant or with a scheduled future move-out.",
     inputSchema: z.object({}),
-    run: async () => JSON.stringify(await listVacancies()),
+    run: async () => JSON.stringify(await listInventory()),
   }),
   betaZodTool({
     name: "list_active_tenants",
@@ -612,7 +612,7 @@ export const tools = [
     description:
       "Set a tenancy's end_date. Past/today → tenancy ends, room becomes Available. " +
       "Future date → tenancy stays Active until that day, room stays Occupied, but " +
-      "rooms.available_from is set so the room appears on Vacancies as 'Available from X'.",
+      "rooms.available_from is set so the room appears on Inventory as 'Available from X'.",
     inputSchema: z.object({
       tenancy_id: z.string(),
       end_date: z.string().describe('"YYYY-MM-DD"'),

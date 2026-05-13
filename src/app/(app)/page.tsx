@@ -54,12 +54,12 @@ export default async function Dashboard() {
     {
       label: "Vacant now",
       value: vacantRoomCount.count ?? 0,
-      href: "/vacancies",
+      href: "/inventory",
     },
     {
       label: "Vacating soon",
       value: upcomingVacancyCount.count ?? 0,
-      href: "/vacancies",
+      href: "/inventory",
     },
     {
       label: "Cleanings due",
@@ -114,12 +114,12 @@ export default async function Dashboard() {
         </Link>
 
         <Link
-          href="/vacancies"
+          href="/inventory"
           className="group rounded-2xl bg-white p-6 shadow-sm transition hover:shadow"
         >
           <p className="text-xs uppercase tracking-wide text-muted">Then</p>
           <h2 className="mt-2 text-xl text-ink">
-            Work the <span className="font-display text-accent-text">vacancies</span>
+            Work the <span className="font-display text-accent-text">inventory</span>
           </h2>
           <p className="mt-2 text-sm text-muted">
             Listable rooms with copy-paste descriptions, ad tracking, and VA

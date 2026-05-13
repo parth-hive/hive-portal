@@ -22,8 +22,8 @@ export async function setListingAction(roomId: string, action: Action) {
     .update({ listing_action: action })
     .eq("id", roomId);
 
-  revalidatePath("/vacancies");
-  revalidatePath(`/vacancies/${roomId}`);
+  revalidatePath("/inventory");
+  revalidatePath(`/inventory/${roomId}`);
 }
 
 export type AdFormState = { error?: string } | undefined;
@@ -44,8 +44,8 @@ export async function setRoomAd(
 
   if (error) return { error: error.message };
 
-  revalidatePath("/vacancies");
-  revalidatePath(`/vacancies/${roomId}`);
+  revalidatePath("/inventory");
+  revalidatePath(`/inventory/${roomId}`);
   return undefined;
 }
 
@@ -77,7 +77,7 @@ export async function setRoomRent(
 
   if (error) return { error: error.message };
 
-  revalidatePath("/vacancies");
-  revalidatePath(`/vacancies/${roomId}`);
+  revalidatePath("/inventory");
+  revalidatePath(`/inventory/${roomId}`);
   return undefined;
 }

@@ -212,11 +212,11 @@ server.registerTool(
 );
 
 server.registerTool(
-  "list_vacancies",
+  "list_inventory",
   {
-    title: "List vacancies",
+    title: "List inventory",
     description:
-      "Listable rooms — currently vacant OR with a scheduled future move-out. " +
+      "Listable rooms (the inventory queue) — currently vacant OR with a scheduled future move-out. " +
       "Returns price, available date, amenities, listing-action priority, and " +
       "ad URL / boost status.",
     inputSchema: {},
@@ -606,7 +606,7 @@ server.registerTool(
       "tenancy becomes 'ended' and the room flips to 'available'. " +
       "If end_date is in the future the tenancy stays 'active' until " +
       "that day, the room stays 'occupied', but rooms.available_from " +
-      "is set so the room appears on the Vacancies page as " +
+      "is set so the room appears on the Inventory page as " +
       "'Available from <date>'.",
     inputSchema: {
       tenancy_id: z.string().describe("UUID of the tenancy to end"),
