@@ -1,5 +1,7 @@
+import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { one } from "@/lib/relations";
+import { SearchInput } from "@/components/search-input";
 import { AddCredential } from "./add-credential";
 import {
   CredentialRow,
@@ -40,7 +42,19 @@ function propertyLabel(p: PropertyRel) {
   return `${p.building_name?.trim() || p.street_address} Apt ${p.unit_number}`;
 }
 
-export default async function CredentialsPage() {
+function isCategory(v: string | undefined): v is Category {
+  return !!v && CATEGORY_ORDER.includes(v as Category);
+}
+
+type PageProps = {
+  searchParams: Promise<{ q?: string; category?: string }>;
+};
+
+export default async function CredentialsPage({ searchParams }: PageProps) {
+  const params = await searchParams;
+  const query = (params.q ?? "").trim().toLowerCase();
+  const activeCategory = isCategory(params.category) ? params.category : null;
+
   const supabase = await createClient();
 
   const [{ data: credentials }, { data: properties }] = await Promise.all([
@@ -51,6 +65,7 @@ export default async function CredentialsPage() {
          login_url, account_number, owner_label, notes,
          properties(building_name, street_address, unit_number)`,
       )
+      .order("category", { ascending: true })
       .order("service_name", { ascending: true })
       .returns<Row[]>(),
     supabase
@@ -64,7 +79,7 @@ export default async function CredentialsPage() {
     label: `${p.building_name?.trim() || p.street_address} Apt ${p.unit_number}`,
   }));
 
-  const rows: CredentialRowData[] = (credentials ?? []).map((c) => {
+  const all: CredentialRowData[] = (credentials ?? []).map((c) => {
     const p = one(c.properties);
     return {
       id: c.id,
@@ -81,51 +96,136 @@ export default async function CredentialsPage() {
     };
   });
 
-  const grouped = new Map<Category, CredentialRowData[]>();
-  for (const c of CATEGORY_ORDER) grouped.set(c, []);
-  for (const r of rows) grouped.get(r.category)?.push(r);
+  const countsByCategory = CATEGORY_ORDER.reduce(
+    (acc, c) => {
+      acc[c] = all.filter((r) => r.category === c).length;
+      return acc;
+    },
+    {} as Record<Category, number>,
+  );
+
+  const filtered = all.filter((r) => {
+    if (activeCategory && r.category !== activeCategory) return false;
+    if (!query) return true;
+    const haystack = [
+      r.service_name,
+      r.property_label,
+      r.owner_label,
+      r.username,
+      r.account_number,
+      r.login_url,
+      r.notes,
+      CATEGORY_LABELS[r.category],
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(query);
+  });
 
   return (
-    <div className="mx-auto w-full max-w-5xl">
-      <header className="flex flex-wrap items-end justify-between gap-3 border-b border-stone/60 pb-6">
+    <div className="mx-auto w-full max-w-7xl">
+      <header className="flex flex-wrap items-end justify-between gap-3 border-b border-stone/60 pb-4">
         <div>
           <h1 className="text-3xl tracking-tight text-ink">
             <span className="font-display text-accent-text">Credentials</span>
           </h1>
           <p className="mt-1 text-sm text-muted">
-            All logins and account numbers in one place. Per-property credentials
-            also surface on each property&apos;s detail page.
+            All logins and account numbers in one place. Per-property
+            credentials also surface on each property&apos;s detail page.
           </p>
         </div>
         <AddCredential properties={propertyOptions} />
       </header>
 
-      {rows.length === 0 && (
-        <p className="mt-10 rounded-2xl bg-white px-6 py-12 text-center text-sm text-muted shadow-sm">
+      <div className="mt-4">
+        <SearchInput
+          placeholder="Search by service, property, username, account, owner…"
+          ariaLabel="Search credentials"
+        />
+      </div>
+
+      <ul className="mt-3 flex flex-wrap gap-1.5">
+        <li>
+          <Link
+            href="/credentials"
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition ${
+              activeCategory === null
+                ? "border-ink bg-ink text-white"
+                : "border-stone bg-white text-ink hover:bg-warm"
+            }`}
+          >
+            All ({all.length})
+          </Link>
+        </li>
+        {CATEGORY_ORDER.map((c) => {
+          const isActive = activeCategory === c;
+          const count = countsByCategory[c];
+          if (count === 0 && !isActive) return null;
+          return (
+            <li key={c}>
+              <Link
+                href={
+                  isActive ? "/credentials" : `/credentials?category=${c}`
+                }
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition ${
+                  isActive
+                    ? "border-ink bg-ink text-white"
+                    : "border-stone bg-white text-ink hover:bg-warm"
+                }`}
+              >
+                {CATEGORY_LABELS[c]} ({count})
+              </Link>
+            </li>
+          );
+        })}
+      </ul>
+
+      {all.length === 0 && (
+        <p className="mt-10 rounded-xl bg-white px-6 py-10 text-center text-sm text-muted shadow-sm">
           No credentials yet. Click <em>Add credential</em> to enter one.
         </p>
       )}
 
-      {CATEGORY_ORDER.map((cat) => {
-        const items = grouped.get(cat) ?? [];
-        if (items.length === 0) return null;
-        return (
-          <section key={cat} className="mt-10">
-            <h2 className="text-xs uppercase tracking-wide text-muted">
-              {CATEGORY_LABELS[cat]} ({items.length})
-            </h2>
-            <ul className="mt-3 flex flex-col gap-3">
-              {items.map((c) => (
+      {all.length > 0 && filtered.length === 0 && (
+        <p className="mt-10 rounded-xl bg-white px-6 py-10 text-center text-sm text-muted shadow-sm">
+          No credentials match the filter.{" "}
+          <Link href="/credentials" className="text-accent-text">
+            Clear
+          </Link>
+          .
+        </p>
+      )}
+
+      {filtered.length > 0 && (
+        <div className="mt-4 overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-stone/40">
+          <table className="w-full min-w-[1200px] text-sm">
+            <thead className="sticky top-0 z-10 bg-warm/60 text-left text-[11px] uppercase tracking-wide text-muted">
+              <tr>
+                <th className="px-3 py-2 font-medium">Category</th>
+                <th className="px-3 py-2 font-medium">Service</th>
+                <th className="px-3 py-2 font-medium">Property</th>
+                <th className="px-3 py-2 font-medium">Owner</th>
+                <th className="px-3 py-2 font-medium">Username</th>
+                <th className="px-3 py-2 font-medium">Password</th>
+                <th className="px-3 py-2 font-medium">Account #</th>
+                <th className="px-3 py-2 font-medium">Link</th>
+                <th className="px-3 py-2 text-right font-medium" />
+              </tr>
+            </thead>
+            <tbody>
+              {filtered.map((c, i) => (
                 <CredentialRow
                   key={c.id}
                   credential={c}
                   properties={propertyOptions}
+                  striped={i % 2 === 1}
                 />
               ))}
-            </ul>
-          </section>
-        );
-      })}
+            </tbody>
+          </table>
+        </div>
+      )}
     </div>
   );
 }

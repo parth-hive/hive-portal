@@ -305,27 +305,34 @@ export default async function PropertyDetailPage({ params }: PageProps) {
             and pick this property.
           </p>
         ) : (
-          <div className="mt-4 flex flex-col gap-6">
-            {CATEGORY_ORDER.map((cat) => {
-              const items = credsByCategory.get(cat) ?? [];
-              if (items.length === 0) return null;
-              return (
-                <div key={cat}>
-                  <h3 className="text-xs uppercase tracking-wide text-muted">
-                    {CATEGORY_LABELS[cat]}
-                  </h3>
-                  <ul className="mt-2 flex flex-col gap-3">
-                    {items.map((c) => (
-                      <CredentialRow
-                        key={c.id}
-                        credential={c}
-                        properties={propertyOptions}
-                      />
-                    ))}
-                  </ul>
-                </div>
-              );
-            })}
+          <div className="mt-4 overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-stone/40">
+            <table className="w-full min-w-[1100px] text-sm">
+              <thead className="bg-warm/60 text-left text-[11px] uppercase tracking-wide text-muted">
+                <tr>
+                  <th className="px-3 py-2 font-medium">Category</th>
+                  <th className="px-3 py-2 font-medium">Service</th>
+                  <th className="px-3 py-2 font-medium">Property</th>
+                  <th className="px-3 py-2 font-medium">Owner</th>
+                  <th className="px-3 py-2 font-medium">Username</th>
+                  <th className="px-3 py-2 font-medium">Password</th>
+                  <th className="px-3 py-2 font-medium">Account #</th>
+                  <th className="px-3 py-2 font-medium">Link</th>
+                  <th className="px-3 py-2 text-right font-medium" />
+                </tr>
+              </thead>
+              <tbody>
+                {CATEGORY_ORDER.flatMap((cat) =>
+                  (credsByCategory.get(cat) ?? []).map((c) => c),
+                ).map((c, i) => (
+                  <CredentialRow
+                    key={c.id}
+                    credential={c}
+                    properties={propertyOptions}
+                    striped={i % 2 === 1}
+                  />
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </section>

@@ -46,9 +46,11 @@ function maskPassword(p: string | null) {
 export function CredentialRow({
   credential,
   properties,
+  striped,
 }: {
   credential: CredentialRowData;
   properties: PropertyOption[];
+  striped: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [revealed, setRevealed] = useState(false);
@@ -63,7 +65,10 @@ export function CredentialRow({
     FormData
   >(boundUpdate, undefined);
 
-  async function copy(field: "username" | "password" | "account_number", value: string | null) {
+  async function copy(
+    field: "username" | "password" | "account_number",
+    value: string | null,
+  ) {
     if (!value) return;
     try {
       await navigator.clipboard.writeText(value);
@@ -86,72 +91,136 @@ export function CredentialRow({
 
   if (editing) {
     return (
-      <li className="rounded-2xl bg-white p-5 shadow-sm">
-        <form
-          action={async (fd) => {
-            const result = await editAction(fd);
-            if (result === undefined) setEditing(false);
-            return result;
-          }}
-        >
-          <p className="text-xs uppercase tracking-wide text-muted">
-            Editing {credential.service_name}
-          </p>
-          <div className="mt-3">
-            <CredentialFields initial={credential} properties={properties} />
-          </div>
-          {state?.error && (
-            <p className="mt-3 text-sm text-red-700">{state.error}</p>
-          )}
-          <div className="mt-4 flex items-center gap-3">
-            <button
-              type="submit"
-              disabled={pending}
-              className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-accent-dark disabled:opacity-50"
-            >
-              {pending ? "Saving…" : "Save"}
-            </button>
-            <button
-              type="button"
-              onClick={() => setEditing(false)}
-              className="text-xs uppercase tracking-wide text-muted hover:text-ink"
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      </li>
+      <tr className="border-t border-stone/30 bg-cream/60">
+        <td colSpan={9} className="px-4 py-4">
+          <form
+            action={async (fd) => {
+              const result = await editAction(fd);
+              if (result === undefined) setEditing(false);
+              return result;
+            }}
+          >
+            <p className="text-xs uppercase tracking-wide text-muted">
+              Editing {credential.service_name}
+            </p>
+            <div className="mt-3">
+              <CredentialFields initial={credential} properties={properties} />
+            </div>
+            {state?.error && (
+              <p className="mt-3 text-sm text-red-700">{state.error}</p>
+            )}
+            <div className="mt-4 flex items-center gap-3">
+              <button
+                type="submit"
+                disabled={pending}
+                className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-accent-dark disabled:opacity-50"
+              >
+                {pending ? "Saving…" : "Save"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setEditing(false)}
+                className="text-xs uppercase tracking-wide text-muted hover:text-ink"
+              >
+                Cancel
+              </button>
+            </div>
+          </form>
+        </td>
+      </tr>
     );
   }
 
   return (
-    <li className="rounded-2xl bg-white p-5 shadow-sm">
-      <div className="flex flex-wrap items-start justify-between gap-3">
-        <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h3 className="text-base text-ink">{credential.service_name}</h3>
-            <span
-              className={`rounded-full px-2 py-0.5 text-xs uppercase tracking-wide ${CATEGORY_PILL[credential.category]}`}
-            >
-              {CATEGORY_LABELS[credential.category]}
-            </span>
-            {credential.property_label && (
-              <span className="text-xs text-muted">
-                · {credential.property_label}
-              </span>
-            )}
-            {credential.owner_label && (
-              <span className="text-xs text-muted">
-                · {credential.owner_label}
-              </span>
-            )}
+    <tr
+      className={`border-t border-stone/30 ${striped ? "bg-cream/40" : "bg-white"} hover:bg-warm/30`}
+    >
+      <td className="px-3 py-2">
+        <span
+          className={`rounded-full px-2 py-0.5 text-[11px] uppercase tracking-wide ${CATEGORY_PILL[credential.category]}`}
+        >
+          {CATEGORY_LABELS[credential.category]}
+        </span>
+      </td>
+      <td className="px-3 py-2 text-ink">{credential.service_name}</td>
+      <td className="px-3 py-2 text-[12px] text-muted">
+        {credential.property_label ?? "—"}
+      </td>
+      <td className="px-3 py-2 text-[12px] text-muted">
+        {credential.owner_label ?? "—"}
+      </td>
+      <td className="px-3 py-2">
+        {credential.username ? (
+          <div className="flex items-center gap-1.5">
+            <span className="break-all text-ink">{credential.username}</span>
+            <CopyChip
+              onClick={() => copy("username", credential.username)}
+              copied={copied === "username"}
+            />
           </div>
-        </div>
-        <div className="flex items-center gap-2">
+        ) : (
+          <span className="text-muted">—</span>
+        )}
+      </td>
+      <td className="px-3 py-2">
+        {credential.password ? (
+          <div className="flex items-center gap-1.5">
+            <span className="font-mono text-[12px] text-ink">
+              {revealed ? credential.password : maskPassword(credential.password)}
+            </span>
+            <button
+              type="button"
+              onClick={toggleReveal}
+              className="text-[10px] uppercase tracking-wide text-muted hover:text-accent-text"
+            >
+              {revealed ? "Hide" : "Reveal"}
+            </button>
+            <CopyChip
+              onClick={() => copy("password", credential.password)}
+              copied={copied === "password"}
+            />
+          </div>
+        ) : (
+          <span className="text-muted">—</span>
+        )}
+      </td>
+      <td className="px-3 py-2">
+        {credential.account_number ? (
+          <div className="flex items-center gap-1.5">
+            <span className="break-all text-ink">
+              {credential.account_number}
+            </span>
+            <CopyChip
+              onClick={() =>
+                copy("account_number", credential.account_number)
+              }
+              copied={copied === "account_number"}
+            />
+          </div>
+        ) : (
+          <span className="text-muted">—</span>
+        )}
+      </td>
+      <td className="px-3 py-2">
+        {credential.login_url ? (
+          <a
+            href={credential.login_url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="rounded-full border border-stone bg-white px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink hover:bg-warm"
+          >
+            Open ↗
+          </a>
+        ) : (
+          <span className="text-muted">—</span>
+        )}
+      </td>
+      <td className="px-3 py-2 text-right">
+        <div className="flex items-center justify-end gap-2">
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className="text-xs uppercase tracking-wide text-muted hover:text-accent-text"
+            className="text-[11px] uppercase tracking-wide text-muted hover:text-accent-text"
           >
             Edit
           </button>
@@ -168,85 +237,14 @@ export function CredentialRow({
                   e.preventDefault();
                 }
               }}
-              className="text-xs uppercase tracking-wide text-muted hover:text-red-700"
+              className="text-[11px] uppercase tracking-wide text-muted hover:text-red-700"
             >
               Delete
             </button>
           </form>
         </div>
-      </div>
-
-      <dl className="mt-4 grid grid-cols-[max-content_1fr] gap-x-4 gap-y-2 text-sm">
-        {credential.username && (
-          <>
-            <dt className="text-xs uppercase tracking-wide text-muted">User</dt>
-            <dd className="flex items-center gap-2 text-ink">
-              <span className="break-all">{credential.username}</span>
-              <CopyChip
-                onClick={() => copy("username", credential.username)}
-                copied={copied === "username"}
-              />
-            </dd>
-          </>
-        )}
-        {credential.password && (
-          <>
-            <dt className="text-xs uppercase tracking-wide text-muted">Pass</dt>
-            <dd className="flex items-center gap-2 text-ink">
-              <span className="break-all font-mono text-sm">
-                {revealed ? credential.password : maskPassword(credential.password)}
-              </span>
-              <button
-                type="button"
-                onClick={toggleReveal}
-                className="text-xs uppercase tracking-wide text-muted hover:text-accent-text"
-              >
-                {revealed ? "Hide" : "Reveal"}
-              </button>
-              <CopyChip
-                onClick={() => copy("password", credential.password)}
-                copied={copied === "password"}
-              />
-            </dd>
-          </>
-        )}
-        {credential.account_number && (
-          <>
-            <dt className="text-xs uppercase tracking-wide text-muted">Acct #</dt>
-            <dd className="flex items-center gap-2 text-ink">
-              <span className="break-all">{credential.account_number}</span>
-              <CopyChip
-                onClick={() =>
-                  copy("account_number", credential.account_number)
-                }
-                copied={copied === "account_number"}
-              />
-            </dd>
-          </>
-        )}
-        {credential.login_url && (
-          <>
-            <dt className="text-xs uppercase tracking-wide text-muted">Link</dt>
-            <dd>
-              <a
-                href={credential.login_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="break-all text-accent-text hover:text-accent-dark"
-              >
-                Open portal ↗
-              </a>
-            </dd>
-          </>
-        )}
-        {credential.notes && (
-          <>
-            <dt className="text-xs uppercase tracking-wide text-muted">Notes</dt>
-            <dd className="text-muted">{credential.notes}</dd>
-          </>
-        )}
-      </dl>
-    </li>
+      </td>
+    </tr>
   );
 }
 
@@ -261,7 +259,7 @@ function CopyChip({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-full px-2 py-0.5 text-xs uppercase tracking-wide transition ${
+      className={`rounded-full px-1.5 py-0.5 text-[10px] uppercase tracking-wide transition ${
         copied
           ? "bg-accent/15 text-accent-text"
           : "text-muted hover:text-accent-text"
