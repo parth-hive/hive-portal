@@ -89,6 +89,47 @@ function dueForMonth(t: TenancyForMonth, monthStart: string, monthEnd: string): 
   return Number(t.monthly_rent);
 }
 
+/** Resolve a property-IDs filter into the tenancies + payments those rooms had. */
+async function loadFilteredHistory(propertyIds?: string[]) {
+  const supabase = await createClient();
+  if (propertyIds && propertyIds.length > 0) {
+    const { data: rooms } = await supabase
+      .from("rooms")
+      .select("id")
+      .in("property_id", propertyIds);
+    const roomIds = (rooms ?? []).map((r) => r.id);
+    if (roomIds.length === 0) return { tenancies: [], payments: [] };
+
+    const { data: tenancies } = await supabase
+      .from("tenancies")
+      .select("id, start_date, end_date, monthly_rent, first_month_rent")
+      .in("room_id", roomIds);
+
+    const tenancyIds = (tenancies ?? []).map((t) => t.id);
+    if (tenancyIds.length === 0)
+      return { tenancies: tenancies ?? [], payments: [] };
+
+    const { data: payments } = await supabase
+      .from("payments")
+      .select("amount, paid_on")
+      .eq("payment_type", "rent")
+      .in("tenancy_id", tenancyIds);
+
+    return { tenancies: tenancies ?? [], payments: payments ?? [] };
+  }
+
+  const [{ data: tenancies }, { data: payments }] = await Promise.all([
+    supabase
+      .from("tenancies")
+      .select("id, start_date, end_date, monthly_rent, first_month_rent"),
+    supabase
+      .from("payments")
+      .select("amount, paid_on")
+      .eq("payment_type", "rent"),
+  ]);
+  return { tenancies: tenancies ?? [], payments: payments ?? [] };
+}
+
 /**
  * Per-month collection table from earliestStartISO through endMonth (default
  * this month). Includes months with zero activity so the timeline is dense.
@@ -96,6 +137,7 @@ function dueForMonth(t: TenancyForMonth, monthStart: string, monthEnd: string): 
 export async function getMonthlyCollections(
   fromMonth?: string,
   toMonth?: string,
+  propertyIds?: string[],
 ): Promise<CollectionRow[]> {
   const supabase = await createClient();
   const today = todayMonth();
@@ -115,25 +157,17 @@ export async function getMonthlyCollections(
 
   const months = listMonths(`${from}-01`, `${end}-01`);
 
-  // Fetch every tenancy ever (we'll filter per-month).
-  const { data: tenancies } = await supabase
-    .from("tenancies")
-    .select("id, start_date, end_date, monthly_rent, first_month_rent");
-  // Fetch every rent payment (we'll bucket by month).
-  const { data: payments } = await supabase
-    .from("payments")
-    .select("amount, paid_on")
-    .eq("payment_type", "rent");
+  const { tenancies, payments } = await loadFilteredHistory(propertyIds);
 
   const collectedByMonth = new Map<string, number>();
-  for (const p of payments ?? []) {
+  for (const p of payments) {
     const key = monthOf(p.paid_on);
     collectedByMonth.set(key, (collectedByMonth.get(key) ?? 0) + Number(p.amount));
   }
 
   return months.map((m) => {
     const { start, end } = monthBoundsLocal(m);
-    const expected = (tenancies ?? []).reduce(
+    const expected = tenancies.reduce(
       (sum, t) => sum + dueForMonth(t, start, end),
       0,
     );
@@ -148,26 +182,22 @@ export async function getMonthlyCollections(
 }
 
 /** Headline KPIs for /reports. */
-export async function getCollectionSummary(): Promise<CollectionSummary> {
-  const supabase = await createClient();
+export async function getCollectionSummary(
+  propertyIds?: string[],
+): Promise<CollectionSummary> {
   const today = new Date();
   const year = today.getUTCFullYear();
   const thisMonth = `${year}-${String(today.getUTCMonth() + 1).padStart(2, "0")}`;
   const ytdStart = `${year}-01-01`;
 
-  const [{ data: tenancies }, { data: payments }] = await Promise.all([
-    supabase
-      .from("tenancies")
-      .select("id, start_date, end_date, monthly_rent, first_month_rent"),
-    supabase.from("payments").select("amount, paid_on").eq("payment_type", "rent"),
-  ]);
+  const { tenancies, payments } = await loadFilteredHistory(propertyIds);
 
   const months = listMonths(ytdStart, `${thisMonth}-01`);
 
   let ytdExpected = 0;
   for (const m of months) {
     const { start, end } = monthBoundsLocal(m);
-    ytdExpected += (tenancies ?? []).reduce(
+    ytdExpected += tenancies.reduce(
       (s, t) => s + dueForMonth(t, start, end),
       0,
     );
@@ -177,7 +207,7 @@ export async function getCollectionSummary(): Promise<CollectionSummary> {
   let lifetimeCollected = 0;
   let paymentCount = 0;
   let thisMonthCollected = 0;
-  for (const p of payments ?? []) {
+  for (const p of payments) {
     const amt = Number(p.amount);
     lifetimeCollected += amt;
     paymentCount++;
@@ -186,7 +216,7 @@ export async function getCollectionSummary(): Promise<CollectionSummary> {
   }
 
   const tmBounds = monthBoundsLocal(thisMonth);
-  const thisMonthExpected = (tenancies ?? []).reduce(
+  const thisMonthExpected = tenancies.reduce(
     (s, t) => s + dueForMonth(t, tmBounds.start, tmBounds.end),
     0,
   );
@@ -214,6 +244,7 @@ export async function getCollectionSummary(): Promise<CollectionSummary> {
 export async function getPropertyCollections(
   fromISO?: string,
   toISO?: string,
+  propertyIds?: string[],
 ): Promise<PropertyCollectionRow[]> {
   const supabase = await createClient();
 
@@ -249,6 +280,8 @@ export async function getPropertyCollections(
 
   const { data } = await q.returns<PaymentRow[]>();
 
+  const allow = propertyIds && propertyIds.length > 0 ? new Set(propertyIds) : null;
+
   type Totals = { collected: number; label: string };
   const byProperty = new Map<string, Totals>();
   for (const row of data ?? []) {
@@ -259,6 +292,7 @@ export async function getPropertyCollections(
     const props = Array.isArray(room) ? room[0]?.properties : room.properties;
     const property = props ? (Array.isArray(props) ? props[0] : props) : null;
     if (!property) continue;
+    if (allow && !allow.has(property.id)) continue;
     const label = `${property.building_name?.trim() || property.street_address} Apt ${property.unit_number}`;
     const prev = byProperty.get(property.id) ?? { collected: 0, label };
     prev.collected += Number(row.amount);
@@ -274,6 +308,28 @@ export async function getPropertyCollections(
       outstanding: 0,
     }))
     .sort((a, b) => b.collected - a.collected);
+}
+
+export type PropertyOption = {
+  id: string;
+  label: string;
+  neighborhood: string | null;
+};
+
+/** Property options for the /reports filter dropdowns. */
+export async function getPropertyOptions(): Promise<PropertyOption[]> {
+  const supabase = await createClient();
+  const { data } = await supabase
+    .from("properties")
+    .select("id, building_name, street_address, unit_number, neighborhood")
+    .order("building_name", { ascending: true, nullsFirst: false })
+    .order("street_address", { ascending: true });
+
+  return (data ?? []).map((p) => ({
+    id: p.id,
+    label: `${p.building_name?.trim() || p.street_address} Apt ${p.unit_number}`,
+    neighborhood: p.neighborhood,
+  }));
 }
 
 // Tiny re-export so other modules can call one() if needed.
