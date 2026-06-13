@@ -1,7 +1,5 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { isMaster } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
@@ -69,12 +67,6 @@ export default async function AuditLogPage({
   searchParams: SearchParams;
 }) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!isMaster(user?.email)) {
-    redirect("/");
-  }
 
   const sp = await searchParams;
   const tableFilter =

@@ -1,7 +1,5 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { isMaster } from "@/lib/access";
 import { EMAIL_TYPE_LABELS, type EmailType } from "@/lib/email-log";
 
 export const dynamic = "force-dynamic";
@@ -41,10 +39,6 @@ type PageProps = {
 
 export default async function EmailLogPage({ searchParams }: PageProps) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!isMaster(user?.email)) redirect("/");
 
   const sp = await searchParams;
   const typeFilter = isType(sp.type) ? sp.type : null;

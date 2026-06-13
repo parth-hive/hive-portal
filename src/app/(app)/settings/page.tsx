@@ -9,6 +9,7 @@ type AdminLink = {
   href: string;
   title: string;
   description: string;
+  masterOnly?: boolean;
 };
 
 const ADMIN_LINKS: AdminLink[] = [
@@ -16,11 +17,13 @@ const ADMIN_LINKS: AdminLink[] = [
     href: "/reports",
     title: "Reports",
     description: "Portfolio financials, collections, and occupancy reporting.",
+    masterOnly: true,
   },
   {
     href: "/settings/users",
     title: "Users",
     description: "Invite teammates and manage who can access the portal.",
+    masterOnly: true,
   },
   {
     href: "/settings/audit-log",
@@ -40,6 +43,7 @@ export default async function AdminSettingsPage() {
     data: { user },
   } = await supabase.auth.getUser();
   const master = isMaster(user?.email);
+  const visibleLinks = ADMIN_LINKS.filter((l) => !l.masterOnly || master);
 
   return (
     <div className="mx-auto w-full max-w-3xl">
@@ -52,13 +56,13 @@ export default async function AdminSettingsPage() {
         </p>
       </header>
 
-      {master && (
+      {visibleLinks.length > 0 && (
         <section className="mt-6">
           <h2 className="text-xs font-medium uppercase tracking-wide text-muted">
             Administration
           </h2>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
-            {ADMIN_LINKS.map((link) => (
+            {visibleLinks.map((link) => (
               <Link
                 key={link.href}
                 href={link.href}

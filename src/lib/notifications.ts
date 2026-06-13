@@ -5,9 +5,6 @@
  *
  * Call updateRoomsWithNotification() instead of the raw rooms.update() so
  * mutation sites stay centralized.
- *
- * NOTE: after `npm run db:push` ships the new tables, run
- * `npm run db:types` and the `as any` casts below can be removed.
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
@@ -49,7 +46,10 @@ type RoomPatch = Record<string, unknown> &
     available_from?: string | null;
   };
 
-type AnyClient = SupabaseClient<any, any, any>;
+// Accepts both the typed server client and the untyped service-role client.
+// Bare SupabaseClient (default generics) keeps `.from()`/`.update()` permissive
+// without writing an explicit `any`.
+type AnyClient = SupabaseClient;
 
 /**
  * Drop-in wrapper for `rooms.update(patch).in("id", roomIds)`. Reads the old
@@ -116,7 +116,7 @@ async function recordChangeAndEmail(
   toV: string | null,
 ) {
   // 1. Log the event.
-  const { data: event, error: insErr } = await (supabase as any)
+  const { data: event, error: insErr } = await supabase
     .from("room_change_events")
     .insert({ room_id: roomId, field, from_value: fromV, to_value: toV })
     .select("id")
@@ -132,7 +132,7 @@ async function recordChangeAndEmail(
       )
       .eq("id", roomId)
       .maybeSingle(),
-    (supabase as any)
+    supabase
       .from("notification_recipients")
       .select("email")
       .eq("enabled", true),
@@ -185,7 +185,7 @@ async function recordChangeAndEmail(
     toV,
   });
 
-  await (supabase as any)
+  await supabase
     .from("room_change_events")
     .update({
       immediate_sent_at: result.ok ? new Date().toISOString() : null,
@@ -321,8 +321,8 @@ async function handleAvailableFromChange(
   const today = new Date().toISOString().slice(0, 10);
 
   // 1. Find the existing pending move-out cleaning for this room (if any).
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: existing } = await (supabase as any)
+   
+  const { data: existing } = await supabase
     .from("cleaning_records")
     .select("id, cleaning_date")
     .eq("room_id", roomId)
@@ -332,7 +332,7 @@ async function handleAvailableFromChange(
 
   let action: "scheduled" | "rescheduled" | "cancelled" | null = null;
   let cleaningDate: string | null = null;
-  let oldCleaningDate: string | null = existing?.cleaning_date ?? null;
+  const oldCleaningDate: string | null = existing?.cleaning_date ?? null;
 
   if (toDate) {
     // The move-out cleaning happens on the move-out date itself (the room's
@@ -340,15 +340,15 @@ async function handleAvailableFromChange(
     // property's regular 35-day cadence at availability_date + 35 once it passes.
     cleaningDate = toDate;
     if (existing) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      await (supabase as any)
+       
+      await supabase
         .from("cleaning_records")
         .update({ cleaning_date: cleaningDate })
         .eq("id", existing.id);
       action = existing.cleaning_date === cleaningDate ? null : "rescheduled";
     } else {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const { error: insErr } = await (supabase as any)
+       
+      const { error: insErr } = await supabase
         .from("cleaning_records")
         .insert({
           property_id: property.id,
@@ -361,8 +361,8 @@ async function handleAvailableFromChange(
     }
   } else if (existing) {
     // toDate is null and there's an existing scheduled move-out → cancel.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    await (supabase as any)
+     
+    await supabase
       .from("cleaning_records")
       .delete()
       .eq("id", existing.id);
@@ -372,8 +372,8 @@ async function handleAvailableFromChange(
   if (!action) return;
 
   // 2. Look up every cleaner assigned to this unit and email each of them.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: assignments } = await (supabase as any)
+   
+  const { data: assignments } = await supabase
     .from("property_cleaners")
     .select("cleaners(email, enabled)")
     .eq("property_id", property.id);
