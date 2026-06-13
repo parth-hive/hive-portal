@@ -58,13 +58,6 @@ export function MobileNav({
         </Link>
         <div className="flex items-center gap-1">
           <Link
-            href="/settings/notifications"
-            aria-label="Notifications"
-            className="rounded-lg p-2 text-ink hover:bg-warm hover:text-accent-text"
-          >
-            <NavIcon name="notifications" />
-          </Link>
-          <Link
             href="/settings"
             aria-label="Admin Settings"
             className="rounded-lg p-2 text-ink hover:bg-warm hover:text-accent-text"

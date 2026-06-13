@@ -26,6 +26,12 @@ const ADMIN_LINKS: AdminLink[] = [
     masterOnly: true,
   },
   {
+    href: "/settings/notifications",
+    title: "Notification settings",
+    description:
+      "Manage who gets emailed on room status and listing-action changes.",
+  },
+  {
     href: "/settings/audit-log",
     title: "Audit log",
     description: "Review every change made across the portal.",

@@ -88,14 +88,6 @@ export default async function AppLayout({
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-20 hidden items-center justify-end gap-3 border-b border-stone/60 bg-cream/90 px-10 py-3 backdrop-blur md:flex">
           <Link
-            href="/settings/notifications"
-            aria-label="Notifications"
-            title="Notifications"
-            className="rounded-lg p-2 text-ink transition hover:bg-warm hover:text-accent-text"
-          >
-            <NavIcon name="notifications" />
-          </Link>
-          <Link
             href="/settings"
             aria-label="Admin Settings"
             title="Admin Settings"
