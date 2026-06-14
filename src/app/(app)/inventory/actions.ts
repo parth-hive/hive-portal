@@ -7,7 +7,7 @@ import { updateRoomsWithNotification } from "@/lib/notifications";
 
 type Action = Database["public"]["Enums"]["listing_action"];
 const VALID: Action[] = [
-  "new_ad",
+  "no_action",
   "update_price_or_date",
   "delete_listing",
   "boost_post",
@@ -34,12 +34,29 @@ export async function setRoomAd(
   formData: FormData,
 ): Promise<AdFormState> {
   const ad_url = String(formData.get("ad_url") ?? "").trim() || null;
-  const ad_boosted = formData.get("ad_boosted") === "on";
 
   const supabase = await createClient();
+
+  // Whoever saves the URL is recorded as the ad's poster (snapshot of their
+  // name). Clear the poster when the URL is removed.
+  let ad_posted_by: string | null = null;
+  if (ad_url) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const meta = user?.user_metadata ?? {};
+    const name =
+      typeof meta.display_name === "string" && meta.display_name.trim()
+        ? meta.display_name.trim()
+        : typeof meta.full_name === "string" && meta.full_name.trim()
+          ? meta.full_name.trim()
+          : null;
+    ad_posted_by = name ?? user?.email ?? null;
+  }
+
   const { error } = await supabase
     .from("rooms")
-    .update({ ad_url, ad_boosted })
+    .update({ ad_url, ad_posted_by })
     .eq("id", roomId);
 
   if (error) return { error: error.message };
@@ -82,6 +99,81 @@ export async function setRoomRent(
   return undefined;
 }
 
+/** Edit the photos folder URL inline from the inventory table. */
+export async function setRoomPhotosUrl(
+  roomId: string,
+  url: string | null,
+): Promise<{ ok: true } | { error: string }> {
+  const value = url && url.trim() ? url.trim() : null;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("rooms")
+    .update({ photos_url: value })
+    .eq("id", roomId);
+  if (error) return { error: error.message };
+  revalidatePath("/inventory");
+  revalidatePath(`/inventory/${roomId}`);
+  return { ok: true };
+}
+
+export type AmenityValues = {
+  // Room-level (rooms table)
+  has_ac: boolean;
+  has_private_bathroom: boolean;
+  // Building-level (properties table — applies to every room in the unit)
+  has_gym: boolean;
+  has_elevator: boolean;
+  has_parking: boolean;
+  has_doorman: boolean;
+  has_rooftop: boolean;
+  has_lounge: boolean;
+  laundry_in_building: boolean;
+  in_unit_laundry: boolean;
+};
+
+/**
+ * Edit a room's amenities inline. Room-level flags save to the room; building
+ * amenities save to the parent property (and thus apply to all of its rooms).
+ */
+export async function setRoomAmenities(
+  roomId: string,
+  propertyId: string | null,
+  a: AmenityValues,
+): Promise<{ ok: true } | { error: string }> {
+  const supabase = await createClient();
+
+  const { error: roomErr } = await supabase
+    .from("rooms")
+    .update({
+      has_ac: a.has_ac,
+      has_private_bathroom: a.has_private_bathroom,
+    })
+    .eq("id", roomId);
+  if (roomErr) return { error: roomErr.message };
+
+  if (propertyId) {
+    const { error: propErr } = await supabase
+      .from("properties")
+      .update({
+        has_gym: a.has_gym,
+        has_elevator: a.has_elevator,
+        has_parking: a.has_parking,
+        has_doorman: a.has_doorman,
+        has_rooftop: a.has_rooftop,
+        has_lounge: a.has_lounge,
+        laundry_in_building: a.laundry_in_building,
+        in_unit_laundry: a.in_unit_laundry,
+      })
+      .eq("id", propertyId);
+    if (propErr) return { error: propErr.message };
+    revalidatePath(`/properties/${propertyId}`);
+  }
+
+  revalidatePath("/inventory");
+  revalidatePath(`/inventory/${roomId}`);
+  return { ok: true };
+}
+
 /** Edit base_rent inline from the inventory table. */
 export async function setRoomBaseRent(
   roomId: string,
@@ -117,6 +209,64 @@ export async function setRoomServicesFee(
   if (error) return { error: error.message };
   revalidatePath("/inventory");
   revalidatePath(`/inventory/${roomId}`);
+  return { ok: true };
+}
+
+/**
+ * Bring a room that isn't currently listed (reserved / maintenance, or
+ * occupied without an active tenancy) into the inventory by marking it
+ * available. Optionally schedule a future availability date.
+ */
+export async function makeRoomAvailable(
+  roomId: string,
+  availableFrom: string | null,
+): Promise<{ ok: true } | { error: string }> {
+  const value =
+    availableFrom && availableFrom.trim() ? availableFrom.trim() : null;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("rooms")
+    .update({ status: "available", available_from: value })
+    .eq("id", roomId);
+  if (error) return { error: error.message };
+  revalidatePath("/inventory");
+  revalidatePath(`/inventory/${roomId}`);
+  return { ok: true };
+}
+
+/**
+ * "Delete" a listing from inventory: flag the room pending_tenant so it drops
+ * off the Inventory table and surfaces on the Add Tenant page as a listing to
+ * fill. Reversible via restoreListing.
+ */
+export async function deleteListing(
+  roomId: string,
+): Promise<{ ok: true } | { error: string }> {
+  if (!roomId) return { error: "Missing room." };
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("rooms")
+    .update({ pending_tenant: true })
+    .eq("id", roomId);
+  if (error) return { error: error.message };
+  revalidatePath("/inventory");
+  revalidatePath("/tenants/new");
+  return { ok: true };
+}
+
+/** Undo a deleted listing — put the room back into the Inventory table. */
+export async function restoreListing(
+  roomId: string,
+): Promise<{ ok: true } | { error: string }> {
+  if (!roomId) return { error: "Missing room." };
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("rooms")
+    .update({ pending_tenant: false })
+    .eq("id", roomId);
+  if (error) return { error: error.message };
+  revalidatePath("/inventory");
+  revalidatePath("/tenants/new");
   return { ok: true };
 }
 

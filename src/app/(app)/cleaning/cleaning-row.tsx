@@ -24,12 +24,20 @@ const fieldInput =
 export function CleaningRow({
   record,
   properties,
+  cleaners = [],
   showProperty = true,
 }: {
   record: CleaningRowData;
   properties: PropertyOption[];
+  cleaners?: string[];
   showProperty?: boolean;
 }) {
+  // Keep any existing/legacy "cleaned by" value selectable even if that cleaner
+  // is no longer in the list.
+  const cleanerOptions =
+    record.assigned_to && !cleaners.includes(record.assigned_to)
+      ? [record.assigned_to, ...cleaners]
+      : cleaners;
   const [editing, setEditing] = useState(false);
   const boundUpdate = updateCleaning.bind(null, record.id) as (
     state: CleaningFormState,
@@ -92,12 +100,18 @@ export function CleaningRow({
               <span className="text-xs font-medium uppercase tracking-wide text-muted">
                 Cleaned by
               </span>
-              <input
-                type="text"
+              <select
                 name="assigned_to"
                 defaultValue={record.assigned_to ?? ""}
                 className={fieldInput}
-              />
+              >
+                <option value="">— unassigned —</option>
+                {cleanerOptions.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
             </label>
             <label className="flex flex-col gap-1.5 sm:col-span-2">
               <span className="text-xs font-medium uppercase tracking-wide text-muted">

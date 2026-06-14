@@ -1,11 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { one } from "@/lib/relations";
-import {
-  cleaningScheduleFor,
-  todayISO,
-  CLEANING_CADENCE_DAYS,
-} from "@/lib/cleaning";
+import { cleaningScheduleFor, todayISO } from "@/lib/cleaning";
 import { formatDate } from "@/lib/date";
 import { NavIcon } from "./nav-icons";
 
@@ -39,7 +35,7 @@ function monthBounds(monthIso: string): { start: string; end: string } {
 function dueForMonth(
   t: {
     start_date: string;
-    end_date: string | null;
+    move_out_date: string | null;
     monthly_rent: number;
     first_month_rent: number | null;
   },
@@ -47,7 +43,7 @@ function dueForMonth(
   monthEnd: string,
 ): number {
   if (t.start_date > monthEnd) return 0;
-  if (t.end_date && t.end_date < monthStart) return 0;
+  if (t.move_out_date && t.move_out_date < monthStart) return 0;
   const isStart = t.start_date >= monthStart && t.start_date <= monthEnd;
   if (isStart && t.first_month_rent !== null) return Number(t.first_month_rent);
   return Number(t.monthly_rent);
@@ -76,7 +72,8 @@ export default async function Dashboard() {
     supabase
       .from("rooms")
       .select(
-        `id, room_number, status, available_from, ad_url, listing_action,
+        `id, room_number, status, available_from, ad_url, ad_posted_by,
+         total_rent, pending_tenant, listing_action,
          properties(building_name, street_address, unit_number)`,
       ),
     supabase
@@ -86,9 +83,9 @@ export default async function Dashboard() {
     supabase
       .from("tenancies")
       .select(
-        `id, tenant_id, monthly_rent, first_month_rent, start_date, end_date, status,
+        `id, tenant_id, monthly_rent, first_month_rent, start_date, move_out_date, lease_end_date, status,
          rooms(room_number, properties(building_name, street_address, unit_number)),
-         tenants(full_name)`,
+         tenants(full_name, email, phone)`,
       )
       .eq("status", "active"),
     supabase
@@ -111,24 +108,31 @@ export default async function Dashboard() {
   type CleaningEntry = {
     property_id: string;
     label: string;
-    days: number | null;
-    status: "never" | "overdue" | "due_soon";
+    last: string | null;
+    next: string | null;
+    sinceLast: number | null; // days between last cleaning and today
   };
-  const cleaningWorklist: CleaningEntry[] = [];
-  for (const p of properties.data ?? []) {
-    const s = cleaningScheduleFor(lastByProperty.get(p.id) ?? null, today);
-    if (s.status === "never" || s.status === "overdue" || s.status === "due_soon") {
-      cleaningWorklist.push({
-        property_id: p.id,
-        label: unitLabel(p),
-        days: s.daysUntil,
-        status: s.status,
-      });
-    }
-  }
+  const todayMs = new Date(today + "T00:00:00").getTime();
+  const cleaningWorklist: CleaningEntry[] = (properties.data ?? []).map((p) => {
+    const last = lastByProperty.get(p.id) ?? null;
+    const s = cleaningScheduleFor(last, today);
+    const sinceLast = last
+      ? Math.round((todayMs - new Date(last + "T00:00:00").getTime()) / 86400000)
+      : null;
+    return {
+      property_id: p.id,
+      label: unitLabel(p),
+      last,
+      next: s.nextDue,
+      sinceLast,
+    };
+  });
+  // Soonest next cleaning first; never-cleaned units (no next date) last.
   cleaningWorklist.sort((a, b) => {
-    const order = { never: 0, overdue: 1, due_soon: 2 } as const;
-    return order[a.status] - order[b.status];
+    if (a.next === b.next) return 0;
+    if (!a.next) return 1;
+    if (!b.next) return -1;
+    return a.next < b.next ? -1 : 1;
   });
 
   // Rent worklist: active tenancies with this-month due > paid so far.
@@ -155,7 +159,8 @@ export default async function Dashboard() {
     monthly_rent: number;
     first_month_rent: number | null;
     start_date: string;
-    end_date: string | null;
+    move_out_date: string | null;
+    lease_end_date: string | null;
     rooms:
       | {
           room_number: string | null;
@@ -166,14 +171,17 @@ export default async function Dashboard() {
           properties: PropertyRel | PropertyRel[] | null;
         }[]
       | null;
-    tenants: { full_name: string } | { full_name: string }[] | null;
+    tenants:
+      | { full_name: string; email: string | null; phone: string | null }
+      | { full_name: string; email: string | null; phone: string | null }[]
+      | null;
   };
   const rentWorklist: RentEntry[] = [];
   for (const t of (tenancies.data ?? []) as TenancyRow[]) {
     const due = dueForMonth(
       {
         start_date: t.start_date,
-        end_date: t.end_date,
+        move_out_date: t.move_out_date,
         monthly_rent: t.monthly_rent,
         first_month_rent: t.first_month_rent,
       },
@@ -197,48 +205,66 @@ export default async function Dashboard() {
   }
   rentWorklist.sort((a, b) => b.outstanding - a.outstanding);
 
-  // Rooms with no ad (available now + listed status).
+  // Inventory list — rooms listable on /inventory (available now or scheduled).
   type RoomRow = {
     id: string;
     room_number: string | null;
     status: string;
     available_from: string | null;
     ad_url: string | null;
+    ad_posted_by: string | null;
+    total_rent: number | null;
+    pending_tenant: boolean;
     listing_action: string;
     properties: PropertyRel | PropertyRel[] | null;
   };
-  const adWorklist = ((rooms.data ?? []) as RoomRow[])
+  const inventoryList = ((rooms.data ?? []) as RoomRow[])
     .filter((r) => {
       const inInv =
         r.status === "available" ||
         (r.status === "occupied" && r.available_from && r.available_from >= today);
-      return inInv && !r.ad_url;
+      return inInv && !r.pending_tenant;
     })
     .map((r) => ({
       id: r.id,
       unit: unitLabel(one(r.properties)),
-      room: r.room_number ?? "Room",
+      room: (r.room_number ?? "").replace(/^room\s+/i, ""),
       available_from: r.available_from,
-    }));
+      total_rent: r.total_rent,
+      ad_posted_by: r.ad_posted_by,
+    }))
+    .sort((a, b) => {
+      if (!a.available_from && !b.available_from) return 0;
+      if (!a.available_from) return -1;
+      if (!b.available_from) return 1;
+      return a.available_from < b.available_from ? -1 : 1;
+    });
 
   // Tenancies ending soon (within 30 days).
   const in30Date = new Date(today + "T00:00:00");
   in30Date.setDate(in30Date.getDate() + 30);
   const in30 = in30Date.toISOString().slice(0, 10);
   const endingSoon = ((tenancies.data ?? []) as TenancyRow[])
-    .filter((t) => t.end_date && t.end_date >= today && t.end_date <= in30)
+    .filter(
+      (t) =>
+        t.lease_end_date &&
+        t.lease_end_date >= today &&
+        t.lease_end_date <= in30,
+    )
     .map((t) => {
       const room = one(t.rooms);
       const tenant = one(t.tenants);
       return {
         tenant_id: t.tenant_id,
         name: tenant?.full_name ?? "—",
+        email: tenant?.email ?? null,
+        phone: tenant?.phone ?? null,
         unit: unitLabel(one(room?.properties ?? null)),
-        room: room?.room_number ?? "Room",
-        end_date: t.end_date!,
+        room: (room?.room_number ?? "").replace(/^room\s+/i, ""),
+        lease_end_date: t.lease_end_date!,
       };
     })
-    .sort((a, b) => a.end_date.localeCompare(b.end_date));
+    .sort((a, b) => a.lease_end_date.localeCompare(b.lease_end_date));
 
   const totals = {
     properties: propertyCountRes.count ?? 0,
@@ -333,80 +359,243 @@ export default async function Dashboard() {
           )}
         </Worklist>
 
-        <Worklist
-          title="Rooms with no ad"
-          icon={<NavIcon name="inventory" />}
-          emptyText="Every listable room has an ad live."
-          countLabel={`${adWorklist.length} rooms`}
-          href="/inventory?filter=no_ad"
-        >
-          {adWorklist.slice(0, 8).map((r) => (
-            <WorklistRow
-              key={r.id}
-              href={`/inventory/${r.id}`}
-              primary={`${r.unit} · ${r.room}`}
-              secondary={
-                r.available_from ? `Opens ${formatDate(r.available_from)}` : "Available now"
-              }
-              right="Post ad"
-              rightTone="accent"
-            />
-          ))}
-          {adWorklist.length > 8 && (
-            <ShowMore href="/inventory?filter=no_ad" label={`+${adWorklist.length - 8} more`} />
+        <div className="rounded-2xl bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="flex items-center gap-2 text-sm font-medium uppercase tracking-wide text-muted">
+              <NavIcon name="inventory" />
+              Inventory
+            </h2>
+            <Link
+              href="/inventory"
+              className="text-xs uppercase tracking-wide text-muted hover:text-accent-text"
+            >
+              View all →
+            </Link>
+          </div>
+          {inventoryList.length === 0 ? (
+            <p className="mt-4 text-sm text-muted">
+              No listable rooms right now.
+            </p>
+          ) : (
+            <div className="mt-4 overflow-x-auto">
+              <table className="text-sm">
+                <thead className="text-left text-[11px] uppercase tracking-wide text-muted">
+                  <tr className="border-b border-stone/40">
+                    <th className="px-2 py-1.5 font-medium">Unit</th>
+                    <th className="px-2 py-1.5 font-medium">Room</th>
+                    <th className="px-2 py-1.5 font-medium">Availability</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Total Rent</th>
+                    <th className="px-2 py-1.5 font-medium">Who Posted</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {inventoryList.slice(0, 12).map((r) => (
+                    <tr
+                      key={r.id}
+                      className="border-b border-stone/20 last:border-0 hover:bg-warm/30"
+                    >
+                      <td className="px-2 py-1.5">
+                        <Link
+                          href={`/inventory/${r.id}`}
+                          className="text-accent-text hover:text-accent-dark"
+                        >
+                          {r.unit}
+                        </Link>
+                      </td>
+                      <td className="px-2 py-1.5 text-ink">{r.room || "—"}</td>
+                      <td className="px-2 py-1.5 text-ink">
+                        {r.available_from
+                          ? formatDate(r.available_from)
+                          : "Available now"}
+                      </td>
+                      <td className="px-2 py-1.5 text-right tabular-nums text-ink">
+                        {r.total_rent === null ? (
+                          <span className="text-muted">—</span>
+                        ) : (
+                          fmtMoney(r.total_rent)
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5 text-ink">
+                        {r.ad_posted_by?.trim() || (
+                          <span className="text-muted">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {inventoryList.length > 12 && (
+                <Link
+                  href="/inventory"
+                  className="mt-3 inline-block text-xs uppercase tracking-wide text-accent-text hover:text-accent-dark"
+                >
+                  +{inventoryList.length - 12} more
+                </Link>
+              )}
+            </div>
           )}
-        </Worklist>
+        </div>
 
-        <Worklist
-          title="Cleanings due"
-          icon={<NavIcon name="cleaning" />}
-          emptyText={`All units are on the ${CLEANING_CADENCE_DAYS}-day cadence.`}
-          countLabel={`${cleaningWorklist.length} units`}
-          href="/cleaning"
-        >
-          {cleaningWorklist.slice(0, 8).map((c) => {
-            const right =
-              c.status === "never"
-                ? "Never"
-                : c.status === "overdue"
-                  ? `Overdue ${Math.abs(c.days ?? 0)}d`
-                  : `In ${c.days}d`;
-            return (
-              <WorklistRow
-                key={c.property_id}
-                href={`/properties/${c.property_id}`}
-                primary={c.label}
-                right={right}
-                rightTone={c.status === "due_soon" ? "accent" : "warn"}
-              />
-            );
-          })}
-          {cleaningWorklist.length > 8 && (
-            <ShowMore href="/cleaning" label={`+${cleaningWorklist.length - 8} more`} />
+        <div className="rounded-2xl bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="flex items-center gap-2 text-sm font-medium uppercase tracking-wide text-muted">
+              <NavIcon name="cleaning" />
+              Upcoming cleaning
+            </h2>
+            <Link
+              href="/cleaning"
+              className="text-xs uppercase tracking-wide text-muted hover:text-accent-text"
+            >
+              View all →
+            </Link>
+          </div>
+          {cleaningWorklist.length === 0 ? (
+            <p className="mt-4 text-sm text-muted">No units yet.</p>
+          ) : (
+            <div className="mt-4 overflow-x-auto">
+              <table className="text-sm">
+                <thead className="text-left text-[11px] uppercase tracking-wide text-muted">
+                  <tr className="border-b border-stone/40">
+                    <th className="px-2 py-1.5 font-medium">Unit</th>
+                    <th className="px-2 py-1.5 font-medium">Last Cleaned</th>
+                    <th className="px-2 py-1.5 font-medium">Next Cleaning</th>
+                    <th className="px-2 py-1.5 text-right font-medium">Counter</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {cleaningWorklist.slice(0, 12).map((c) => {
+                    const overdue = c.next !== null && c.next < today;
+                    return (
+                      <tr
+                        key={c.property_id}
+                        className="border-b border-stone/20 last:border-0 hover:bg-warm/30"
+                      >
+                        <td className="px-2 py-1.5">
+                          <Link
+                            href={`/properties/${c.property_id}`}
+                            className="text-accent-text hover:text-accent-dark"
+                          >
+                            {c.label}
+                          </Link>
+                        </td>
+                        <td className="px-2 py-1.5 text-ink">
+                          {c.last ? formatDate(c.last) : <span className="text-muted">—</span>}
+                        </td>
+                        <td className={`px-2 py-1.5 ${overdue ? "text-red-700" : "text-ink"}`}>
+                          {c.next ? formatDate(c.next) : <span className="text-muted">—</span>}
+                        </td>
+                        <td className="px-2 py-1.5 text-right tabular-nums text-ink">
+                          {c.sinceLast === null ? (
+                            <span className="text-muted">—</span>
+                          ) : (
+                            `${c.sinceLast}d`
+                          )}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+              {cleaningWorklist.length > 12 && (
+                <Link
+                  href="/cleaning"
+                  className="mt-3 inline-block text-xs uppercase tracking-wide text-accent-text hover:text-accent-dark"
+                >
+                  +{cleaningWorklist.length - 12} more
+                </Link>
+              )}
+            </div>
           )}
-        </Worklist>
+        </div>
 
-        <Worklist
-          title="Tenancies ending soon"
-          icon={<IconCalendar />}
-          emptyText="No moves planned in the next 30 days."
-          countLabel={`${endingSoon.length} moves`}
-          href="/tenants"
-        >
-          {endingSoon.slice(0, 8).map((t, i) => (
-            <WorklistRow
-              key={`${t.tenant_id}-${i}`}
-              href={`/tenants/${t.tenant_id}`}
-              primary={t.name}
-              secondary={`${t.unit} · ${t.room}`}
-              right={formatDate(t.end_date)}
-              rightTone="muted"
-            />
-          ))}
-          {endingSoon.length > 8 && (
-            <ShowMore href="/tenants" label={`+${endingSoon.length - 8} more`} />
+        <div className="rounded-2xl bg-white p-5 shadow-sm">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="flex items-center gap-2 text-sm font-medium uppercase tracking-wide text-muted">
+              <IconCalendar />
+              Tenancies ending soon
+            </h2>
+            <Link
+              href="/tenants"
+              className="text-xs uppercase tracking-wide text-muted hover:text-accent-text"
+            >
+              View all →
+            </Link>
+          </div>
+          {endingSoon.length === 0 ? (
+            <p className="mt-4 text-sm text-muted">
+              No moves planned in the next 30 days.
+            </p>
+          ) : (
+            <div className="mt-4 overflow-x-auto">
+              <table className="text-sm">
+                <thead className="text-left text-[11px] uppercase tracking-wide text-muted">
+                  <tr className="border-b border-stone/40">
+                    <th className="px-2 py-1.5 font-medium">Unit</th>
+                    <th className="px-2 py-1.5 font-medium">Room</th>
+                    <th className="px-2 py-1.5 font-medium">Tenant</th>
+                    <th className="px-2 py-1.5 font-medium">Lease end</th>
+                    <th className="px-2 py-1.5 font-medium">Email</th>
+                    <th className="px-2 py-1.5 font-medium">Phone</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {endingSoon.slice(0, 12).map((t, i) => (
+                    <tr
+                      key={`${t.tenant_id}-${i}`}
+                      className="border-b border-stone/20 last:border-0 hover:bg-warm/30"
+                    >
+                      <td className="px-2 py-1.5 text-ink">{t.unit}</td>
+                      <td className="px-2 py-1.5 text-ink">{t.room || "—"}</td>
+                      <td className="px-2 py-1.5">
+                        <Link
+                          href={`/tenants/${t.tenant_id}`}
+                          className="text-accent-text hover:text-accent-dark"
+                        >
+                          {t.name}
+                        </Link>
+                      </td>
+                      <td className="px-2 py-1.5 text-ink">
+                        {formatDate(t.lease_end_date)}
+                      </td>
+                      <td className="px-2 py-1.5">
+                        {t.email ? (
+                          <a
+                            href={`mailto:${t.email}`}
+                            className="text-accent-text hover:text-accent-dark"
+                          >
+                            {t.email}
+                          </a>
+                        ) : (
+                          <span className="text-muted">—</span>
+                        )}
+                      </td>
+                      <td className="px-2 py-1.5">
+                        {t.phone ? (
+                          <a
+                            href={`tel:${t.phone}`}
+                            className="text-accent-text hover:text-accent-dark"
+                          >
+                            {t.phone}
+                          </a>
+                        ) : (
+                          <span className="text-muted">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+              {endingSoon.length > 12 && (
+                <Link
+                  href="/tenants"
+                  className="mt-3 inline-block text-xs uppercase tracking-wide text-accent-text hover:text-accent-dark"
+                >
+                  +{endingSoon.length - 12} more
+                </Link>
+              )}
+            </div>
           )}
-        </Worklist>
+        </div>
       </section>
     </div>
   );

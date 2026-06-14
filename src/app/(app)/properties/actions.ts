@@ -19,6 +19,7 @@ type ParsedForm = {
   has_parking: boolean;
   has_doorman: boolean;
   has_rooftop: boolean;
+  has_lounge: boolean;
   laundry_in_building: boolean;
   in_unit_laundry: boolean;
   amenities_notes: string | null;
@@ -58,6 +59,7 @@ function parseForm(formData: FormData): ParsedForm | { error: string } {
     has_parking: formData.get("has_parking") === "on",
     has_doorman: formData.get("has_doorman") === "on",
     has_rooftop: formData.get("has_rooftop") === "on",
+    has_lounge: formData.get("has_lounge") === "on",
     laundry_in_building: formData.get("laundry_in_building") === "on",
     in_unit_laundry: formData.get("in_unit_laundry") === "on",
     amenities_notes: strOrNull("amenities_notes"),

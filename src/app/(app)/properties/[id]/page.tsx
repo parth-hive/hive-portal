@@ -38,13 +38,14 @@ export default async function PropertyDetailPage({ params }: PageProps) {
     { data: cleanings },
     { data: credentials },
     { data: residents },
+    { data: propertyCleaners },
   ] = await Promise.all([
     supabase
       .from("properties")
       .select(
         `id, building_name, street_address, unit_number, cross_street,
          neighborhood, bedrooms, bathrooms,
-         has_gym, has_elevator, has_parking, has_doorman, has_rooftop,
+         has_gym, has_elevator, has_parking, has_doorman, has_rooftop, has_lounge,
          laundry_in_building, in_unit_laundry,
          amenities_notes, notes,
          leaseholders(id, name)`,
@@ -81,9 +82,26 @@ export default async function PropertyDetailPage({ params }: PageProps) {
       )
       .eq("rooms.property_id", id)
       .eq("status", "active"),
+    // Cleaners assigned to this property — to populate the "Cleaned by" dropdown.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any)
+      .from("property_cleaners")
+      .select("cleaners(name, enabled)")
+      .eq("property_id", id),
   ]);
 
   if (!property) notFound();
+
+  type CleanerRel = { name: string; enabled: boolean };
+  const cleanerNames = (
+    (propertyCleaners ?? []) as Array<{
+      cleaners: CleanerRel | CleanerRel[] | null;
+    }>
+  )
+    .map((pc) => one(pc.cleaners))
+    .filter((c): c is CleanerRel => !!c && c.enabled !== false)
+    .map((c) => c.name)
+    .filter((n): n is string => !!n);
 
   const title = property.building_name?.trim() || property.street_address;
   const leaseholder = one(property.leaseholders);
@@ -94,6 +112,7 @@ export default async function PropertyDetailPage({ params }: PageProps) {
     { label: "Parking", on: property.has_parking },
     { label: "Doorman", on: property.has_doorman },
     { label: "Rooftop", on: property.has_rooftop },
+    { label: "Lounge", on: property.has_lounge },
     { label: "Laundry in building", on: property.laundry_in_building },
     { label: "In-unit laundry", on: property.in_unit_laundry },
   ];
@@ -239,6 +258,7 @@ export default async function PropertyDetailPage({ params }: PageProps) {
           <AddCleaning
             properties={propertyOptions}
             defaultPropertyId={property.id}
+            cleaners={cleanerNames}
           />
         </header>
 
@@ -290,6 +310,7 @@ export default async function PropertyDetailPage({ params }: PageProps) {
                 key={r.id}
                 record={r}
                 properties={propertyOptions}
+                cleaners={cleanerNames}
                 showProperty={false}
               />
             ))}

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { one } from "@/lib/relations";
+import { todayISO } from "@/lib/date";
 import {
   parseBankFile,
   parseOtherFile,
@@ -105,7 +106,7 @@ export async function runReconciliation(
     tenant_id: string;
     monthly_rent: number;
     start_date: string;
-    end_date: string | null;
+    move_out_date: string | null;
     tenants: TenantRel | TenantRel[] | null;
     rooms: RoomRel | RoomRel[] | null;
   };
@@ -113,14 +114,14 @@ export async function runReconciliation(
   const { data: tenancies, error: tErr } = await supabase
     .from("tenancies")
     .select(
-      `id, tenant_id, monthly_rent, start_date, end_date,
+      `id, tenant_id, monthly_rent, start_date, move_out_date,
        tenants(id, full_name, pays_as),
        rooms(room_number,
              properties(building_name, street_address, unit_number))`,
     )
     .eq("status", "active")
     .lte("start_date", end)
-    .or(`end_date.is.null,end_date.gte.${start}`)
+    .or(`move_out_date.is.null,move_out_date.gte.${start}`)
     .returns<TenancyRow[]>();
 
   if (tErr) return { error: `Failed to load tenancies: ${tErr.message}` };
@@ -323,7 +324,7 @@ export async function postPayments(formData: FormData) {
     return;
   }
 
-  const stamp = new Date().toISOString().slice(0, 10);
+  const stamp = todayISO();
 
   // For each matched deposit:
   //   1) try to insert a payments row with external_ref = the deposit's

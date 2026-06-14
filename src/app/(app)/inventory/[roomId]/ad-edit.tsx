@@ -10,11 +10,9 @@ const fieldInput =
 export function AdEdit({
   roomId,
   adUrl,
-  adBoosted,
 }: {
   roomId: string;
   adUrl: string | null;
-  adBoosted: boolean;
 }) {
   const bound = setRoomAd.bind(null, roomId) as (
     state: AdFormState,
@@ -42,7 +40,7 @@ export function AdEdit({
           </a>
         )}
       </div>
-      <form action={action} className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto_auto] sm:items-end">
+      <form action={action} className="mt-4 grid gap-3 sm:grid-cols-[1fr_auto] sm:items-end">
         <label className="flex flex-col gap-1.5">
           <span className={fieldLabel}>Ad URL</span>
           <input
@@ -52,15 +50,6 @@ export function AdEdit({
             placeholder="https://www.facebook.com/marketplace/item/…"
             className={fieldInput}
           />
-        </label>
-        <label className="flex items-center gap-2 rounded-lg border border-stone bg-white px-3 py-2 text-sm text-ink">
-          <input
-            type="checkbox"
-            name="ad_boosted"
-            defaultChecked={adBoosted}
-            className="accent-accent"
-          />
-          Boosted
         </label>
         <button
           type="submit"

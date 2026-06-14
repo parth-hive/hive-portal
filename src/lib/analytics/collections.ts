@@ -11,6 +11,7 @@
 
 import { createClient } from "@/lib/supabase/server";
 import { one } from "@/lib/relations";
+import { todayISO } from "@/lib/date";
 
 export type CollectionRow = {
   month: string; // "YYYY-MM"
@@ -44,8 +45,7 @@ function monthBoundsLocal(yyyymm: string): { start: string; end: string } {
 }
 
 function todayMonth(): string {
-  const d = new Date();
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  return todayISO().slice(0, 7);
 }
 
 function monthOf(iso: string): string {
@@ -72,7 +72,7 @@ function listMonths(startISO: string, endISO: string): string[] {
 type TenancyForMonth = {
   id: string;
   start_date: string;
-  end_date: string | null;
+  move_out_date: string | null;
   monthly_rent: number;
   first_month_rent: number | null;
 };
@@ -80,7 +80,7 @@ type TenancyForMonth = {
 function dueForMonth(t: TenancyForMonth, monthStart: string, monthEnd: string): number {
   // Tenancy doesn't overlap the month.
   if (t.start_date > monthEnd) return 0;
-  if (t.end_date && t.end_date < monthStart) return 0;
+  if (t.move_out_date && t.move_out_date < monthStart) return 0;
   const isStartingMonth =
     t.start_date >= monthStart && t.start_date <= monthEnd;
   if (isStartingMonth && t.first_month_rent !== null) {
@@ -102,7 +102,7 @@ async function loadFilteredHistory(propertyIds?: string[]) {
 
     const { data: tenancies } = await supabase
       .from("tenancies")
-      .select("id, start_date, end_date, monthly_rent, first_month_rent")
+      .select("id, start_date, move_out_date, monthly_rent, first_month_rent")
       .in("room_id", roomIds);
 
     const tenancyIds = (tenancies ?? []).map((t) => t.id);
@@ -121,7 +121,7 @@ async function loadFilteredHistory(propertyIds?: string[]) {
   const [{ data: tenancies }, { data: payments }] = await Promise.all([
     supabase
       .from("tenancies")
-      .select("id, start_date, end_date, monthly_rent, first_month_rent"),
+      .select("id, start_date, move_out_date, monthly_rent, first_month_rent"),
     supabase
       .from("payments")
       .select("amount, paid_on")
@@ -185,9 +185,9 @@ export async function getMonthlyCollections(
 export async function getCollectionSummary(
   propertyIds?: string[],
 ): Promise<CollectionSummary> {
-  const today = new Date();
-  const year = today.getUTCFullYear();
-  const thisMonth = `${year}-${String(today.getUTCMonth() + 1).padStart(2, "0")}`;
+  const today = todayISO();
+  const year = today.slice(0, 4);
+  const thisMonth = today.slice(0, 7);
   const ytdStart = `${year}-01-01`;
 
   const { tenancies, payments } = await loadFilteredHistory(propertyIds);

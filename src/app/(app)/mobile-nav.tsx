@@ -10,9 +10,11 @@ type NavItem = { href: string; label: string; icon: NavIconName };
 export function MobileNav({
   items,
   userEmail,
+  userName,
 }: {
   items: NavItem[];
   userEmail: string | null;
+  userName?: string | null;
 }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
@@ -121,9 +123,12 @@ export function MobileNav({
                 );
               })}
             </nav>
-            {userEmail && (
+            {(userName || userEmail) && (
               <div className="mt-auto px-3 pt-6 text-xs text-ink/80">
-                <p className="truncate">{userEmail}</p>
+                {userName && (
+                  <p className="truncate font-medium text-ink">{userName}</p>
+                )}
+                {userEmail && <p className="truncate text-ink/60">{userEmail}</p>}
               </div>
             )}
           </aside>

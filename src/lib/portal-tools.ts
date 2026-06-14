@@ -10,6 +10,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { updateRoomsWithNotification } from "@/lib/notifications";
+import { todayISO } from "@/lib/date";
 
 function admin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -17,10 +18,6 @@ function admin() {
   return createClient(url, key, {
     auth: { persistSession: false, autoRefreshToken: false },
   });
-}
-
-function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
 }
 
 function monthBounds(yyyymm: string): { start: string; end: string } {
@@ -92,7 +89,7 @@ export async function getProperty(id: string) {
     .select(
       `id, room_number, has_ac, has_private_bathroom, base_rent, bundle_fee,
        total_rent, status, available_from, listing_action,
-       tenancies!left(id, status, monthly_rent, start_date, end_date,
+       tenancies!left(id, status, monthly_rent, start_date, move_out_date,
                       tenants(id, full_name, email, phone))`,
     )
     .eq("property_id", id);
@@ -140,7 +137,7 @@ export async function getProperty(id: string) {
               phone: tenant.phone,
               tenancy_id: active.id,
               monthly_rent: active.monthly_rent,
-              end_date: active.end_date,
+              move_out_date: active.move_out_date,
             }
           : null,
       };
@@ -188,10 +185,7 @@ export async function listActiveTenants(args: {
   only_overdue?: boolean;
 }) {
   const supabase = admin();
-  const now = new Date();
-  const yyyymm =
-    args.month ??
-    `${now.getUTCFullYear()}-${String(now.getUTCMonth() + 1).padStart(2, "0")}`;
+  const yyyymm = args.month ?? todayISO().slice(0, 7);
   const { start, end } = monthBounds(yyyymm);
 
   const { data, error } = await supabase
@@ -390,7 +384,7 @@ export async function logCleaning(args: {
 export async function setListingAction(args: {
   room_id: string;
   action:
-    | "new_ad"
+    | "no_action"
     | "update_price_or_date"
     | "delete_listing"
     | "boost_post"
@@ -422,11 +416,11 @@ export async function updateRoomRent(args: {
 
 export async function endTenancy(args: {
   tenancy_id: string;
-  end_date: string;
+  move_out_date: string;
 }) {
   const supabase = admin();
   const today = todayISO();
-  const isPastOrToday = args.end_date <= today;
+  const isPastOrToday = args.move_out_date <= today;
 
   const { data: tenancy, error: lookupErr } = await supabase
     .from("tenancies")
@@ -440,19 +434,18 @@ export async function endTenancy(args: {
   await supabase
     .from("tenancies")
     .update({
-      end_date: args.end_date,
+      move_out_date: args.move_out_date,
       status: isPastOrToday ? "ended" : "active",
     })
     .eq("id", args.tenancy_id);
 
   if (tenancy.room_id) {
-    // Re-entering the vacancy queue — reset the VA workflow flag so the
-    // room shows up as a fresh "Create new ad" instead of inheriting the
-    // previous tenancy's color.
+    // Re-entering the vacancy queue — reset the VA workflow flag to "no action"
+    // so the room doesn't inherit the previous tenancy's color.
     await updateRoomsWithNotification(supabase, tenancy.room_id, {
       status: isPastOrToday ? "available" : "occupied",
-      available_from: args.end_date,
-      listing_action: "new_ad",
+      available_from: args.move_out_date,
+      listing_action: "no_action",
     });
   }
 
@@ -586,7 +579,7 @@ export const tools = [
     inputSchema: z.object({
       room_id: z.string(),
       action: z.enum([
-        "new_ad",
+        "no_action",
         "update_price_or_date",
         "delete_listing",
         "boost_post",
@@ -608,12 +601,12 @@ export const tools = [
   betaZodTool({
     name: "end_tenancy",
     description:
-      "Set a tenancy's end_date. Past/today → tenancy ends, room becomes Available. " +
+      "Set a tenancy's move_out_date. Past/today → tenancy ends, room becomes Available. " +
       "Future date → tenancy stays Active until that day, room stays Occupied, but " +
       "rooms.available_from is set so the room appears on Inventory as 'Available from X'.",
     inputSchema: z.object({
       tenancy_id: z.string(),
-      end_date: z.string().describe('"YYYY-MM-DD"'),
+      move_out_date: z.string().describe('"YYYY-MM-DD"'),
     }),
     run: async (args) => JSON.stringify(await endTenancy(args)),
   }),

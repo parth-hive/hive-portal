@@ -1,4 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
+import { todayISO } from "@/lib/date";
 
 type SupabaseServer = Awaited<ReturnType<typeof createClient>>;
 
@@ -39,13 +40,13 @@ export async function getReminderInfo(
   const m = now.getMonth();
   const monthStart = new Date(y, m, 1).toISOString().slice(0, 10);
   const monthEnd = new Date(y, m + 1, 0).toISOString().slice(0, 10);
-  const today = now.toISOString().slice(0, 10);
+  const today = todayISO();
 
   type ReminderTenancy = {
     monthly_rent: number;
     first_month_rent: number | null;
     start_date: string;
-    end_date: string | null;
+    move_out_date: string | null;
     payments: { amount: number; paid_on: string; payment_type: string }[];
   };
 
@@ -54,7 +55,7 @@ export async function getReminderInfo(
       supabase
         .from("tenancies")
         .select(
-          `monthly_rent, first_month_rent, start_date, end_date,
+          `monthly_rent, first_month_rent, start_date, move_out_date,
            payments(amount, paid_on, payment_type)`,
         )
         .eq("status", "active")
@@ -78,7 +79,7 @@ export async function getReminderInfo(
 
   let outstandingCount = 0;
   for (const row of tenancies ?? []) {
-    if (row.end_date && row.end_date <= today) continue;
+    if (row.move_out_date && row.move_out_date <= today) continue;
     if (row.start_date > monthEnd) continue;
     const isStartingMonth =
       row.start_date >= monthStart && row.start_date <= monthEnd;

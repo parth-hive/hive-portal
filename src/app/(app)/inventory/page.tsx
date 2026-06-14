@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { one } from "@/lib/relations";
-import { formatDate } from "@/lib/date";
+import { formatDate, todayISO } from "@/lib/date";
 import { processExpiredTenancies } from "../tenants/actions";
 import { CopyListing } from "./copy-listing";
 import { ListingActionSelector } from "./listing-action";
@@ -9,7 +9,11 @@ import {
   InlineBaseRentEdit,
   InlineServicesEdit,
   InlineDateEdit,
+  InlinePhotosEdit,
 } from "./inline-edit";
+import { InlineAmenitiesEdit } from "./amenities-edit";
+import { AddInventory, type AddableRoom } from "./add-inventory";
+import { DeleteListingButton } from "./delete-listing";
 import {
   ACTION_BORDER,
   ACTION_LABELS,
@@ -31,15 +35,16 @@ type PropertyRel = {
   has_parking: boolean;
   has_doorman: boolean;
   has_rooftop: boolean;
+  has_lounge: boolean;
   laundry_in_building: boolean;
   in_unit_laundry: boolean;
 };
 
-type TenantRel = { full_name: string };
+type TenantRel = { id: string; full_name: string };
 type TenancyRel = {
   status: "active" | "ended" | "upcoming";
   start_date: string;
-  end_date: string | null;
+  move_out_date: string | null;
   tenants: TenantRel | TenantRel[] | null;
 };
 
@@ -58,6 +63,7 @@ type Row = {
   listing_action: Action;
   ad_url: string | null;
   ad_boosted: boolean;
+  ad_posted_by: string | null;
   properties: PropertyRel | PropertyRel[] | null;
   tenancies: TenancyRel[] | null;
 };
@@ -67,14 +73,14 @@ function fmtMoney(n: number | null) {
   return `$${n.toLocaleString()}`;
 }
 
-const todayStr = () => new Date().toISOString().slice(0, 10);
+const todayStr = () => todayISO();
 
 type FilterKey =
   | "now"
   | "upcoming"
   | "no_ad"
   | "boosted"
-  | "new_ad"
+  | "no_action"
   | "update_price_or_date"
   | "delete_listing"
   | "boost_post"
@@ -86,7 +92,7 @@ function isFilterKey(v: string | undefined): v is FilterKey {
     v === "upcoming" ||
     v === "no_ad" ||
     v === "boosted" ||
-    v === "new_ad" ||
+    v === "no_action" ||
     v === "update_price_or_date" ||
     v === "delete_listing" ||
     v === "boost_post" ||
@@ -132,19 +138,78 @@ export default async function InventoryPage({ searchParams }: PageProps) {
     .select(
       `id, room_number, base_rent, bundle_fee, total_rent, available_from, status,
        marketing_description, photos_url, has_ac, has_private_bathroom,
-       listing_action, ad_url, ad_boosted,
+       listing_action, ad_url, ad_boosted, ad_posted_by,
        properties(id, building_name, street_address, unit_number, neighborhood,
-                  has_gym, has_elevator, has_parking, has_doorman, has_rooftop,
+                  has_gym, has_elevator, has_parking, has_doorman, has_rooftop, has_lounge,
                   laundry_in_building, in_unit_laundry),
-       tenancies(status, start_date, end_date, tenants(full_name))`,
+       tenancies(status, start_date, move_out_date, tenants(id, full_name))`,
     )
     .or(
       `status.eq.available,and(status.eq.occupied,available_from.gte.${today})`,
     )
+    .eq("pending_tenant", false)
     .order("available_from", { ascending: true, nullsFirst: true })
     .returns<Row[]>();
 
   const rooms = data ?? [];
+
+  // Rooms that aren't currently listed — candidates for "+ Add Inventory".
+  // Anything not matching the inventory filter above: reserved/maintenance, or
+  // occupied with no scheduled move-out (a "filled" room).
+  type AddableRow = {
+    id: string;
+    room_number: string | null;
+    status: "occupied" | "available" | "reserved" | "maintenance";
+    available_from: string | null;
+    pending_tenant: boolean;
+    properties:
+      | { building_name: string | null; street_address: string; unit_number: string }
+      | { building_name: string | null; street_address: string; unit_number: string }[]
+      | null;
+    tenancies:
+      | {
+          id: string;
+          status: "active" | "ended" | "upcoming";
+          tenant_id: string | null;
+          tenants: { full_name: string } | { full_name: string }[] | null;
+        }[]
+      | null;
+  };
+  const { data: allRoomsData } = await supabase
+    .from("rooms")
+    .select(
+      `id, room_number, status, available_from, pending_tenant,
+       properties(building_name, street_address, unit_number),
+       tenancies(id, status, tenant_id, tenants(full_name))`,
+    )
+    .order("room_number", { ascending: true })
+    .returns<AddableRow[]>();
+
+  const inInventory = (status: string, af: string | null) =>
+    status === "available" ||
+    (status === "occupied" && af !== null && af >= today);
+
+  const addableRooms: AddableRoom[] = (allRoomsData ?? [])
+    .filter((r) => !r.pending_tenant && !inInventory(r.status, r.available_from))
+    .map((r) => {
+      const pr = one(r.properties);
+      const unit = pr
+        ? `${pr.building_name?.trim() || pr.street_address} Apt ${pr.unit_number}`
+        : "—";
+      const roomNum = r.room_number?.replace(/^room\s+/i, "") ?? "";
+      const active = (r.tenancies ?? []).find((t) => t.status === "active");
+      return {
+        id: r.id,
+        label: roomNum ? `${unit} · Room ${roomNum}` : unit,
+        status: r.status,
+        tenancyId: active?.id ?? null,
+        tenantId: active?.tenant_id ?? null,
+        tenantName: active ? one(active.tenants)?.full_name ?? null : null,
+      };
+    })
+    .sort((a, b) =>
+      a.label.localeCompare(b.label, undefined, { numeric: true }),
+    );
 
   const counts = {
     total: rooms.length,
@@ -166,14 +231,32 @@ export default async function InventoryPage({ searchParams }: PageProps) {
 
   return (
     <div className="mx-auto w-full max-w-7xl">
-      <header className="border-b border-stone/60 pb-4">
-        <h1 className="text-3xl tracking-tight text-ink">
-          <span className="font-display text-accent-text">Inventory</span>
-        </h1>
-        <p className="mt-1 text-sm text-muted">
-          Rooms you can list right now — available today, and scheduled to open
-          up.
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-stone/60 pb-4">
+        <div>
+          <h1 className="text-3xl tracking-tight text-ink">
+            <span className="font-display text-accent-text">Inventory</span>
+          </h1>
+          <p className="mt-1 text-sm text-muted">
+            Rooms you can list right now — available today, and scheduled to open
+            up.
+          </p>
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <a
+            href="/inventory/export-full"
+            download
+            className="rounded-full border border-stone bg-white px-4 py-2 text-sm font-medium text-ink shadow-sm transition hover:border-accent hover:text-accent-text"
+          >
+            ↓ Download Sheet
+          </a>
+          <a
+            href="/inventory/export"
+            download
+            className="rounded-full border border-stone bg-white px-4 py-2 text-sm font-medium text-ink shadow-sm transition hover:border-accent hover:text-accent-text"
+          >
+            ↓ Download Shareable Sheet
+          </a>
+        </div>
       </header>
 
       <section className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
@@ -269,9 +352,11 @@ export default async function InventoryPage({ searchParams }: PageProps) {
         <div className="mt-4 overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-stone/40">
           <table className="w-full min-w-[1400px] text-sm">
             <thead className="sticky top-0 z-10 bg-warm/60 text-left text-[11px] uppercase tracking-wide text-muted">
-              <tr>
+              <tr className="divide-x divide-stone/40">
+                <th className="w-10" />
                 <th className="w-1.5" />
                 <th className="px-3 py-2 font-medium">Unit</th>
+                <th className="px-3 py-2 font-medium">Neighborhood</th>
                 <th className="px-3 py-2 font-medium">Room</th>
                 <th className="px-3 py-2 font-medium">Available</th>
                 <th className="px-3 py-2 text-right font-medium">Rent</th>
@@ -282,6 +367,7 @@ export default async function InventoryPage({ searchParams }: PageProps) {
                 <th className="px-3 py-2 font-medium">Tenant</th>
                 <th className="px-3 py-2 font-medium">Listing action</th>
                 <th className="px-3 py-2 font-medium">Ad</th>
+                <th className="px-3 py-2 font-medium">Ad Posted</th>
                 <th className="px-3 py-2 text-right font-medium" />
               </tr>
             </thead>
@@ -293,6 +379,10 @@ export default async function InventoryPage({ searchParams }: PageProps) {
           </table>
         </div>
       )}
+
+      <div className="mt-6 flex justify-center">
+        <AddInventory rooms={addableRooms} today={today} />
+      </div>
     </div>
   );
 }
@@ -352,32 +442,34 @@ function InventoryRow({
     .slice()
     .sort((a, b) => (a.start_date < b.start_date ? 1 : -1));
   const activeOutgoing = tenancies.find(
-    (t) => t.status === "active" && t.end_date,
+    (t) => t.status === "active" && t.move_out_date,
   );
   const previous = tenancies.find((t) => t.status === "ended");
   const featured = activeOutgoing ?? previous;
-  const featuredTenantName = featured
-    ? one(featured.tenants)?.full_name ?? null
-    : null;
-  const featuredLabel = activeOutgoing ? "Out" : "Prev";
+  const featuredTenant = featured ? one(featured.tenants) : null;
 
   return (
     <tr
-      className={`border-t border-stone/30 ${striped ? "bg-cream/40" : "bg-white"} hover:bg-warm/30`}
+      className={`divide-x divide-stone/30 border-t border-stone/30 ${striped ? "bg-cream/40" : "bg-white"} hover:bg-warm/30`}
     >
+      <td className="px-2 py-2.5 text-center align-middle">
+        <DeleteListingButton roomId={room.id} label={unitTitle} />
+      </td>
       <td className={`w-1.5 p-0 ${ACTION_BORDER[room.listing_action].replace("border-l-", "bg-")}`} />
       <td className="px-3 py-2.5">
         <Link
           href={`/inventory/${room.id}`}
-          className="text-ink hover:text-accent-text"
+          className="font-medium text-accent-text underline decoration-accent/40 underline-offset-2 hover:text-accent-dark hover:decoration-accent-dark"
         >
           {unitTitle}
         </Link>
-        {p?.neighborhood && (
-          <div className="text-[11px] text-muted">{p.neighborhood}</div>
-        )}
       </td>
-      <td className="px-3 py-2.5 text-ink">{room.room_number ?? "—"}</td>
+      <td className="px-3 py-2.5 text-[12px] text-ink">
+        {p?.neighborhood || <span className="text-muted">—</span>}
+      </td>
+      <td className="px-3 py-2.5 text-ink">
+        {room.room_number?.replace(/^room\s+/i, "") || "—"}
+      </td>
       <td className="px-2 py-1.5">
         <InlineDateEdit roomId={room.id} date={room.available_from} />
       </td>
@@ -390,29 +482,37 @@ function InventoryRow({
       <td className="px-3 py-1.5 text-right tabular-nums font-medium text-ink">
         {fmtMoney(room.total_rent)}
       </td>
-      <td className="px-3 py-2.5">
-        <Amenities room={room} property={p} />
+      <td className="px-3 py-1.5">
+        <InlineAmenitiesEdit
+          roomId={room.id}
+          propertyId={p?.id ?? null}
+          values={{
+            has_ac: room.has_ac,
+            has_private_bathroom: room.has_private_bathroom,
+            has_gym: p?.has_gym ?? false,
+            has_elevator: p?.has_elevator ?? false,
+            has_parking: p?.has_parking ?? false,
+            has_doorman: p?.has_doorman ?? false,
+            has_rooftop: p?.has_rooftop ?? false,
+            has_lounge: p?.has_lounge ?? false,
+            laundry_in_building: p?.laundry_in_building ?? false,
+            in_unit_laundry: p?.in_unit_laundry ?? false,
+          }}
+        >
+          <Amenities room={room} property={p} />
+        </InlineAmenitiesEdit>
       </td>
-      <td className="px-3 py-2.5">
-        {room.photos_url ? (
-          <a
-            href={room.photos_url}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="rounded-full border border-stone bg-white px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink hover:bg-warm"
-          >
-            Open ↗
-          </a>
-        ) : (
-          <span className="text-[11px] text-muted">—</span>
-        )}
+      <td className="px-3 py-1.5">
+        <InlinePhotosEdit roomId={room.id} url={room.photos_url} />
       </td>
       <td className="px-3 py-2.5 text-[12px]">
-        {featuredTenantName ? (
-          <>
-            <span className="text-muted">{featuredLabel}: </span>
-            <span className="text-ink">{featuredTenantName}</span>
-          </>
+        {featuredTenant ? (
+          <Link
+            href={`/tenants/${featuredTenant.id}`}
+            className="font-medium text-accent-text underline decoration-accent/40 underline-offset-2 hover:text-accent-dark hover:decoration-accent-dark"
+          >
+            {featuredTenant.full_name}
+          </Link>
         ) : (
           <span className="text-muted">—</span>
         )}
@@ -445,6 +545,11 @@ function InventoryRow({
             </span>
           )}
         </div>
+      </td>
+      <td className="px-3 py-2.5 text-[12px] text-ink">
+        {room.ad_posted_by?.trim() || (
+          <span className="text-muted">-</span>
+        )}
       </td>
       <td className="px-3 py-2.5 text-right">
         <div className="flex items-center justify-end gap-2">
@@ -492,6 +597,7 @@ function Amenities({
   if (property?.has_doorman) tags.push("Doorman");
   if (property?.has_parking) tags.push("Parking");
   if (property?.has_rooftop) tags.push("Rooftop");
+  if (property?.has_lounge) tags.push("Lounge");
   if (property?.in_unit_laundry) tags.push("In-unit laundry");
   else if (property?.laundry_in_building) tags.push("Laundry");
 
@@ -499,16 +605,7 @@ function Amenities({
     return <span className="text-[11px] text-muted">—</span>;
   }
   return (
-    <div className="flex max-w-[220px] flex-wrap gap-1">
-      {tags.map((t) => (
-        <span
-          key={t}
-          className="rounded-full bg-warm px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-ink/70"
-        >
-          {t}
-        </span>
-      ))}
-    </div>
+    <span className="text-[12px] text-ink">{tags.join(", ")}</span>
   );
 }
 

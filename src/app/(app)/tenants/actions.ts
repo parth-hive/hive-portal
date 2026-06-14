@@ -7,6 +7,7 @@ import type { Database } from "@/lib/supabase/types";
 import { one } from "@/lib/relations";
 import { updateRoomsWithNotification } from "@/lib/notifications";
 import { sendBalanceReminder } from "@/lib/email";
+import { todayISO } from "@/lib/date";
 
 type PaymentType = Database["public"]["Enums"]["payment_type"];
 const VALID_PAYMENT_TYPES: PaymentType[] = [
@@ -47,6 +48,8 @@ export async function createTenant(
     formData.get("security_deposit") ?? "",
   ).trim();
   const start_date = String(formData.get("start_date") ?? "").trim() || null;
+  const lease_end_date =
+    String(formData.get("lease_end_date") ?? "").trim() || null;
   const first_month_rent_str = String(
     formData.get("first_month_rent") ?? "",
   ).trim();
@@ -123,6 +126,7 @@ export async function createTenant(
       room_id,
       tenant_id: tenant.id,
       start_date,
+      lease_end_date,
       monthly_rent,
       security_deposit,
       status: "active",
@@ -138,9 +142,10 @@ export async function createTenant(
       return { error: leErr.message };
     }
 
-    // Mark the room as occupied
+    // Mark the room as occupied and clear any "pending tenant" listing flag.
     await updateRoomsWithNotification(supabase, room_id, {
       status: "occupied",
+      pending_tenant: false,
     });
   }
 
@@ -198,6 +203,12 @@ export async function updateTenant(
     age = n;
   }
 
+  const genderRaw = String(formData.get("gender") ?? "").trim();
+  const gender = genderRaw === "" ? null : genderRaw;
+  if (gender !== null && !["male", "female", "other"].includes(gender)) {
+    return { error: "Gender must be male, female, or other." };
+  }
+
   if (!full_name) return { error: "Name is required." };
 
   const supabase = await createClient();
@@ -210,6 +221,7 @@ export async function updateTenant(
       pays_as,
       notes,
       age,
+      gender,
       profession,
       linkedin_url,
       instagram_url,
@@ -223,24 +235,44 @@ export async function updateTenant(
   return undefined;
 }
 
+// ----- Informational lease end date (does NOT drive move-out / inventory) -----
+// Stored on the tenancy purely so the profile can show it and a cron can send a
+// 45-day "lease ending" heads-up. Changing it re-arms that reminder.
+export async function setTenancyLeaseEndDate(
+  tenancyId: string,
+  tenantId: string,
+  date: string | null,
+): Promise<{ ok: true } | { error: string }> {
+  const value = date && date.trim() ? date.trim() : null;
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("tenancies")
+    .update({ lease_end_date: value, lease_end_reminded_at: null })
+    .eq("id", tenancyId);
+  if (error) return { error: error.message };
+  revalidatePath("/tenants");
+  if (tenantId) revalidatePath(`/tenants/${tenantId}`);
+  return { ok: true };
+}
+
 // ----- End (or schedule the end of) a tenancy -----
-// If end_date is today or earlier  → tenant has moved out; room is Available now.
-// If end_date is in the future     → tenant is still there until that date;
+// If move_out_date is today or earlier  → tenant has moved out; room is Available now.
+// If move_out_date is in the future     → tenant is still there until that date;
 //                                    room stays Occupied but we set
-//                                    `rooms.available_from = end_date` so it
+//                                    `rooms.available_from = move_out_date` so it
 //                                    surfaces on /inventory as "Available from X".
 //                                    Tenancy stays 'active' and is auto-finalized
-//                                    when end_date passes (see processExpiredTenancies).
+//                                    when move_out_date passes (see processExpiredTenancies).
 
 export async function endTenancy(formData: FormData) {
   const tenancy_id = String(formData.get("tenancy_id") ?? "");
   const tenant_id = String(formData.get("tenant_id") ?? "");
-  const end_date = String(formData.get("end_date") ?? "").trim();
-  if (!tenancy_id || !end_date) return;
+  const move_out_date = String(formData.get("move_out_date") ?? "").trim();
+  if (!tenancy_id || !move_out_date) return;
 
   const supabase = await createClient();
-  const today = new Date().toISOString().slice(0, 10);
-  const isPastOrToday = end_date <= today;
+  const today = todayISO();
+  const isPastOrToday = move_out_date <= today;
 
   const { data: tenancy } = await supabase
     .from("tenancies")
@@ -251,7 +283,7 @@ export async function endTenancy(formData: FormData) {
   await supabase
     .from("tenancies")
     .update({
-      end_date,
+      move_out_date,
       status: isPastOrToday ? "ended" : "active",
     })
     .eq("id", tenancy_id);
@@ -267,13 +299,12 @@ export async function endTenancy(formData: FormData) {
         ? { base_rent: Math.max(0, total - BUNDLE_FEE), bundle_fee: BUNDLE_FEE }
         : {};
 
-    // Re-entering the vacancy queue — reset the VA workflow flag so the
-    // room shows up as a fresh "Create new ad" instead of inheriting the
-    // previous tenancy's color.
+    // Re-entering the vacancy queue — reset the VA workflow flag to "no action"
+    // so the room doesn't inherit the previous tenancy's color.
     await updateRoomsWithNotification(supabase, tenancy.room_id, {
       status: isPastOrToday ? "available" : "occupied",
-      available_from: end_date,
-      listing_action: "new_ad",
+      available_from: move_out_date,
+      listing_action: "no_action",
       ...rentPatch,
     });
   }
@@ -300,7 +331,7 @@ export async function reactivateTenancy(formData: FormData) {
 
   await supabase
     .from("tenancies")
-    .update({ end_date: null, status: "active" })
+    .update({ move_out_date: null, status: "active" })
     .eq("id", tenancy_id);
 
   if (tenancy?.room_id) {
@@ -315,18 +346,18 @@ export async function reactivateTenancy(formData: FormData) {
   revalidatePath("/inventory");
 }
 
-// ----- Auto-finalize any tenancies whose end_date has now passed -----
+// ----- Auto-finalize any tenancies whose move_out_date has now passed -----
 
 export async function processExpiredTenancies() {
   const supabase = await createClient();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
 
   const { data: expired } = await supabase
     .from("tenancies")
     .select("id, room_id")
     .eq("status", "active")
-    .lt("end_date", today)
-    .not("end_date", "is", null);
+    .lt("move_out_date", today)
+    .not("move_out_date", "is", null);
 
   if (!expired || expired.length === 0) return;
 
@@ -340,7 +371,7 @@ export async function processExpiredTenancies() {
   if (roomIds.length > 0) {
     await updateRoomsWithNotification(supabase, roomIds, {
       status: "available",
-      listing_action: "new_ad",
+      listing_action: "no_action",
     });
   }
 }
@@ -458,13 +489,13 @@ export async function sendBalanceReminders(
     month: "long",
     year: "numeric",
   });
-  const today = now.toISOString().slice(0, 10);
+  const today = todayISO();
 
   type ReminderTenancy = {
     monthly_rent: number;
     first_month_rent: number | null;
     start_date: string;
-    end_date: string | null;
+    move_out_date: string | null;
     tenants:
       | { full_name: string; email: string | null }
       | { full_name: string; email: string | null }[]
@@ -475,7 +506,7 @@ export async function sendBalanceReminders(
   const { data, error } = await supabase
     .from("tenancies")
     .select(
-      `monthly_rent, first_month_rent, start_date, end_date,
+      `monthly_rent, first_month_rent, start_date, move_out_date,
        tenants(full_name, email),
        payments(amount, paid_on, payment_type)`,
     )
@@ -491,7 +522,7 @@ export async function sendBalanceReminders(
     const email = tenant?.email?.trim();
     if (!email) continue;
     // Skip tenancies that have already ended this month.
-    if (row.end_date && row.end_date <= today) continue;
+    if (row.move_out_date && row.move_out_date <= today) continue;
     // Skip tenancies that haven't started yet.
     if (row.start_date > monthEnd) continue;
 

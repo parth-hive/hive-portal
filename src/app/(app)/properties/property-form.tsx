@@ -16,6 +16,7 @@ type InitialValues = {
   has_parking: boolean;
   has_doorman: boolean;
   has_rooftop: boolean;
+  has_lounge: boolean;
   laundry_in_building: boolean;
   in_unit_laundry: boolean;
   amenities_notes: string | null;
@@ -214,6 +215,15 @@ export function PropertyForm({
               className="accent-accent"
             />
             Rooftop
+          </label>
+          <label className={checkboxLabel}>
+            <input
+              type="checkbox"
+              name="has_lounge"
+              defaultChecked={v.has_lounge ?? false}
+              className="accent-accent"
+            />
+            Lounge
           </label>
           <label className={checkboxLabel}>
             <input

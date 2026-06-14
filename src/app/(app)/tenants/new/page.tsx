@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { one } from "@/lib/relations";
+import { todayISO } from "@/lib/date";
 import { AddTenantForm } from "./add-tenant-form";
+import { RestoreListingButton } from "./restore-listing";
 
 export const dynamic = "force-dynamic";
 
@@ -29,7 +31,7 @@ export default async function NewTenantPage({ searchParams }: PageProps) {
     typeof room_id === "string" && room_id.length > 0 ? room_id : "";
 
   const supabase = await createClient();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
 
   // Show rooms that are listable on /inventory: available now, or
   // currently occupied but with a future end-date so the tenant slot is
@@ -61,6 +63,29 @@ export default async function NewTenantPage({ searchParams }: PageProps) {
     };
   });
 
+  // Listings the admin pulled off Inventory ("delete listing") that are waiting
+  // to be filled with a tenant.
+  const { data: pendingData } = await supabase
+    .from("rooms")
+    .select(
+      "id, room_number, total_rent, properties(building_name, street_address, unit_number)",
+    )
+    .eq("pending_tenant", true)
+    .order("room_number", { ascending: true })
+    .returns<RoomRow[]>();
+
+  const pending = (pendingData ?? []).map((r) => {
+    const p = one(r.properties);
+    const unitTitle = p
+      ? `${p.building_name?.trim() || p.street_address} Apt ${p.unit_number}`
+      : "—";
+    return {
+      id: r.id,
+      label: `${unitTitle} · ${r.room_number ?? "Room"}`,
+      total_rent: r.total_rent,
+    };
+  });
+
   return (
     <div className="mx-auto w-full max-w-3xl">
       <header className="border-b border-stone/60 pb-6">
@@ -75,8 +100,51 @@ export default async function NewTenantPage({ searchParams }: PageProps) {
         </h1>
       </header>
 
-      <div className="mt-8">
-        <AddTenantForm rooms={rooms} defaultRoomId={defaultRoomId} />
+      {pending.length > 0 && (
+        <div className="mt-6 rounded-2xl border border-accent/30 bg-accent/5 p-5">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-accent-text">
+            Listings to fill ({pending.length})
+          </h2>
+          <p className="mt-1 text-xs text-muted">
+            Rooms pulled from Inventory and waiting for a tenant. Pick one to
+            prefill the room below, or restore it to Inventory.
+          </p>
+          <ul className="mt-3 divide-y divide-stone/40">
+            {pending.map((p) => (
+              <li
+                key={p.id}
+                className="flex items-center justify-between gap-3 py-2 text-sm"
+              >
+                <span className="min-w-0 truncate text-ink">
+                  {p.label}
+                  {p.total_rent ? (
+                    <span className="text-muted">
+                      {" "}
+                      — ${p.total_rent.toLocaleString()}
+                    </span>
+                  ) : null}
+                </span>
+                <span className="flex shrink-0 items-center gap-3">
+                  <RestoreListingButton roomId={p.id} />
+                  <Link
+                    href={`/tenants/new?room_id=${p.id}#add-tenant`}
+                    className="rounded-full bg-ink px-3 py-1 text-xs font-medium text-white hover:bg-accent-dark"
+                  >
+                    Fill →
+                  </Link>
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      <div id="add-tenant" className="mt-8 scroll-mt-6">
+        <AddTenantForm
+          key={defaultRoomId || "blank"}
+          rooms={rooms}
+          defaultRoomId={defaultRoomId}
+        />
       </div>
     </div>
   );

@@ -12,9 +12,16 @@ type Props = {
   pays_as: string | null;
   notes: string | null;
   age: number | null;
+  gender: string | null;
   profession: string | null;
   linkedin_url: string | null;
   instagram_url: string | null;
+};
+
+const GENDER_LABELS: Record<string, string> = {
+  male: "Male",
+  female: "Female",
+  other: "Other",
 };
 
 const fieldInput =
@@ -63,6 +70,10 @@ export function TenantInfo(props: Props) {
           </dd>
           <dt className="text-muted">Age</dt>
           <dd className="col-span-2 text-ink">{props.age ?? "—"}</dd>
+          <dt className="text-muted">Gender</dt>
+          <dd className="col-span-2 text-ink">
+            {props.gender ? GENDER_LABELS[props.gender] ?? props.gender : "—"}
+          </dd>
           <dt className="text-muted">Profession</dt>
           <dd className="col-span-2 text-ink">{props.profession ?? "—"}</dd>
           <dt className="text-muted">LinkedIn</dt>
@@ -183,6 +194,19 @@ export function TenantInfo(props: Props) {
             />
           </label>
         </div>
+        <label className="flex flex-col gap-1.5">
+          <span className={fieldLabel}>Gender</span>
+          <select
+            name="gender"
+            defaultValue={props.gender ?? ""}
+            className={fieldInput}
+          >
+            <option value="">— Not specified —</option>
+            <option value="male">Male</option>
+            <option value="female">Female</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
         <label className="flex flex-col gap-1.5">
           <span className={fieldLabel}>LinkedIn URL</span>
           <input

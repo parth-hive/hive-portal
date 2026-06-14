@@ -7,6 +7,7 @@ import {
   deletePayment,
   reactivateTenancy,
 } from "../actions";
+import { todayISO } from "@/lib/date";
 
 export function EndTenancyForm({
   tenancyId,
@@ -15,7 +16,7 @@ export function EndTenancyForm({
   tenancyId: string;
   tenantId: string;
 }) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   const [open, setOpen] = useState(false);
 
   if (!open) {
@@ -36,8 +37,8 @@ export function EndTenancyForm({
       className="flex flex-wrap items-center gap-2"
       onSubmit={(e) => {
         const fd = new FormData(e.currentTarget);
-        const endDate = String(fd.get("end_date") ?? "");
-        const todayStr = new Date().toISOString().slice(0, 10);
+        const endDate = String(fd.get("move_out_date") ?? "");
+        const todayStr = todayISO();
         const isFuture = endDate > todayStr;
         const msg = isFuture
           ? `End on ${endDate}? Tenant stays in the room until that date; the room will be listed as "Available from ${endDate}" on Inventory.`
@@ -51,7 +52,7 @@ export function EndTenancyForm({
       <input type="hidden" name="tenant_id" value={tenantId} />
       <input
         type="date"
-        name="end_date"
+        name="move_out_date"
         defaultValue={today}
         required
         className="rounded-lg border border-stone bg-white px-2 py-1 text-xs text-ink focus:border-accent focus:outline-none"

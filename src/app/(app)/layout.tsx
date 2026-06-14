@@ -5,6 +5,7 @@ import { isMaster } from "@/lib/access";
 import { logout } from "../login/actions";
 import { MobileNav } from "./mobile-nav";
 import { CommandPalette } from "./command-palette";
+import { NamePrompt } from "./name-prompt";
 import { NavIcon, type NavIconName } from "./nav-icons";
 
 type NavItem = {
@@ -42,9 +43,21 @@ export default async function AppLayout({
   const master = isMaster(user.email);
   const navItems = NAV.filter((item) => !item.masterOnly || master);
 
+  const displayName =
+    typeof user.user_metadata?.display_name === "string"
+      ? user.user_metadata.display_name.trim()
+      : typeof user.user_metadata?.full_name === "string"
+        ? user.user_metadata.full_name.trim()
+        : "";
+
   return (
     <div className="flex min-h-full flex-col md:flex-row">
-      <MobileNav items={navItems} userEmail={user.email ?? null} />
+      {!displayName && <NamePrompt />}
+      <MobileNav
+        items={navItems}
+        userEmail={user.email ?? null}
+        userName={displayName || null}
+      />
       <CommandPalette />
       <aside className="hidden w-64 shrink-0 flex-col border-r border-stone/60 bg-white/60 px-4 py-8 md:flex">
         <Link
@@ -86,23 +99,26 @@ export default async function AppLayout({
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="sticky top-0 z-20 hidden items-center justify-end gap-3 border-b border-stone/60 bg-cream/90 px-10 py-3 backdrop-blur md:flex">
+        <header className="sticky top-0 z-20 hidden h-14 items-center justify-end gap-3 border-b border-stone/60 bg-cream/90 px-10 backdrop-blur md:flex">
           <Link
             href="/settings"
             aria-label="Admin Settings"
             title="Admin Settings"
-            className="rounded-lg p-2 text-ink transition hover:bg-warm hover:text-accent-text"
+            className="flex h-9 w-9 items-center justify-center rounded-lg text-ink transition hover:bg-warm hover:text-accent-text"
           >
             <NavIcon name="settings" />
           </Link>
-          <span className="mx-1 h-5 w-px bg-stone/60" aria-hidden="true" />
-          <span className="truncate text-xs text-ink">
-            {user?.email ?? "—"}
+          <span className="h-5 w-px bg-stone/60" aria-hidden="true" />
+          <span
+            className="max-w-[200px] truncate text-sm text-ink"
+            title={displayName || user?.email || undefined}
+          >
+            {displayName || user?.email || "—"}
           </span>
-          <form action={logout}>
+          <form action={logout} className="flex">
             <button
               type="submit"
-              className="text-xs uppercase tracking-wide text-ink hover:text-accent-text"
+              className="whitespace-nowrap rounded-full border border-stone bg-white px-3 py-1.5 text-xs font-medium uppercase tracking-wide text-ink transition hover:border-accent hover:text-accent-text"
             >
               Sign out
             </button>

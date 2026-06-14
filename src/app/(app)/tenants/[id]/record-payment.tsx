@@ -3,6 +3,7 @@
 import { useActionState, useEffect, useRef, useState } from "react";
 import { recordPayment, type PaymentFormState } from "../actions";
 import { useFormToast } from "@/components/use-form-toast";
+import { todayISO } from "@/lib/date";
 
 const fieldInput =
   "rounded-lg border border-stone bg-white px-3 py-2 text-sm text-ink focus:border-accent focus:outline-none";
@@ -19,7 +20,7 @@ export function RecordPayment({
 }) {
   const [open, setOpen] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
 
   const bound = recordPayment.bind(null, tenancyId, tenantId) as (
     state: PaymentFormState,

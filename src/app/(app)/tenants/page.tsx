@@ -36,7 +36,7 @@ type Row = {
   monthly_rent: number;
   first_month_rent: number | null;
   start_date: string;
-  end_date: string | null;
+  move_out_date: string | null;
   tenant_id: string;
   tenants: TenantRel | TenantRel[] | null;
   rooms: RoomRel | RoomRel[] | null;
@@ -93,7 +93,7 @@ export default async function TenantsPage({ searchParams }: PageProps) {
   const { q } = await searchParams;
   const query = (q ?? "").trim().toLowerCase();
 
-  // Finalize any tenancies whose end_date has passed since the last visit.
+  // Finalize any tenancies whose move_out_date has passed since the last visit.
   await processExpiredTenancies();
 
   const supabase = await createClient();
@@ -103,7 +103,7 @@ export default async function TenantsPage({ searchParams }: PageProps) {
   const { data, error } = await supabase
     .from("tenancies")
     .select(
-      `id, monthly_rent, first_month_rent, start_date, end_date, tenant_id,
+      `id, monthly_rent, first_month_rent, start_date, move_out_date, tenant_id,
        tenants(id, full_name, email, phone),
        rooms(id, room_number,
              properties(id, building_name, street_address, unit_number)),
@@ -181,7 +181,7 @@ export default async function TenantsPage({ searchParams }: PageProps) {
       tenant_id: r.tenant_id,
       tenant_name: tenant?.full_name ?? "—",
       tenant_email: tenant?.email ?? null,
-      end_date: r.end_date,
+      move_out_date: r.move_out_date,
       room_number: room?.room_number ?? null,
       due: r.due,
       paid: r.paidThisMonth,

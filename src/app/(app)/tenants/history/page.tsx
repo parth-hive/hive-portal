@@ -30,7 +30,7 @@ type Row = {
   monthly_rent: number;
   security_deposit: number | null;
   start_date: string;
-  end_date: string | null;
+  move_out_date: string | null;
   tenants: TenantRel | TenantRel[] | null;
   rooms: RoomRel | RoomRel[] | null;
   payments: PaymentRel[];
@@ -75,21 +75,21 @@ export default async function TenantHistoryPage({ searchParams }: PageProps) {
   const { data, error } = await supabase
     .from("tenancies")
     .select(
-      `id, tenant_id, monthly_rent, security_deposit, start_date, end_date,
+      `id, tenant_id, monthly_rent, security_deposit, start_date, move_out_date,
        tenants(id, full_name, email, phone),
        rooms(room_number,
              properties(building_name, street_address, unit_number)),
        payments(amount, payment_type)`,
     )
     .eq("status", "ended")
-    .order("end_date", { ascending: false, nullsFirst: false })
+    .order("move_out_date", { ascending: false, nullsFirst: false })
     .returns<Row[]>();
 
   const rows = (data ?? []).map((r) => {
     const tenant = one(r.tenants);
     const room = one(r.rooms);
     const property = one(room?.properties ?? null);
-    const months = monthsBetween(r.start_date, r.end_date);
+    const months = monthsBetween(r.start_date, r.move_out_date);
     const totalPaid = (r.payments ?? [])
       .filter((p) => p.payment_type === "rent")
       .reduce((sum, p) => sum + Number(p.amount), 0);
@@ -104,7 +104,7 @@ export default async function TenantHistoryPage({ searchParams }: PageProps) {
       unit,
       room: room?.room_number ?? "—",
       start_date: r.start_date,
-      end_date: r.end_date,
+      move_out_date: r.move_out_date,
       months,
       monthly_rent: Number(r.monthly_rent),
       total_paid: totalPaid,
@@ -200,7 +200,7 @@ export default async function TenantHistoryPage({ searchParams }: PageProps) {
                     {formatDate(r.start_date)}
                   </td>
                   <td className="px-3 py-2.5 tabular-nums text-ink">
-                    {formatDate(r.end_date)}
+                    {formatDate(r.move_out_date)}
                   </td>
                   <td className="px-3 py-2.5 text-muted">
                     {formatDuration(r.months)}

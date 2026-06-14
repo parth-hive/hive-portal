@@ -12,6 +12,7 @@ import {
   ReactivateTenancyButton,
 } from "./tenant-actions";
 import { LeaseDownload } from "./lease-download";
+import { LeaseEndEdit } from "./lease-end-edit";
 
 export const dynamic = "force-dynamic";
 
@@ -33,7 +34,8 @@ type Tenancy = {
   monthly_rent: number;
   security_deposit: number | null;
   start_date: string;
-  end_date: string | null;
+  move_out_date: string | null;
+  lease_end_date: string | null;
   status: "active" | "ended" | "upcoming";
   lease_pdf_path: string | null;
   rooms: RoomRel | RoomRel[] | null;
@@ -70,14 +72,14 @@ export default async function TenantDetailPage({ params }: PageProps) {
       supabase
         .from("tenants")
         .select(
-          "id, full_name, email, phone, pays_as, notes, age, profession, linkedin_url, instagram_url",
+          "id, full_name, email, phone, pays_as, notes, age, gender, profession, linkedin_url, instagram_url",
         )
         .eq("id", id)
         .maybeSingle(),
       supabase
         .from("tenancies")
         .select(
-          `id, monthly_rent, security_deposit, start_date, end_date, status,
+          `id, monthly_rent, security_deposit, start_date, move_out_date, lease_end_date, status,
            lease_pdf_path,
            rooms(id, room_number,
                  properties(id, building_name, street_address, unit_number))`,
@@ -135,6 +137,7 @@ export default async function TenantDetailPage({ params }: PageProps) {
           pays_as={tenant.pays_as}
           notes={tenant.notes}
           age={tenant.age}
+          gender={tenant.gender}
           profession={tenant.profession}
           linkedin_url={tenant.linkedin_url}
           instagram_url={tenant.instagram_url}
@@ -166,19 +169,27 @@ export default async function TenantDetailPage({ params }: PageProps) {
                 </dd>
                 <dt className="text-muted">Started</dt>
                 <dd className="col-span-2 text-ink">{formatDate(active.start_date)}</dd>
-                {active.end_date && (
+                <dt className="text-muted">Lease ends</dt>
+                <dd className="col-span-2 text-ink">
+                  <LeaseEndEdit
+                    tenancyId={active.id}
+                    tenantId={tenant.id}
+                    value={active.lease_end_date}
+                  />
+                </dd>
+                {active.move_out_date && (
                   <>
                     <dt className="text-muted">Ending</dt>
                     <dd className="col-span-2">
                       <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs uppercase tracking-wide text-accent-text">
-                        {formatDate(active.end_date)}
+                        {formatDate(active.move_out_date)}
                       </span>
                     </dd>
                   </>
                 )}
               </dl>
               <div className="mt-4 flex flex-wrap items-center gap-4">
-                {!active.end_date ? (
+                {!active.move_out_date ? (
                   <EndTenancyForm
                     tenancyId={active.id}
                     tenantId={tenant.id}
@@ -288,7 +299,7 @@ export default async function TenantDetailPage({ params }: PageProps) {
                     {unitTitle(t)} · {one(t.rooms)?.room_number ?? "—"}
                   </p>
                   <p className="text-xs text-muted">
-                    {formatDate(t.start_date)} – {formatDate(t.end_date)} ·{" "}
+                    {formatDate(t.start_date)} – {formatDate(t.move_out_date)} ·{" "}
                     {fmtMoney(t.monthly_rent)}/mo
                   </p>
                 </div>

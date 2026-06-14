@@ -10,6 +10,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendChangeEmail } from "@/lib/notifications";
+import { runLeaseReminders } from "@/lib/lease-reminders";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -61,6 +62,12 @@ export async function GET(req: NextRequest) {
   }
 
   const supabase = admin();
+
+  // Piggy-backed on this daily cron to stay within the Vercel Hobby cron limit:
+  // send any due 45-day lease-ending heads-ups. Independent of the followup work
+  // below, so it runs even if there are no room-change events.
+  const lease = await runLeaseReminders(supabase);
+
   const cutoff = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -71,12 +78,12 @@ export async function GET(req: NextRequest) {
     .lte("changed_at", cutoff);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    return NextResponse.json({ error: error.message, lease }, { status: 500 });
   }
 
   const rows = (events ?? []) as EventRow[];
   if (rows.length === 0) {
-    return NextResponse.json({ followups_due: 0, sent: 0, failed: 0 });
+    return NextResponse.json({ followups_due: 0, sent: 0, failed: 0, lease });
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -104,6 +111,7 @@ export async function GET(req: NextRequest) {
       sent: 0,
       failed: 0,
       note: "no enabled recipients",
+      lease,
     });
   }
 
@@ -153,5 +161,5 @@ export async function GET(req: NextRequest) {
     else failed++;
   }
 
-  return NextResponse.json({ followups_due: rows.length, sent, failed });
+  return NextResponse.json({ followups_due: rows.length, sent, failed, lease });
 }

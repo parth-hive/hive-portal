@@ -1,5 +1,8 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { isMaster } from "@/lib/access";
+import { ClearLogButton } from "../clear-log-button";
+import { clearAuditLog } from "../log-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -67,6 +70,10 @@ export default async function AuditLogPage({
   searchParams: SearchParams;
 }) {
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const master = isMaster(user?.email);
 
   const sp = await searchParams;
   const tableFilter =
@@ -112,14 +119,17 @@ export default async function AuditLogPage({
 
   return (
     <div className="mx-auto w-full max-w-5xl">
-      <header className="border-b border-stone/60 pb-4">
-        <h1 className="text-3xl tracking-tight text-ink">
-          <span className="font-display text-accent-text">Audit log</span>
-        </h1>
-        <p className="mt-1 text-sm text-muted">
-          Every insert, update, and delete across the operational tables.
-          Captures who made the change via Supabase Auth.
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-stone/60 pb-4">
+        <div>
+          <h1 className="text-3xl tracking-tight text-ink">
+            <span className="font-display text-accent-text">Audit log</span>
+          </h1>
+          <p className="mt-1 text-sm text-muted">
+            Every insert, update, and delete across the operational tables.
+            Captures who made the change via Supabase Auth.
+          </p>
+        </div>
+        {master && <ClearLogButton onClear={clearAuditLog} label="audit log" />}
       </header>
 
       <form

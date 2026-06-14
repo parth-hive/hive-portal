@@ -128,10 +128,12 @@ export function AddTenantForm({
             <span className={fieldLabel}>Start date</span>
             <input type="date" name="start_date" className={fieldInput} />
           </label>
+          <label className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>Lease end date (optional)</span>
+            <input type="date" name="lease_end_date" className={fieldInput} />
+          </label>
           <label className="flex flex-col gap-1.5 sm:col-span-2">
-            <span className={fieldLabel}>
-              First month rent (optional — leave blank if not prorated)
-            </span>
+            <span className={fieldLabel}>Prorated Rent (optional)</span>
             <input
               type="number"
               name="first_month_rent"
@@ -141,8 +143,9 @@ export function AddTenantForm({
               className={fieldInput}
             />
             <span className="text-xs text-muted">
-              Used only for the calendar month the tenancy starts in. Every
-              month after that uses the monthly rent above.
+              Used only for the calendar month the tenancy starts in. Leave
+              blank to charge the full monthly rent above; every later month
+              uses the monthly rent regardless.
             </span>
           </label>
           <label className="flex flex-col gap-1.5 sm:col-span-2">

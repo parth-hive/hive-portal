@@ -479,6 +479,7 @@ export type Database = {
           has_doorman: boolean
           has_elevator: boolean
           has_gym: boolean
+          has_lounge: boolean
           has_parking: boolean
           has_rooftop: boolean
           id: string
@@ -501,6 +502,7 @@ export type Database = {
           has_doorman?: boolean
           has_elevator?: boolean
           has_gym?: boolean
+          has_lounge?: boolean
           has_parking?: boolean
           has_rooftop?: boolean
           id?: string
@@ -523,6 +525,7 @@ export type Database = {
           has_doorman?: boolean
           has_elevator?: boolean
           has_gym?: boolean
+          has_lounge?: boolean
           has_parking?: boolean
           has_rooftop?: boolean
           id?: string
@@ -934,6 +937,7 @@ export type Database = {
       rooms: {
         Row: {
           ad_boosted: boolean
+          ad_posted_by: string | null
           ad_url: string | null
           available_from: string | null
           base_rent: number | null
@@ -945,6 +949,7 @@ export type Database = {
           listing_action: Database["public"]["Enums"]["listing_action"]
           marketing_description: string | null
           notes: string | null
+          pending_tenant: boolean
           photos_url: string | null
           property_id: string
           room_number: string | null
@@ -954,6 +959,7 @@ export type Database = {
         }
         Insert: {
           ad_boosted?: boolean
+          ad_posted_by?: string | null
           ad_url?: string | null
           available_from?: string | null
           base_rent?: number | null
@@ -965,6 +971,7 @@ export type Database = {
           listing_action?: Database["public"]["Enums"]["listing_action"]
           marketing_description?: string | null
           notes?: string | null
+          pending_tenant?: boolean
           photos_url?: string | null
           property_id: string
           room_number?: string | null
@@ -974,6 +981,7 @@ export type Database = {
         }
         Update: {
           ad_boosted?: boolean
+          ad_posted_by?: string | null
           ad_url?: string | null
           available_from?: string | null
           base_rent?: number | null
@@ -985,6 +993,7 @@ export type Database = {
           listing_action?: Database["public"]["Enums"]["listing_action"]
           marketing_description?: string | null
           notes?: string | null
+          pending_tenant?: boolean
           photos_url?: string | null
           property_id?: string
           room_number?: string | null
@@ -1029,9 +1038,11 @@ export type Database = {
       tenancies: {
         Row: {
           created_at: string
-          end_date: string | null
+          move_out_date: string | null
           first_month_rent: number | null
           id: string
+          lease_end_date: string | null
+          lease_end_reminded_at: string | null
           lease_pdf_path: string | null
           monthly_rent: number
           notes: string | null
@@ -1044,9 +1055,11 @@ export type Database = {
         }
         Insert: {
           created_at?: string
-          end_date?: string | null
+          move_out_date?: string | null
           first_month_rent?: number | null
           id?: string
+          lease_end_date?: string | null
+          lease_end_reminded_at?: string | null
           lease_pdf_path?: string | null
           monthly_rent: number
           notes?: string | null
@@ -1059,9 +1072,11 @@ export type Database = {
         }
         Update: {
           created_at?: string
-          end_date?: string | null
+          move_out_date?: string | null
           first_month_rent?: number | null
           id?: string
+          lease_end_date?: string | null
+          lease_end_reminded_at?: string | null
           lease_pdf_path?: string | null
           monthly_rent?: number
           notes?: string | null
@@ -1102,6 +1117,7 @@ export type Database = {
           created_at: string
           email: string | null
           full_name: string
+          gender: string | null
           id: string
           instagram_url: string | null
           linkedin_url: string | null
@@ -1116,6 +1132,7 @@ export type Database = {
           created_at?: string
           email?: string | null
           full_name: string
+          gender?: string | null
           id?: string
           instagram_url?: string | null
           linkedin_url?: string | null
@@ -1130,6 +1147,7 @@ export type Database = {
           created_at?: string
           email?: string | null
           full_name?: string
+          gender?: string | null
           id?: string
           instagram_url?: string | null
           linkedin_url?: string | null
@@ -1184,7 +1202,7 @@ export type Database = {
         Row: {
           available_from: string | null
           building_name: string | null
-          end_date: string | null
+          move_out_date: string | null
           has_ac: boolean | null
           has_private_bathroom: boolean | null
           neighborhood: string | null
@@ -1244,7 +1262,7 @@ export type Database = {
         | "marketing"
         | "other"
       listing_action:
-        | "new_ad"
+        | "no_action"
         | "update_price_or_date"
         | "delete_listing"
         | "boost_post"
@@ -1406,7 +1424,7 @@ export const Constants = {
         "other",
       ],
       listing_action: [
-        "new_ad",
+        "no_action",
         "update_price_or_date",
         "delete_listing",
         "boost_post",

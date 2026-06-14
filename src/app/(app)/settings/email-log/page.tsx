@@ -1,6 +1,9 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { EMAIL_TYPE_LABELS, type EmailType } from "@/lib/email-log";
+import { isMaster } from "@/lib/access";
+import { ClearLogButton } from "../clear-log-button";
+import { clearEmailLog } from "../log-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +42,10 @@ type PageProps = {
 
 export default async function EmailLogPage({ searchParams }: PageProps) {
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const master = isMaster(user?.email);
 
   const sp = await searchParams;
   const typeFilter = isType(sp.type) ? sp.type : null;
@@ -77,19 +84,22 @@ export default async function EmailLogPage({ searchParams }: PageProps) {
 
   return (
     <div className="mx-auto w-full max-w-5xl">
-      <header className="border-b border-stone/60 pb-4">
-        <Link
-          href="/settings"
-          className="text-xs uppercase tracking-wide text-muted hover:text-ink"
-        >
-          ← Admin Settings
-        </Link>
-        <h1 className="mt-2 text-3xl tracking-tight text-ink">
-          Email <span className="font-display text-accent-text">log</span>
-        </h1>
-        <p className="mt-1 text-sm text-muted">
-          Every email the portal has sent, newest first (last 200).
-        </p>
+      <header className="flex flex-wrap items-start justify-between gap-3 border-b border-stone/60 pb-4">
+        <div>
+          <Link
+            href="/settings"
+            className="text-xs uppercase tracking-wide text-muted hover:text-ink"
+          >
+            ← Admin Settings
+          </Link>
+          <h1 className="mt-2 text-3xl tracking-tight text-ink">
+            Email <span className="font-display text-accent-text">log</span>
+          </h1>
+          <p className="mt-1 text-sm text-muted">
+            Every email the portal has sent, newest first (last 200).
+          </p>
+        </div>
+        {master && <ClearLogButton onClear={clearEmailLog} label="email log" />}
       </header>
 
       <div className="mt-6 space-y-3">

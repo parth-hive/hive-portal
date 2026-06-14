@@ -102,6 +102,11 @@ export default async function CleaningPage({ searchParams }: PageProps) {
     label: propertyLabel(p),
   }));
 
+  const cleanerNames = (cleanersData ?? [])
+    .filter((c) => c.enabled !== false)
+    .map((c) => c.name)
+    .filter((n): n is string => !!n);
+
   const rows: CleaningRowData[] = (cleanings ?? []).map((c) => {
     const p = one(c.properties);
     return {
@@ -186,7 +191,9 @@ export default async function CleaningPage({ searchParams }: PageProps) {
               Cleaners
             </Link>
           </div>
-          {view === "schedule" && <AddCleaning properties={propertyOptions} />}
+          {view === "schedule" && (
+            <AddCleaning properties={propertyOptions} cleaners={cleanerNames} />
+          )}
         </div>
       </header>
 
@@ -243,7 +250,7 @@ export default async function CleaningPage({ searchParams }: PageProps) {
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-ink">{s.property.label}</p>
                   <p className="text-xs text-muted">
-                    Last: {s.last ? formatDate(s.last) : "never"}
+                    Last: {s.last ? formatDate(s.last) : "-"}
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
@@ -256,7 +263,7 @@ export default async function CleaningPage({ searchParams }: PageProps) {
                     className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${STATUS_PILL[s.status]}`}
                   >
                     {s.status === "never"
-                      ? "Never cleaned"
+                      ? "-"
                       : s.status === "overdue"
                         ? `Overdue ${Math.abs(s.daysUntil ?? 0)}d`
                         : s.status === "due_soon"
@@ -287,6 +294,7 @@ export default async function CleaningPage({ searchParams }: PageProps) {
                   key={r.id}
                   record={r}
                   properties={propertyOptions}
+                  cleaners={cleanerNames}
                 />
               ))}
             </ul>

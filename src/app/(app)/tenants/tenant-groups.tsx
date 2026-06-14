@@ -9,7 +9,7 @@ export type DisplayRow = {
   tenant_id: string;
   tenant_name: string;
   tenant_email: string | null;
-  end_date: string | null;
+  move_out_date: string | null;
   room_number: string | null;
   due: number;
   paid: number;
@@ -175,9 +175,9 @@ export function TenantGroups({ groups }: { groups: DisplayGroup[] }) {
                                 {r.tenant_email}
                               </p>
                             )}
-                            {r.end_date && (
+                            {r.move_out_date && (
                               <p className="mt-1 text-sm text-accent-text">
-                                Ending {formatDate(r.end_date)}
+                                Ending {formatDate(r.move_out_date)}
                               </p>
                             )}
                           </td>

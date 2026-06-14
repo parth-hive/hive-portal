@@ -38,6 +38,5 @@ export function cleaningScheduleFor(
   return { last: lastCleaningDate, nextDue, daysUntil, status };
 }
 
-export function todayISO(): string {
-  return new Date().toISOString().slice(0, 10);
-}
+// Eastern-Time "today"; re-exported so existing `@/lib/cleaning` imports keep working.
+export { todayISO } from "@/lib/date";

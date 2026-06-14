@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { one } from "@/lib/relations";
-import { formatDate } from "@/lib/date";
+import { formatDate, todayISO } from "@/lib/date";
 import { CopyListing } from "../copy-listing";
 import { ListingActionSelector } from "../listing-action";
 import {
@@ -46,7 +46,6 @@ type Room = {
   photos_url: string | null;
   listing_action: Action;
   ad_url: string | null;
-  ad_boosted: boolean;
   properties: PropertyRel | PropertyRel[] | null;
 };
 
@@ -60,7 +59,7 @@ type TenantRel = {
 type Tenancy = {
   id: string;
   start_date: string;
-  end_date: string | null;
+  move_out_date: string | null;
   status: "active" | "ended" | "upcoming";
   tenants: TenantRel | TenantRel[] | null;
 };
@@ -76,7 +75,7 @@ export default async function VacancyDetailPage({ params }: PageProps) {
         `id, room_number, status, base_rent, bundle_fee, total_rent,
          available_from, has_ac, has_private_bathroom,
          marketing_description, photos_url, listing_action,
-         ad_url, ad_boosted,
+         ad_url,
          properties(id, building_name, street_address, unit_number,
                     cross_street, neighborhood,
                     has_gym, has_elevator, has_parking, has_doorman,
@@ -87,7 +86,7 @@ export default async function VacancyDetailPage({ params }: PageProps) {
     supabase
       .from("tenancies")
       .select(
-        `id, start_date, end_date, status,
+        `id, start_date, move_out_date, status,
          tenants(id, full_name, email, phone)`,
       )
       .eq("room_id", roomId)
@@ -98,7 +97,7 @@ export default async function VacancyDetailPage({ params }: PageProps) {
   if (!room) notFound();
 
   const p = one(room.properties);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
   const isNow =
     room.status === "available" &&
     (!room.available_from || room.available_from <= today);
@@ -272,11 +271,7 @@ export default async function VacancyDetailPage({ params }: PageProps) {
         </section>
 
         <section className="mt-6">
-          <AdEdit
-            roomId={room.id}
-            adUrl={room.ad_url}
-            adBoosted={room.ad_boosted}
-          />
+          <AdEdit roomId={room.id} adUrl={room.ad_url} />
         </section>
 
         <section className="mt-6 rounded-2xl bg-white p-6 shadow-sm">
@@ -328,8 +323,8 @@ function TenantBlock({
         )}
       </div>
       <p className="text-xs text-muted">
-        {formatDate(t.start_date)} – {formatDate(t.end_date)}
-        {kind === "current" && t.end_date && " (scheduled)"}
+        {formatDate(t.start_date)} – {formatDate(t.move_out_date)}
+        {kind === "current" && t.move_out_date && " (scheduled)"}
       </p>
     </div>
   );

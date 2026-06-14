@@ -11,6 +11,15 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { Resend } from "resend";
 import { one } from "@/lib/relations";
 import { logEmail } from "./email-log";
+import { todayISO } from "@/lib/date";
+import { CLEANING_CADENCE_DAYS } from "@/lib/cleaning";
+
+/** Add `days` to an ISO "YYYY-MM-DD" date, returning the same format. */
+function addDaysISO(iso: string, days: number): string {
+  const d = new Date(iso + "T00:00:00");
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 
 const STATUS_LABELS: Record<string, string> = {
   available: "Available",
@@ -20,7 +29,7 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const ACTION_LABELS: Record<string, string> = {
-  new_ad: "Create new ad",
+  no_action: "No action",
   update_price_or_date: "Update price/date",
   delete_listing: "Delete listing",
   boost_post: "Boost post",
@@ -318,7 +327,7 @@ async function handleAvailableFromChange(
   if (!property) return;
   const leaseholderName = one(property.leaseholders)?.name ?? null;
 
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
 
   // 1. Find the existing pending move-out cleaning for this room (if any).
    
@@ -332,6 +341,7 @@ async function handleAvailableFromChange(
 
   let action: "scheduled" | "rescheduled" | "cancelled" | null = null;
   let cleaningDate: string | null = null;
+  let resetDate: string | null = null;
   const oldCleaningDate: string | null = existing?.cleaning_date ?? null;
 
   if (toDate) {
@@ -361,12 +371,27 @@ async function handleAvailableFromChange(
     }
   } else if (existing) {
     // toDate is null and there's an existing scheduled move-out → cancel.
-     
+
     await supabase
       .from("cleaning_records")
       .delete()
       .eq("id", existing.id);
     action = "cancelled";
+
+    // The move-out had re-anchored the regular cadence to the move-out date.
+    // With it gone, the next cleaning reverts to "last cleaning + 35 days".
+    // Surface that original date to the cleaner so they know what to expect.
+    const { data: lastClean } = await supabase
+      .from("cleaning_records")
+      .select("cleaning_date")
+      .eq("property_id", property.id)
+      .lte("cleaning_date", today)
+      .order("cleaning_date", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (lastClean?.cleaning_date) {
+      resetDate = addDaysISO(lastClean.cleaning_date, CLEANING_CADENCE_DAYS);
+    }
   }
 
   if (!action) return;
@@ -445,6 +470,7 @@ async function handleAvailableFromChange(
       roomLabel,
       newDate: cleaningDate,
       oldDate: oldCleaningDate,
+      resetDate,
       leaseholderName,
       occupants,
     });
@@ -466,6 +492,8 @@ export type CleaningEmailInput = {
   roomLabel: string;
   newDate: string | null;
   oldDate: string | null;
+  /** For a cancellation: the regular next-cleaning date the cadence reverts to. */
+  resetDate?: string | null;
   leaseholderName?: string | null;
   occupants?: OccupantInfo[];
 };
@@ -561,9 +589,11 @@ function cardHtml(input: CleaningEmailInput): string {
     statusLabel = "Cancelled";
     pillBg = "#f6e3e1";
     pillColor = "#a23b2b";
-    dateLabel = "Cancelled";
+    dateLabel = "Move-out cancelled";
     bigDate = `<span style="text-decoration:line-through; color:#8a8378;">${prettyDate(input.oldDate)}</span>`;
-    subDate = `<p style="margin:6px 0 0; font-size:13px; color:#8a8378;">This cleaning is no longer scheduled.</p>`;
+    subDate = input.resetDate
+      ? `<p style="margin:6px 0 0; font-size:13px; color:#8a8378;">Next cleaning reset to <strong style="color:#1a1a18;">${prettyDate(input.resetDate)}</strong> (regular schedule, last cleaning + ${CLEANING_CADENCE_DAYS} days).</p>`
+      : `<p style="margin:6px 0 0; font-size:13px; color:#8a8378;">This move-out cleaning is no longer scheduled.</p>`;
   }
 
   return `<div style="margin:0; padding:20px 12px; background:#f5f2ed; font-family:'DM Sans',Arial,Helvetica,sans-serif;">
@@ -611,7 +641,10 @@ async function sendCleaningEmail(
     intro = `The move-out cleaning for ${input.roomLabel} has moved to ${prettyDate(input.newDate)} (was ${prettyDate(input.oldDate)}).`;
   } else {
     subject = `Cleaning cancelled — ${unitRoom}`;
-    intro = `The move-out cleaning for ${input.roomLabel} set for ${prettyDate(input.oldDate)} is now cancelled.`;
+    intro = `The move-out for ${input.roomLabel} has been cancelled, so the move-out cleaning set for ${prettyDate(input.oldDate)} is no longer happening.`;
+    if (input.resetDate) {
+      intro += ` The next cleaning has been reset to ${prettyDate(input.resetDate)} (the regular schedule, last cleaning + ${CLEANING_CADENCE_DAYS} days).`;
+    }
   }
 
   const fullBody = [

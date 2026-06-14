@@ -2,6 +2,7 @@
 
 import { useActionState, useEffect, useRef, useState } from "react";
 import { addCleaning, type CleaningFormState } from "./actions";
+import { todayISO } from "@/lib/date";
 
 export type PropertyOption = {
   id: string;
@@ -15,14 +16,16 @@ const fieldInput =
 export function AddCleaning({
   properties,
   defaultPropertyId,
+  cleaners = [],
 }: {
   properties: PropertyOption[];
   defaultPropertyId?: string;
+  cleaners?: string[];
 }) {
   const [open, setOpen] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
   const submitting = useRef(false);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
 
   const [state, action, pending] = useActionState<
     CleaningFormState,
@@ -100,7 +103,14 @@ export function AddCleaning({
         </label>
         <label className="flex flex-col gap-1.5">
           <span className={fieldLabel}>Cleaned by</span>
-          <input type="text" name="assigned_to" className={fieldInput} />
+          <select name="assigned_to" defaultValue="" className={fieldInput}>
+            <option value="">— unassigned —</option>
+            {cleaners.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
         </label>
         <label className="flex flex-col gap-1.5 sm:col-span-2">
           <span className={fieldLabel}>Notes</span>

@@ -10,6 +10,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import { sendRentReminder } from "@/lib/email";
+import { todayISO } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -23,8 +24,7 @@ function admin() {
 }
 
 function todayMonth(): string {
-  const d = new Date();
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, "0")}`;
+  return todayISO().slice(0, 7);
 }
 
 export async function GET(req: NextRequest) {
@@ -38,14 +38,14 @@ export async function GET(req: NextRequest) {
 
   const supabase = admin();
   const period = todayMonth();
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayISO();
 
-  // Active tenancies whose tenant has an email and whose end_date (if set)
+  // Active tenancies whose tenant has an email and whose move_out_date (if set)
   // is after today.
   const { data: tenancies, error } = await supabase
     .from("tenancies")
     .select(
-      `id, tenant_id, end_date, status,
+      `id, tenant_id, move_out_date, status,
        tenants!inner(id, email)`,
     )
     .eq("status", "active");
@@ -57,7 +57,7 @@ export async function GET(req: NextRequest) {
   type Row = {
     id: string;
     tenant_id: string;
-    end_date: string | null;
+    move_out_date: string | null;
     tenants: { id: string; email: string | null } | { id: string; email: string | null }[] | null;
   };
 
@@ -74,7 +74,7 @@ export async function GET(req: NextRequest) {
       skipped++;
       continue;
     }
-    if (row.end_date && row.end_date <= today) {
+    if (row.move_out_date && row.move_out_date <= today) {
       skipped++;
       continue;
     }
