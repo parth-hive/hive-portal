@@ -24,25 +24,20 @@ const VALID_PAYMENT_TYPES: string[] = [
   "refund",
 ];
 
-// Buckets that can carry an owed balance outside of rent + the security
-// deposit. Ad-hoc charges (a broker fee, a $50 late fee, misc) are recorded
-// against these. Keep in sync with the tenancy_charges.kind CHECK constraint.
-const VALID_CHARGE_KINDS = ["broker_fee", "late_fee", "other"] as const;
-type ChargeKind = (typeof VALID_CHARGE_KINDS)[number];
-
-// Where a rent overpayment can be directed. Mirrors credit_allocations.kind.
-const VALID_ALLOCATION_KINDS = [
+// Ad-hoc charges that post to the ledger alongside the auto monthly rent: the
+// security deposit, a broker fee, a $50 late fee, or misc. Keep in sync with
+// the tenancy_charges.kind CHECK constraint.
+const VALID_CHARGE_KINDS = [
   "security_deposit",
   "broker_fee",
   "late_fee",
   "other",
 ] as const;
-type AllocationKind = (typeof VALID_ALLOCATION_KINDS)[number];
+type ChargeKind = (typeof VALID_CHARGE_KINDS)[number];
 
 export type TenantFormState = { error?: string } | undefined;
 export type PaymentFormState = { error?: string } | undefined;
 export type ChargeFormState = { error?: string } | undefined;
-export type CreditFormState = { error?: string } | undefined;
 export type ReminderState = { error?: string; success?: string } | undefined;
 
 // Services bundle baked into every room's rent: utilities + wi-fi + maid +
@@ -446,7 +441,6 @@ export async function recordPayment(
   const payment_type = String(
     formData.get("payment_type") ?? "rent",
   ) as PaymentType;
-  const method = String(formData.get("method") ?? "").trim() || null;
   const notes = String(formData.get("notes") ?? "").trim() || null;
 
   if (!paid_on) return { error: "Payment date is required." };
@@ -464,7 +458,6 @@ export async function recordPayment(
     paid_on,
     amount,
     payment_type,
-    method,
     notes,
   });
 
@@ -504,6 +497,8 @@ export async function addCharge(
 
   if (!VALID_CHARGE_KINDS.includes(kind))
     return { error: "Pick a valid charge type." };
+  if (kind === "other" && !note)
+    return { error: "Add a description for an Other charge." };
   const amount = Number(amount_str);
   if (!Number.isFinite(amount) || amount <= 0)
     return { error: "Amount must be a positive number." };
@@ -521,109 +516,18 @@ export async function addCharge(
 }
 
 export async function deleteCharge(formData: FormData) {
-  const charge_id = String(formData.get("charge_id") ?? "");
+  // charge_ids carries one or more ids (a consolidated "Other" line deletes
+  // every underlying charge at once).
+  const ids = String(formData.get("charge_ids") ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
   const tenant_id = String(formData.get("tenant_id") ?? "");
-  if (!charge_id) return;
+  if (ids.length === 0) return;
 
   const supabase = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (supabase as any).from("tenancy_charges").delete().eq("id", charge_id);
-
-  revalidatePath("/tenants");
-  if (tenant_id) revalidatePath(`/tenants/${tenant_id}`);
-}
-
-// ----- Direct a rent overpayment toward another bucket -----
-// Inserts a credit_allocations row that moves `amount` out of the tenancy's
-// rent credit and into the chosen bucket. Capped server-side at both the
-// available rent credit and what that bucket still owes, so a move can never
-// invent money or overpay a bucket.
-
-export async function applyRentCredit(
-  tenancyId: string,
-  tenantId: string,
-  _prev: CreditFormState,
-  formData: FormData,
-): Promise<CreditFormState> {
-  const kind = String(formData.get("kind") ?? "") as AllocationKind;
-  const amount_str = String(formData.get("amount") ?? "").trim();
-  const note = String(formData.get("note") ?? "").trim() || null;
-
-  if (!VALID_ALLOCATION_KINDS.includes(kind))
-    return { error: "Pick where the credit should go." };
-  const amount = Number(amount_str);
-  if (!Number.isFinite(amount) || amount <= 0)
-    return { error: "Amount must be a positive number." };
-
-  const supabase = await createClient();
-  const { data: t, error: tErr } = await supabase
-    .from("tenancies")
-    .select(
-      `start_date, move_out_date, monthly_rent, first_month_rent, security_deposit,
-       payments(amount, paid_on, payment_type)`,
-    )
-    .eq("id", tenancyId)
-    .maybeSingle();
-  if (tErr) return { error: tErr.message };
-  if (!t) return { error: "Tenancy not found." };
-
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any;
-  const [{ data: charges }, { data: allocations }] = await Promise.all([
-    sb.from("tenancy_charges").select("kind, amount").eq("tenancy_id", tenancyId),
-    sb
-      .from("credit_allocations")
-      .select("kind, amount")
-      .eq("tenancy_id", tenancyId),
-  ]);
-
-  const ledger = computeLedger(
-    t,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (t as any).payments ?? [],
-    charges ?? [],
-    allocations ?? [],
-  );
-
-  if (amount > ledger.availableCredit + 0.005) {
-    return {
-      error: `Only $${ledger.availableCredit.toFixed(2)} of rent credit is available.`,
-    };
-  }
-  // Don't let an allocation push a bucket past what it owes.
-  const owedFor: Record<AllocationKind, number> = {
-    security_deposit: ledger.deposit.balance,
-    broker_fee: ledger.broker.balance,
-    late_fee: ledger.lateFee.balance,
-    other: ledger.other.balance,
-  };
-  if (amount > owedFor[kind] + 0.005) {
-    return {
-      error: `That bucket only owes $${Math.max(0, owedFor[kind]).toFixed(2)}.`,
-    };
-  }
-
-  const { error } = await sb
-    .from("credit_allocations")
-    .insert({ tenancy_id: tenancyId, kind, amount, note });
-  if (error) return { error: error.message };
-
-  revalidatePath("/tenants");
-  revalidatePath(`/tenants/${tenantId}`);
-  return undefined;
-}
-
-export async function deleteAllocation(formData: FormData) {
-  const allocation_id = String(formData.get("allocation_id") ?? "");
-  const tenant_id = String(formData.get("tenant_id") ?? "");
-  if (!allocation_id) return;
-
-  const supabase = await createClient();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (supabase as any)
-    .from("credit_allocations")
-    .delete()
-    .eq("id", allocation_id);
+  await (supabase as any).from("tenancy_charges").delete().in("id", ids);
 
   revalidatePath("/tenants");
   if (tenant_id) revalidatePath(`/tenants/${tenant_id}`);

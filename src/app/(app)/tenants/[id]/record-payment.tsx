@@ -98,15 +98,6 @@ export function RecordPayment({
             <option value="other">Other</option>
           </select>
         </label>
-        <label className="flex flex-col gap-1.5">
-          <span className={fieldLabel}>Method</span>
-          <input
-            type="text"
-            name="method"
-            placeholder="Zelle, ClickPay, Bilt, check…"
-            className={fieldInput}
-          />
-        </label>
         <label className="flex flex-col gap-1.5 sm:col-span-2">
           <span className={fieldLabel}>Notes</span>
           <input type="text" name="notes" className={fieldInput} />

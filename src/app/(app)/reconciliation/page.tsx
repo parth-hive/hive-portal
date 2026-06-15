@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { formatDate } from "@/lib/date";
+import { RunRow } from "./run-row";
 
 export const dynamic = "force-dynamic";
 
@@ -83,15 +84,8 @@ export default async function ReconciliationListPage() {
             </thead>
             <tbody>
               {runs.map((r) => (
-                <tr key={r.id} className="border-t border-stone/40 hover:bg-cream/60">
-                  <td className="px-5 py-4 text-ink">
-                    <Link
-                      href={`/reconciliation/${r.id}`}
-                      className="hover:text-accent-text"
-                    >
-                      {monthLabel(r.month)}
-                    </Link>
-                  </td>
+                <RunRow key={r.id} href={`/reconciliation/${r.id}`}>
+                  <td className="px-5 py-4 text-ink">{monthLabel(r.month)}</td>
                   <td className="px-5 py-4 text-right text-ink">
                     {fmtMoney(r.total_expected)}
                   </td>
@@ -108,15 +102,10 @@ export default async function ReconciliationListPage() {
                   <td className="px-5 py-4 text-xs text-muted">
                     {formatDate(r.created_at)}
                   </td>
-                  <td className="px-5 py-4 text-right">
-                    <Link
-                      href={`/reconciliation/${r.id}`}
-                      className="text-xs uppercase tracking-wide text-muted hover:text-accent-text"
-                    >
-                      Open →
-                    </Link>
+                  <td className="px-5 py-4 text-right text-xs uppercase tracking-wide text-muted">
+                    Open →
                   </td>
-                </tr>
+                </RunRow>
               ))}
             </tbody>
           </table>

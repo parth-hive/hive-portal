@@ -6,7 +6,6 @@ import {
   endTenancy,
   deletePayment,
   deleteCharge,
-  deleteAllocation,
   reactivateTenancy,
 } from "../actions";
 import { todayISO } from "@/lib/date";
@@ -153,21 +152,27 @@ export function DeletePaymentButton({
 }
 
 export function DeleteChargeButton({
-  chargeId,
+  chargeIds,
   tenantId,
 }: {
-  chargeId: string;
+  chargeIds: string[];
   tenantId: string;
 }) {
+  // A consolidated "Other" line stands in for several charge rows, so deleting
+  // it removes all of them.
+  const many = chargeIds.length > 1;
   return (
     <form action={deleteCharge}>
-      <input type="hidden" name="charge_id" value={chargeId} />
+      <input type="hidden" name="charge_ids" value={chargeIds.join(",")} />
       <input type="hidden" name="tenant_id" value={tenantId} />
       <button
         type="submit"
         className="text-xs uppercase tracking-wide text-muted hover:text-red-700"
         onClick={(e) => {
-          if (!confirm("Delete this charge? This cannot be undone.")) {
+          const msg = many
+            ? `Delete all ${chargeIds.length} charges in this line? This cannot be undone.`
+            : "Delete this charge? This cannot be undone.";
+          if (!confirm(msg)) {
             e.preventDefault();
           }
         }}
@@ -178,30 +183,3 @@ export function DeleteChargeButton({
   );
 }
 
-export function DeleteAllocationButton({
-  allocationId,
-  tenantId,
-}: {
-  allocationId: string;
-  tenantId: string;
-}) {
-  return (
-    <form action={deleteAllocation}>
-      <input type="hidden" name="allocation_id" value={allocationId} />
-      <input type="hidden" name="tenant_id" value={tenantId} />
-      <button
-        type="submit"
-        className="text-xs uppercase tracking-wide text-muted hover:text-red-700"
-        onClick={(e) => {
-          if (
-            !confirm("Reverse this credit allocation? The amount returns to rent credit.")
-          ) {
-            e.preventDefault();
-          }
-        }}
-      >
-        Reverse
-      </button>
-    </form>
-  );
-}

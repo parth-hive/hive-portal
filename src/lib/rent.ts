@@ -56,9 +56,9 @@ export type Ledger = {
   broker: Bucket;
   lateFee: Bucket;
   other: Bucket;
-  /** What the tenant owes overall (bucket credits other than rent don't roam). */
+  /** Single running balance across all buckets. Negative means account credit. */
   netBalance: number;
-  /** Rent paid beyond rent due — available to leave as credit or allocate. */
+  /** Total overpayment available as account credit (max(0, -netBalance)). */
   availableCredit: number;
 };
 
@@ -127,22 +127,211 @@ export function computeLedger(
     return { owed, paid, balance: owed - paid };
   };
 
-  const deposit = bucket(num(t.security_deposit), "security_deposit");
+  // The security deposit is now an ad-hoc charge (kind 'security_deposit') like
+  // broker / late fees, so the tenancy's deposit field is purely informational.
+  const deposit = bucket(chargedOf("security_deposit"), "security_deposit");
   const broker = bucket(chargedOf("broker_fee"), "broker_fee");
   const lateFee = bucket(chargedOf("late_fee"), "late_fee");
   const other = bucket(chargedOf("other"), "other");
 
-  // Only rent carries a credit (negative balance). A non-rent bucket that's
-  // somehow overpaid reads as settled rather than a roaming credit — so a misc
-  // payment can never mask real rent arrears in the headline number.
-  const owedOnly = (b: Bucket) => Math.max(0, b.balance);
+  // One running balance across every bucket: rent, deposit, and fees share a
+  // single pot, so an overpayment anywhere nets against what's owed elsewhere
+  // and surfaces as account-wide credit. Negative `netBalance` == credit.
   const netBalance =
     rent.balance +
-    owedOnly(deposit) +
-    owedOnly(broker) +
-    owedOnly(lateFee) +
-    owedOnly(other);
-  const availableCredit = Math.max(0, -rent.balance);
+    deposit.balance +
+    broker.balance +
+    lateFee.balance +
+    other.balance;
+  const availableCredit = Math.max(0, -netBalance);
 
   return { rent, deposit, broker, lateFee, other, netBalance, availableCredit };
+}
+
+// ---------------------------------------------------------------------------
+// Chronological ledger entries — the line-by-line view on the tenant page.
+// Every month's rent is auto-posted as a charge, ad-hoc charges (deposit /
+// broker / late fee) are charges too, and payments come through as negatives,
+// with a running balance carried down the list so it visibly settles to zero.
+// ---------------------------------------------------------------------------
+
+/** Human label for a charge/payment kind. */
+export const KIND_LABEL: Record<string, string> = {
+  rent: "Rent",
+  security_deposit: "Security deposit",
+  broker_fee: "Broker fee",
+  late_fee: "Late fee",
+  utility: "Utility",
+  refund: "Refund",
+  other: "Other",
+};
+
+const MONTH_NAMES = [
+  "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+  "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+];
+
+function monthLabel(idx: number): string {
+  const y = Math.floor(idx / 12);
+  const m = ((idx % 12) + 12) % 12;
+  return `${MONTH_NAMES[m]} ${y}`;
+}
+
+function firstOfMonthISO(idx: number): string {
+  const y = Math.floor(idx / 12);
+  const m = ((idx % 12) + 12) % 12;
+  return `${y}-${String(m + 1).padStart(2, "0")}-01`;
+}
+
+export type LedgerEntryCharge = {
+  id: string;
+  kind: string;
+  amount: number | string;
+  charged_on: string;
+  note: string | null;
+};
+
+export type LedgerEntryPayment = {
+  id: string;
+  amount: number | string;
+  paid_on: string;
+  payment_type: string;
+  notes: string | null;
+};
+
+export type LedgerEntry = {
+  id: string;
+  date: string;
+  description: string;
+  /** Amount owed added by this line (0 for payments). */
+  charge: number;
+  /** Amount paid by this line (0 for charges). */
+  payment: number;
+  /** Running account balance after this line. */
+  balance: number;
+  /** Which delete action this row supports, or null for auto rent rows. */
+  deletable: "charge" | "payment" | null;
+  /** DB row id(s) this line deletes — more than one when charges consolidate. */
+  refIds: string[];
+};
+
+/**
+ * Build the chronological ledger for a tenancy: auto monthly rent + ad-hoc
+ * charges + payments, oldest first, with a running balance. The final balance
+ * matches {@link computeLedger}'s `netBalance` for the same inputs.
+ */
+export function buildLedgerEntries(
+  t: LedgerTenancy,
+  payments: LedgerEntryPayment[],
+  charges: LedgerEntryCharge[],
+  todayIso: string = todayISO(),
+): LedgerEntry[] {
+  const rows: Omit<LedgerEntry, "balance">[] = [];
+
+  // Auto rent: one charge per month from the anchor (or start, if later)
+  // through the current month, capped at the move-out month.
+  const anchorIdx = monthIndex(LEDGER_ANCHOR);
+  const startIdx = monthIndex(t.start_date);
+  const effStart = Math.max(anchorIdx, startIdx);
+  let end = monthIndex(todayIso);
+  if (t.move_out_date) end = Math.min(end, monthIndex(t.move_out_date));
+  const monthly = num(t.monthly_rent);
+  for (let idx = effStart; idx <= end; idx++) {
+    const amount =
+      idx === startIdx && startIdx >= anchorIdx && t.first_month_rent !== null
+        ? num(t.first_month_rent)
+        : monthly;
+    rows.push({
+      id: `rent-${idx}`,
+      date: firstOfMonthISO(idx),
+      description: `Rent · ${monthLabel(idx)}`,
+      charge: amount,
+      payment: 0,
+      deletable: null,
+      refIds: [],
+    });
+  }
+
+  // Ad-hoc charges (deposit / broker / late fee / other). 'Other' charges that
+  // share the same description text are consolidated into one summed line.
+  const otherGroups = new Map<
+    string,
+    { note: string; date: string; amount: number; ids: string[] }
+  >();
+  for (const c of charges) {
+    if (c.kind === "other") {
+      const key = (c.note ?? "").trim().toLowerCase();
+      const g = otherGroups.get(key);
+      if (g) {
+        g.amount += num(c.amount);
+        g.ids.push(c.id);
+        // Surface at the most recent date, keeping that row's note text.
+        if (c.charged_on > g.date) {
+          g.date = c.charged_on;
+          g.note = c.note ?? g.note;
+        }
+      } else {
+        otherGroups.set(key, {
+          note: c.note ?? "",
+          date: c.charged_on,
+          amount: num(c.amount),
+          ids: [c.id],
+        });
+      }
+      continue;
+    }
+    rows.push({
+      id: c.id,
+      date: c.charged_on,
+      description: (KIND_LABEL[c.kind] ?? c.kind) + (c.note ? ` · ${c.note}` : ""),
+      charge: num(c.amount),
+      payment: 0,
+      deletable: "charge",
+      refIds: [c.id],
+    });
+  }
+  for (const [key, g] of otherGroups) {
+    rows.push({
+      id: `other:${key}`,
+      date: g.date,
+      description: "Other" + (g.note ? ` · ${g.note}` : ""),
+      charge: g.amount,
+      payment: 0,
+      deletable: "charge",
+      refIds: g.ids,
+    });
+  }
+
+  // Payments. Rent payments only count from the anchor forward (pre-anchor
+  // months are treated as settled); other payments always count. This mirrors
+  // computeLedger so the running balance lands on the same net figure.
+  for (const p of payments) {
+    if (p.payment_type === "rent" && p.paid_on < LEDGER_ANCHOR) continue;
+    const label =
+      p.payment_type === "rent"
+        ? "Payment"
+        : `Payment · ${KIND_LABEL[p.payment_type] ?? p.payment_type}`;
+    rows.push({
+      id: p.id,
+      date: p.paid_on,
+      description: label + (p.notes ? ` · ${p.notes}` : ""),
+      charge: 0,
+      payment: num(p.amount),
+      deletable: "payment",
+      refIds: [p.id],
+    });
+  }
+
+  // Oldest first; within a day put charges before payments so a same-day rent
+  // charge and its payment read as "+rent then −payment → settled".
+  rows.sort((a, b) => {
+    if (a.date !== b.date) return a.date < b.date ? -1 : 1;
+    return (a.payment > 0 ? 1 : 0) - (b.payment > 0 ? 1 : 0);
+  });
+
+  let balance = 0;
+  return rows.map((r) => {
+    balance += r.charge - r.payment;
+    return { ...r, balance };
+  });
 }

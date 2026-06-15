@@ -17,6 +17,7 @@ export function RecordCharge({
   tenantId: string;
 }) {
   const [open, setOpen] = useState(false);
+  const [kind, setKind] = useState("security_deposit");
   const formRef = useRef<HTMLFormElement>(null);
   const today = todayISO();
 
@@ -60,9 +61,15 @@ export function RecordCharge({
       <div className="mt-3 grid gap-3 sm:grid-cols-2">
         <label className="flex flex-col gap-1.5">
           <span className={fieldLabel}>Type *</span>
-          <select name="kind" defaultValue="late_fee" className={fieldInput}>
-            <option value="late_fee">Late fee</option>
+          <select
+            name="kind"
+            value={kind}
+            onChange={(e) => setKind(e.target.value)}
+            className={fieldInput}
+          >
+            <option value="security_deposit">Security deposit</option>
             <option value="broker_fee">Broker fee</option>
+            <option value="late_fee">Late fee</option>
             <option value="other">Other</option>
           </select>
         </label>
@@ -73,7 +80,6 @@ export function RecordCharge({
             name="amount"
             min="0"
             step="0.01"
-            defaultValue={50}
             required
             className={fieldInput}
           />
@@ -88,8 +94,18 @@ export function RecordCharge({
           />
         </label>
         <label className="flex flex-col gap-1.5">
-          <span className={fieldLabel}>Note</span>
-          <input type="text" name="note" className={fieldInput} />
+          <span className={fieldLabel}>
+            {kind === "other" ? "Description *" : "Note"}
+          </span>
+          <input
+            type="text"
+            name="note"
+            required={kind === "other"}
+            placeholder={
+              kind === "other" ? "Describe the charge (required)" : undefined
+            }
+            className={fieldInput}
+          />
         </label>
       </div>
       {state?.error && <p className="mt-3 text-sm text-red-700">{state.error}</p>}
