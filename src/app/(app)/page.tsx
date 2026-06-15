@@ -235,6 +235,9 @@ export default async function Dashboard() {
   const endingSoon = ((tenancies.data ?? []) as TenancyRow[])
     .filter(
       (t) =>
+        // Once the end is confirmed (a move-out date is set), the room is
+        // already listed on Inventory, so drop it from this heads-up list.
+        !t.move_out_date &&
         t.lease_end_date &&
         t.lease_end_date >= today &&
         t.lease_end_date <= in30,
@@ -268,7 +271,7 @@ export default async function Dashboard() {
   });
 
   return (
-    <div className="mx-auto w-full max-w-6xl">
+    <div className="mx-auto w-full max-w-7xl">
       <header className="relative overflow-hidden rounded-3xl bg-ink px-6 py-8 text-cream shadow-sm md:px-9 md:py-10">
         <div
           className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-accent/25 blur-3xl"
@@ -365,23 +368,23 @@ export default async function Dashboard() {
             </p>
           ) : (
             <div className="mt-4 overflow-x-auto">
-              <table className="text-sm">
-                <thead className="text-left text-[11px] uppercase tracking-wide text-muted">
+              <table className="w-full text-sm">
+                <thead className="text-center text-[11px] uppercase tracking-wide text-muted">
                   <tr className="border-b border-stone/40">
-                    <th className="px-2 py-1.5 font-medium">Unit</th>
-                    <th className="px-2 py-1.5 font-medium">Room</th>
-                    <th className="px-2 py-1.5 font-medium">Availability</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Total Rent</th>
-                    <th className="px-2 py-1.5 font-medium">Who Posted</th>
+                    <th className="px-3 py-2 text-left font-medium">Unit</th>
+                    <th className="px-3 py-2 font-medium">Room</th>
+                    <th className="px-3 py-2 font-medium">Availability</th>
+                    <th className="px-3 py-2 font-medium">Total Rent</th>
+                    <th className="px-3 py-2 font-medium">Who Posted</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="text-center">
                   {inventoryList.slice(0, 12).map((r) => (
                     <tr
                       key={r.id}
                       className="border-b border-stone/20 last:border-0 hover:bg-warm/30"
                     >
-                      <td className="px-2 py-1.5">
+                      <td className="px-3 py-2 text-left">
                         <Link
                           href={`/inventory/${r.id}`}
                           className="text-accent-text hover:text-accent-dark"
@@ -389,20 +392,20 @@ export default async function Dashboard() {
                           {r.unit}
                         </Link>
                       </td>
-                      <td className="px-2 py-1.5 text-ink">{r.room || "—"}</td>
-                      <td className="px-2 py-1.5 text-ink">
+                      <td className="px-3 py-2 text-ink">{r.room || "—"}</td>
+                      <td className="px-3 py-2 text-ink">
                         {r.available_from
                           ? formatDate(r.available_from)
                           : "Available now"}
                       </td>
-                      <td className="px-2 py-1.5 text-right tabular-nums text-ink">
+                      <td className="px-3 py-2 tabular-nums text-ink">
                         {r.total_rent === null ? (
                           <span className="text-muted">—</span>
                         ) : (
                           fmtMoney(r.total_rent)
                         )}
                       </td>
-                      <td className="px-2 py-1.5 text-ink">
+                      <td className="px-3 py-2 text-ink">
                         {r.ad_posted_by?.trim() || (
                           <span className="text-muted">—</span>
                         )}
@@ -440,16 +443,16 @@ export default async function Dashboard() {
             <p className="mt-4 text-sm text-muted">No units yet.</p>
           ) : (
             <div className="mt-4 overflow-x-auto">
-              <table className="text-sm">
-                <thead className="text-left text-[11px] uppercase tracking-wide text-muted">
+              <table className="w-full text-sm">
+                <thead className="text-center text-[11px] uppercase tracking-wide text-muted">
                   <tr className="border-b border-stone/40">
-                    <th className="px-2 py-1.5 font-medium">Unit</th>
-                    <th className="px-2 py-1.5 font-medium">Last Cleaned</th>
-                    <th className="px-2 py-1.5 font-medium">Next Cleaning</th>
-                    <th className="px-2 py-1.5 text-right font-medium">Counter</th>
+                    <th className="px-3 py-2 text-left font-medium">Unit</th>
+                    <th className="px-3 py-2 font-medium">Last Cleaned</th>
+                    <th className="px-3 py-2 font-medium">Next Cleaning</th>
+                    <th className="px-3 py-2 font-medium">Counter</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="text-center">
                   {cleaningWorklist.slice(0, 12).map((c) => {
                     const overdue = c.next !== null && c.next < today;
                     return (
@@ -457,7 +460,7 @@ export default async function Dashboard() {
                         key={c.property_id}
                         className="border-b border-stone/20 last:border-0 hover:bg-warm/30"
                       >
-                        <td className="px-2 py-1.5">
+                        <td className="px-3 py-2 text-left">
                           <Link
                             href={`/properties/${c.property_id}`}
                             className="text-accent-text hover:text-accent-dark"
@@ -465,13 +468,13 @@ export default async function Dashboard() {
                             {c.label}
                           </Link>
                         </td>
-                        <td className="px-2 py-1.5 text-ink">
+                        <td className="px-3 py-2 text-ink">
                           {c.last ? formatDate(c.last) : <span className="text-muted">—</span>}
                         </td>
-                        <td className={`px-2 py-1.5 ${overdue ? "text-red-700" : "text-ink"}`}>
+                        <td className={`px-3 py-2 ${overdue ? "text-red-700" : "text-ink"}`}>
                           {c.next ? formatDate(c.next) : <span className="text-muted">—</span>}
                         </td>
-                        <td className={`px-2 py-1.5 text-right tabular-nums ${overdue ? "text-red-700" : "text-ink"}`}>
+                        <td className={`px-3 py-2 tabular-nums ${overdue ? "text-red-700" : "text-ink"}`}>
                           {c.daysUntilNext === null ? (
                             <span className="text-muted">—</span>
                           ) : (
@@ -499,7 +502,7 @@ export default async function Dashboard() {
           <div className="flex items-center justify-between gap-3">
             <h2 className="flex items-center gap-2 text-sm font-medium uppercase tracking-wide text-muted">
               <IconCalendar />
-              Tenancies ending soon
+              Lease ending soon
             </h2>
             <Link
               href="/tenants"
@@ -514,26 +517,33 @@ export default async function Dashboard() {
             </p>
           ) : (
             <div className="mt-4 overflow-x-auto">
-              <table className="text-sm">
-                <thead className="text-left text-[11px] uppercase tracking-wide text-muted">
+              <table className="w-full text-sm">
+                <thead className="text-center text-[11px] uppercase tracking-wide text-muted">
                   <tr className="border-b border-stone/40">
-                    <th className="px-2 py-1.5 font-medium">Unit</th>
-                    <th className="px-2 py-1.5 font-medium">Room</th>
-                    <th className="px-2 py-1.5 font-medium">Tenant</th>
-                    <th className="px-2 py-1.5 font-medium">Lease end</th>
-                    <th className="px-2 py-1.5 font-medium">Email</th>
-                    <th className="px-2 py-1.5 font-medium">Phone</th>
+                    <th className="px-3 py-2 text-left font-medium">Unit</th>
+                    <th className="px-3 py-2 font-medium">Room</th>
+                    <th className="px-3 py-2 font-medium">Tenant</th>
+                    <th className="px-3 py-2 font-medium">Lease end</th>
+                    <th className="px-3 py-2 font-medium">Email</th>
+                    <th className="px-3 py-2 font-medium">Phone</th>
                   </tr>
                 </thead>
-                <tbody>
+                <tbody className="text-center">
                   {endingSoon.slice(0, 12).map((t, i) => (
                     <tr
                       key={`${t.tenant_id}-${i}`}
                       className="border-b border-stone/20 last:border-0 hover:bg-warm/30"
                     >
-                      <td className="px-2 py-1.5 text-ink">{t.unit}</td>
-                      <td className="px-2 py-1.5 text-ink">{t.room || "—"}</td>
-                      <td className="px-2 py-1.5">
+                      <td className="px-3 py-2 text-left">
+                        <Link
+                          href={`/tenants/${t.tenant_id}`}
+                          className="text-accent-text hover:text-accent-dark"
+                        >
+                          {t.unit}
+                        </Link>
+                      </td>
+                      <td className="px-3 py-2 text-ink">{t.room || "—"}</td>
+                      <td className="px-3 py-2">
                         <Link
                           href={`/tenants/${t.tenant_id}`}
                           className="text-accent-text hover:text-accent-dark"
@@ -541,10 +551,10 @@ export default async function Dashboard() {
                           {t.name}
                         </Link>
                       </td>
-                      <td className="px-2 py-1.5 text-ink">
+                      <td className="px-3 py-2 text-ink">
                         {formatDate(t.lease_end_date)}
                       </td>
-                      <td className="px-2 py-1.5">
+                      <td className="px-3 py-2">
                         {t.email ? (
                           <a
                             href={`mailto:${t.email}`}
@@ -556,7 +566,7 @@ export default async function Dashboard() {
                           <span className="text-muted">—</span>
                         )}
                       </td>
-                      <td className="px-2 py-1.5">
+                      <td className="px-3 py-2">
                         {t.phone ? (
                           <a
                             href={`tel:${t.phone}`}
