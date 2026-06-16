@@ -11,6 +11,10 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { updateRoomsWithNotification } from "@/lib/notifications";
 import { todayISO } from "@/lib/date";
+import { generateAgreementPdf } from "@/lib/agreements";
+import { createGmailDraft } from "@/lib/google-mail";
+import { createOutlookDraft } from "@/lib/graph-mail";
+import { agreementEmailTemplate } from "@/lib/email";
 
 function admin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -475,6 +479,67 @@ export async function setRoomStatus(args: {
   return { ok: true };
 }
 
+// Generate a sublease agreement PDF and stage it as an email draft in the right
+// mailbox. New York → no letterhead, draft from personal Gmail. Otherwise →
+// with letterhead, draft from the M365 (Outlook) work account. Never sends; the
+// operator reviews and sends the draft himself.
+export async function generateAgreementDraft(args: {
+  tenant_name: string;
+  recipient_email: string;
+  property_address: string;
+  rent: string;
+  security_deposit: string;
+  lease_start_date: string;
+  lease_end_date: string;
+  in_new_york: boolean;
+  sublessor_name?: string;
+  pro_rate_rent?: string;
+  agreement_date?: string;
+}) {
+  const pdf = await generateAgreementPdf({
+    tenantName: args.tenant_name,
+    sublessorName: args.sublessor_name?.trim() || "Vineet Dutta",
+    propertyAddress: args.property_address,
+    rent: args.rent,
+    securityDeposit: args.security_deposit,
+    leaseStartDate: args.lease_start_date,
+    leaseEndDate: args.lease_end_date,
+    agreementDate: args.agreement_date || todayISO(),
+    includeLetterhead: !args.in_new_york,
+    proRateRent: args.pro_rate_rent,
+  });
+
+  const { subject, text, html } = agreementEmailTemplate({
+    tenantName: args.tenant_name,
+  });
+  const draftInput = {
+    to: args.recipient_email,
+    subject,
+    text,
+    html,
+    attachment: {
+      filename: pdf.filename,
+      base64: pdf.base64,
+      mimeType: "application/pdf",
+    },
+  };
+
+  const mailbox = args.in_new_york ? "gmail" : "outlook";
+  const result = args.in_new_york
+    ? await createGmailDraft(draftInput)
+    : await createOutlookDraft(draftInput);
+
+  if (!result.ok) {
+    return { ok: false, mailbox, error: result.error };
+  }
+  return {
+    ok: true,
+    mailbox,
+    letterhead: !args.in_new_york,
+    draft_url: result.draftUrl,
+  };
+}
+
 // ----- Tool definitions for the Anthropic tool runner -----
 
 import { betaZodTool } from "@anthropic-ai/sdk/helpers/beta/zod";
@@ -621,6 +686,45 @@ export const tools = [
       available_from: z.string().optional(),
     }),
     run: async (args) => JSON.stringify(await setRoomStatus(args)),
+  }),
+  betaZodTool({
+    name: "generate_agreement_draft",
+    description:
+      "Generate a sublease agreement PDF and stage it as a ready-to-review email " +
+      "draft (does NOT send). New York apartments → no letterhead, draft created " +
+      "in the personal Gmail account. Non-New-York → with letterhead, draft created " +
+      "in the Outlook/M365 work account. Only call this once you have all required " +
+      "fields; ask the operator for anything missing first.",
+    inputSchema: z.object({
+      tenant_name: z.string().describe("Tenant's full name"),
+      recipient_email: z.string().describe("Email address to send the draft to"),
+      property_address: z
+        .string()
+        .describe("Full property address (include city/state for non-NY units)"),
+      rent: z.string().describe('Monthly rent, e.g. "1650"'),
+      security_deposit: z.string().describe("Security deposit amount"),
+      lease_start_date: z.string().describe('Lease start "YYYY-MM-DD"'),
+      lease_end_date: z.string().describe('Lease end "YYYY-MM-DD"'),
+      in_new_york: z
+        .boolean()
+        .describe(
+          "True if the apartment is in New York (→ no letterhead, Gmail). " +
+            "False otherwise (→ letterhead, Outlook).",
+        ),
+      sublessor_name: z
+        .string()
+        .optional()
+        .describe('Sublessor name; defaults to "Vineet Dutta"'),
+      pro_rate_rent: z
+        .string()
+        .optional()
+        .describe("Prorated first-month rent, if any"),
+      agreement_date: z
+        .string()
+        .optional()
+        .describe('Agreement date "YYYY-MM-DD"; defaults to today'),
+    }),
+    run: async (args) => JSON.stringify(await generateAgreementDraft(args)),
   }),
   betaZodTool({
     name: "get_collection_summary",

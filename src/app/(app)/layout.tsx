@@ -22,6 +22,7 @@ const NAV: NavItem[] = [
   { href: "/reconciliation", label: "Reconciliation", icon: "reconciliation" },
   { href: "/cleaning", label: "Cleaning", icon: "cleaning" },
   { href: "/credentials", label: "Credentials", icon: "credentials" },
+  { href: "/agreements", label: "Agreements", icon: "agreements" },
 ];
 
 export default async function AppLayout({

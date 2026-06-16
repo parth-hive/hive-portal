@@ -19,6 +19,39 @@ export type SendResult =
   | { ok: true; id: string }
   | { ok: false; error: string };
 
+// Body copy for the sublease agreement email. The PDF (with or without
+// letterhead) is attached separately; this is just the cover message. Returns
+// subject + text + html so it works for both Gmail and Outlook drafts.
+export function agreementEmailTemplate(opts: { tenantName: string }): {
+  subject: string;
+  text: string;
+  html: string;
+} {
+  const firstName = opts.tenantName.trim().split(/\s+/)[0] || "there";
+  const subject = "Your Hive sublease agreement";
+  const text = `Hi ${firstName},
+
+Welcome to Hive! Please find your sublease agreement attached. Review it, and reply to this email with any questions. Once you're happy with it, sign and send it back.
+
+Looking forward to having you with us.
+
+Best,
+Vineet
+Hive`;
+  const html = `<div style="margin:0; padding:20px 12px; background:#f5f2ed; font-family:'DM Sans',Arial,Helvetica,sans-serif;">
+  <div style="max-width:480px; margin:0 auto; background:#fefdfb; border:1px solid #e8e3db; border-radius:16px; overflow:hidden;">
+    <div style="height:6px; background:#d4920b;"></div>
+    <div style="padding:24px 20px; color:#1a1a18; line-height:1.55; font-size:15px;">
+      <p style="margin:0 0 14px;">Hi ${firstName},</p>
+      <p style="margin:0 0 14px;">Welcome to Hive! Please find your sublease agreement attached. Review it, and reply to this email with any questions. Once you&rsquo;re happy with it, sign and send it back.</p>
+      <p style="margin:0 0 14px;">Looking forward to having you with us.</p>
+      <p style="margin:18px 0 0;">Best,<br/>Vineet<br/><span style="color:#8a8378;">Hive</span></p>
+    </div>
+  </div>
+</div>`;
+  return { subject, text, html };
+}
+
 export async function sendRentReminder(to: string): Promise<SendResult> {
   const apiKey = process.env.RESEND_API_KEY;
   if (!apiKey) return { ok: false, error: "RESEND_API_KEY not set" };

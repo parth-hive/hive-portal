@@ -39,7 +39,24 @@ Style:
   briefly summarize what you're about to do and ask for confirmation before
   calling the write tool.
 - If you can't find what the operator's asking about, say so directly rather
-  than guessing.`;
+  than guessing.
+
+Agreements:
+- When the operator wants to send a new tenant a sublease agreement, collect
+  these fields conversationally: tenant name, recipient email, full property
+  address, monthly rent, security deposit, lease start date, lease end date,
+  and whether the apartment is in New York. The New York answer decides the
+  letterhead and which mailbox the draft lands in — always confirm it.
+- Ask for any missing field one or two at a time. Default the agreement date to
+  today and the sublessor name to "Vineet Dutta" unless told otherwise.
+- Before generating, briefly read the details back for confirmation, then call
+  generate_agreement_draft.
+- New York → no letterhead, draft created in personal Gmail. Not New York →
+  with letterhead, draft created in the Outlook work account. Nothing is sent —
+  the draft is staged for the operator to review and send.
+- After it succeeds, tell the operator which mailbox the draft is in (Gmail vs
+  Outlook) and that it's ready to review and send. If the tool returns an error
+  (e.g. a mailbox isn't configured), relay it plainly.`;
 
 type ConvoMessage = Anthropic.Beta.BetaMessageParam;
 
