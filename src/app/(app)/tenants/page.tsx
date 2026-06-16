@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { one } from "@/lib/relations";
 import { SearchInput } from "@/components/search-input";
+import { BalanceFilter } from "./balance-filter";
 import { processExpiredTenancies } from "./actions";
 import {
   TenantGroups,
@@ -91,11 +92,12 @@ function dueForMonth(
   return monthlyRent;
 }
 
-type PageProps = { searchParams: Promise<{ q?: string }> };
+type PageProps = { searchParams: Promise<{ q?: string; owing?: string }> };
 
 export default async function TenantsPage({ searchParams }: PageProps) {
-  const { q } = await searchParams;
+  const { q, owing } = await searchParams;
   const query = (q ?? "").trim().toLowerCase();
+  const owingOnly = owing === "1";
 
   // Finalize any tenancies whose move_out_date has passed since the last visit.
   await processExpiredTenancies();
@@ -158,26 +160,26 @@ export default async function TenantsPage({ searchParams }: PageProps) {
     0,
   );
 
-  const visibleRows = query
-    ? rowsWithStatus.filter((r) => {
-        const tenant = one(r.tenants);
-        const room = one(r.rooms);
-        const property = one(room?.properties ?? null);
-        const haystack = [
-          tenant?.full_name,
-          tenant?.email,
-          tenant?.phone,
-          room?.room_number,
-          property?.building_name,
-          property?.street_address,
-          property?.unit_number,
-        ]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase();
-        return haystack.includes(query);
-      })
-    : rowsWithStatus;
+  const visibleRows = rowsWithStatus.filter((r) => {
+    if (owingOnly && r.balance <= 0) return false;
+    if (!query) return true;
+    const tenant = one(r.tenants);
+    const room = one(r.rooms);
+    const property = one(room?.properties ?? null);
+    const haystack = [
+      tenant?.full_name,
+      tenant?.email,
+      tenant?.phone,
+      room?.room_number,
+      property?.building_name,
+      property?.street_address,
+      property?.unit_number,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+    return haystack.includes(query);
+  });
 
   // Group active tenancies by property for the collapsible list. Capture the
   // property id so the group header can link to that property's page.
@@ -333,11 +335,12 @@ export default async function TenantsPage({ searchParams }: PageProps) {
         />
       )}
 
-      <div className="mt-6">
+      <div className="mt-6 flex flex-wrap items-center gap-3">
         <SearchInput
           placeholder="Search by tenant, email, phone, or unit…"
           ariaLabel="Search tenants"
         />
+        <BalanceFilter />
       </div>
 
       {error && <p className="mt-6 text-sm text-red-700">{error.message}</p>}
@@ -351,7 +354,11 @@ export default async function TenantsPage({ searchParams }: PageProps) {
 
       {rows.length > 0 && visibleRows.length === 0 && (
         <p className="mt-10 rounded-2xl bg-white px-6 py-12 text-center text-sm text-muted shadow-sm">
-          No tenants match &ldquo;{query}&rdquo;.
+          {owingOnly && !query
+            ? "No tenants have an outstanding balance."
+            : owingOnly
+              ? `No tenants with a balance match “${query}”.`
+              : `No tenants match “${query}”.`}
         </p>
       )}
 
