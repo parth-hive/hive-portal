@@ -303,6 +303,12 @@ export default async function TenantDetailPage({ params }: PageProps) {
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-3">
+              <a
+                href={`/tenants/${tenant.id}/ledger/export`}
+                className="rounded-full border border-stone bg-white px-3 py-1.5 text-xs uppercase tracking-wide text-ink hover:bg-warm"
+              >
+                Download ledger ↓
+              </a>
               <RecordCharge tenancyId={active.id} tenantId={tenant.id} />
               <RecordPayment
                 tenancyId={active.id}
