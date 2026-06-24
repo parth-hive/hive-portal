@@ -3,8 +3,15 @@
  * account (vineet.dutta@hiveny.com) — used for non-New-York agreements
  * (with letterhead).
  *
- * Uses a delegated OAuth2 refresh token (scopes: Mail.ReadWrite offline_access)
- * minted once for the work mailbox. Raw fetch, no graph SDK dependency.
+ * Uses a delegated OAuth2 refresh token minted once for the work mailbox. Raw
+ * fetch, no graph SDK dependency.
+ *
+ * The refresh token must be consented for BOTH delegated scopes:
+ *   - Mail.ReadWrite  → createOutlookDraft (stage a draft)
+ *   - Mail.Send       → sendOutlookMessage (send immediately, /me/sendMail)
+ * plus offline_access. If the token was minted with only Mail.ReadWrite, the
+ * send path fails at token-refresh time with an AAD consent error — re-mint
+ * MS_REFRESH_TOKEN after consenting Mail.Send.
  *
  * Env: MS_CLIENT_ID, MS_CLIENT_SECRET, MS_TENANT_ID, MS_REFRESH_TOKEN
  */
@@ -48,8 +55,16 @@ async function accessToken(scope: string = SCOPE_READWRITE): Promise<string> {
   });
   if (!res.ok) {
     const detail = await res.text().catch(() => "");
+    // AADSTS65001 / invalid_grant on the send scope means the refresh token was
+    // minted without Mail.Send consent — surface an actionable hint.
+    const needsConsent =
+      scope.includes("Mail.Send") &&
+      /AADSTS65001|invalid_grant|consent/i.test(detail);
+    const hint = needsConsent
+      ? " — the refresh token isn't consented for Mail.Send; re-mint MS_REFRESH_TOKEN with Mail.Send + offline_access."
+      : "";
     throw new Error(
-      `Outlook token refresh failed (${res.status}): ${detail.slice(0, 200)}`,
+      `Outlook token refresh failed (${res.status}): ${detail.slice(0, 200)}${hint}`,
     );
   }
   const data = (await res.json()) as { access_token?: string };
