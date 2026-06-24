@@ -75,6 +75,7 @@ export async function GET(req: NextRequest) {
 
   const rows = (tenancies ?? []) as Row[];
   let sent = 0;
+  let queued = 0;
   let skipped = 0;
   let failed = 0;
   const errors: Array<{ tenancy_id: string; error: string }> = [];
@@ -118,18 +119,22 @@ export async function GET(req: NextRequest) {
       ? await sendRentReminderGmail(email)
       : await sendRentReminder(email);
 
+    // A deferred (queued) send has no resend_id yet and will go out via the
+    // daily queue flush; leave sent_at null so it reads as still-pending.
+    const delivered = result.ok && !("queued" in result) ? result : null;
     await supabase
       .from("rent_reminder_emails")
       .update({
-        sent_at: result.ok ? new Date().toISOString() : null,
-        resend_id: result.ok ? result.id : null,
+        sent_at: delivered ? new Date().toISOString() : null,
+        resend_id: delivered ? delivered.id : null,
         error_text: result.ok ? null : result.error,
       })
       .eq("tenancy_id", row.id)
       .eq("period_month", period);
 
     if (result.ok) {
-      sent++;
+      if ("queued" in result) queued++;
+      else sent++;
     } else {
       failed++;
       errors.push({ tenancy_id: row.id, error: result.error });
@@ -140,6 +145,7 @@ export async function GET(req: NextRequest) {
     period,
     total: rows.length,
     sent,
+    queued,
     skipped,
     failed,
     errors,

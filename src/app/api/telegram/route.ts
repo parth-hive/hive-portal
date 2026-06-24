@@ -13,7 +13,7 @@
 import { NextResponse } from "next/server";
 import Anthropic from "@anthropic-ai/sdk";
 import { createClient } from "@supabase/supabase-js";
-import { tools } from "@/lib/portal-tools";
+import { runWithToolContext, tools } from "@/lib/portal-tools";
 import { allowedUserIds, sendChatAction, sendMessage } from "@/lib/telegram";
 
 export const dynamic = "force-dynamic";
@@ -40,6 +40,14 @@ Style:
   calling the write tool.
 - If you can't find what the operator's asking about, say so directly rather
   than guessing.
+
+Inventory sheet:
+- share_inventory_sheet sends the shareable inventory spreadsheet into this chat
+  as a file. email_inventory_sheet emails it (branded, from the Outlook work
+  account) to a recipient.
+- To email it you need a destination address. If the operator asks to email the
+  sheet but doesn't give an address, ask "What email should I send it to?" before
+  calling email_inventory_sheet. After it sends, confirm the recipient.
 
 Agreements:
 - When the operator wants to send a new tenant a sublease agreement, collect
@@ -144,6 +152,8 @@ export async function POST(req: Request) {
         "Ask things like:\n" +
         "• Who's overdue on rent this month?\n" +
         "• Show me available rooms in JSQ\n" +
+        "• Send me the shareable inventory sheet\n" +
+        "• Email the inventory sheet to broker@example.com\n" +
         "• Which units are due for cleaning?\n" +
         "• What's the ClickPay password for 90 Washington?\n" +
         "• Record a $2000 rent payment for Tom today, Zelle\n" +
@@ -177,15 +187,19 @@ export async function POST(req: Request) {
 
   let finalMessage: Anthropic.Beta.BetaMessage;
   try {
-    finalMessage = await client.beta.messages.toolRunner({
-      model: "claude-opus-4-7",
-      max_tokens: 16000,
-      system: SYSTEM_PROMPT,
-      thinking: { type: "adaptive" },
-      output_config: { effort: "high" },
-      tools,
-      messages,
-    });
+    // Run inside the chat context so tools that deliver files (e.g.
+    // share_inventory_sheet) know which chat to send the document to.
+    finalMessage = await runWithToolContext({ chatId: msg.chat.id }, () =>
+      client.beta.messages.toolRunner({
+        model: "claude-opus-4-7",
+        max_tokens: 16000,
+        system: SYSTEM_PROMPT,
+        thinking: { type: "adaptive" },
+        output_config: { effort: "high" },
+        tools,
+        messages,
+      }),
+    );
   } catch (e) {
     console.error("Anthropic tool runner failed:", e);
     const errText = e instanceof Error ? e.message : "unknown error";

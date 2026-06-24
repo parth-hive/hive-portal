@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { EMAIL_TYPE_LABELS, type EmailType } from "@/lib/email-log";
+import { resendUsage } from "@/lib/resend-quota";
 import { isMaster } from "@/lib/access";
 import { ClearLogButton } from "../clear-log-button";
 import { clearEmailLog } from "../log-actions";
@@ -46,6 +47,25 @@ export default async function EmailLogPage({ searchParams }: PageProps) {
     data: { user },
   } = await supabase.auth.getUser();
   const master = isMaster(user?.email);
+
+  // Resend free-tier usage: today's & this month's sends vs the caps, plus the
+  // number of emails currently deferred to the queue. Counting fails open before
+  // the migration is applied, so these read as 0 until db:push.
+  const [usage, backlogRes] = await Promise.all([
+    resendUsage(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any)
+      .from("email_queue")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending"),
+  ]);
+  const backlog = (backlogRes?.count as number | null) ?? 0;
+  const dailyPct = Math.min(
+    100,
+    Math.round((usage.today / Math.max(1, usage.dailyCap)) * 100),
+  );
+  const atDaily = usage.today >= usage.dailyCap;
+  const atMonthly = usage.month >= usage.monthlyCap;
 
   const sp = await searchParams;
   const typeFilter = isType(sp.type) ? sp.type : null;
@@ -101,6 +121,53 @@ export default async function EmailLogPage({ searchParams }: PageProps) {
         </div>
         {master && <ClearLogButton onClear={clearEmailLog} label="email log" />}
       </header>
+
+      <section className="mt-6 rounded-2xl bg-white p-5 shadow-sm">
+        <div className="flex flex-wrap items-start justify-between gap-3">
+          <div>
+            <h2 className="text-sm font-medium text-ink">Resend free-tier usage</h2>
+            <p className="mt-1 max-w-md text-xs text-muted">
+              Once a cap is hit, the rest of the day&apos;s emails are queued and
+              sent the next day. Gmail (New York) sends don&apos;t count.
+            </p>
+          </div>
+          <div className="grid grid-cols-3 gap-5 text-right">
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-muted">Today</p>
+              <p className={`text-lg font-semibold ${atDaily ? "text-accent-text" : "text-ink"}`}>
+                {usage.today}
+                <span className="text-sm font-normal text-muted"> / {usage.dailyCap}</span>
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-muted">This month</p>
+              <p className={`text-lg font-semibold ${atMonthly ? "text-accent-text" : "text-ink"}`}>
+                {usage.month}
+                <span className="text-sm font-normal text-muted"> / {usage.monthlyCap}</span>
+              </p>
+            </div>
+            <div>
+              <p className="text-[11px] uppercase tracking-wide text-muted">Queued</p>
+              <p className={`text-lg font-semibold ${backlog > 0 ? "text-accent-text" : "text-ink"}`}>
+                {backlog}
+              </p>
+            </div>
+          </div>
+        </div>
+        <div className="mt-4 h-1.5 w-full overflow-hidden rounded-full bg-warm">
+          <div
+            className={`h-full rounded-full ${atDaily ? "bg-accent-dark" : "bg-accent"}`}
+            style={{ width: `${dailyPct}%` }}
+          />
+        </div>
+        {(atDaily || atMonthly) && (
+          <p className="mt-2 text-xs text-accent-text">
+            {atDaily ? "Daily" : "Monthly"} limit reached — further emails are
+            being queued{backlog > 0 ? ` (${backlog} waiting)` : ""} and will send
+            on the next daily run.
+          </p>
+        )}
+      </section>
 
       <div className="mt-6 space-y-3">
         <div className="flex flex-wrap items-center gap-2">

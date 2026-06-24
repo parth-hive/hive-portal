@@ -38,6 +38,34 @@ export async function sendMessage(
   }
 }
 
+export async function sendDocument(
+  chatId: number,
+  doc: { buffer: Buffer; filename: string; mimeType?: string },
+  opts: { caption?: string; reply_to_message_id?: number } = {},
+) {
+  const form = new FormData();
+  form.append("chat_id", String(chatId));
+  if (opts.caption) form.append("caption", opts.caption);
+  if (opts.reply_to_message_id != null) {
+    form.append("reply_to_message_id", String(opts.reply_to_message_id));
+  }
+  const blob = new Blob([new Uint8Array(doc.buffer)], {
+    type: doc.mimeType ?? "application/octet-stream",
+  });
+  form.append("document", blob, doc.filename);
+
+  const res = await fetch(`${API_BASE}/bot${token()}/sendDocument`, {
+    method: "POST",
+    body: form,
+  });
+  if (!res.ok) {
+    const detail = await res.text();
+    console.error("Telegram sendDocument failed:", detail);
+    return { ok: false, error: detail };
+  }
+  return { ok: true };
+}
+
 export async function sendChatAction(chatId: number, action: "typing") {
   await fetch(`${API_BASE}/bot${token()}/sendChatAction`, {
     method: "POST",

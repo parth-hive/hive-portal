@@ -1,6 +1,12 @@
-import { Resend } from "resend";
 import { logEmail } from "./email-log";
 import { sendGmailMessage } from "./google-mail";
+import { sendViaResend, type SendResult } from "./resend-quota";
+
+export type { SendResult };
+
+function resendFrom() {
+  return process.env.RESEND_FROM || "onboarding@resend.dev";
+}
 
 const REMINDER_SUBJECT = "Rent Reminder";
 
@@ -15,10 +21,6 @@ const REMINDER_HTML = `<div style="font-family: 'DM Sans', Arial, sans-serif; co
   <p>This is a friendly reminder that your rent is due. Please submit payment by the <strong>5th of this month</strong> to avoid a <strong>$50 late fee</strong>. Please ignore if already paid.</p>
   <p>Thanks</p>
 </div>`;
-
-export type SendResult =
-  | { ok: true; id: string }
-  | { ok: false; error: string };
 
 // Plain, unbranded cover message for the Gmail (New York, no-letterhead) draft.
 // Deliberately no Hive mention and no HTML — kept as simple as possible.
@@ -65,37 +67,49 @@ Hive`;
   return { subject, text, html };
 }
 
+// Branded cover message for emailing the public inventory "Shareable Sheet".
+// The .xlsx is attached separately; this is just the cover note. Sent from the
+// Outlook work account, so it carries Hive branding.
+export function inventorySheetEmailTemplate(opts: { roomCount: number }): {
+  subject: string;
+  text: string;
+  html: string;
+} {
+  const n = opts.roomCount;
+  const roomsLabel = `${n} room${n === 1 ? "" : "s"}`;
+  const subject = "Hive — current room availability";
+  const text = `Hi,
+
+Attached is our current list of available rooms (${roomsLabel}), including neighborhood, pricing, availability and amenities. Reply to this email if anything looks like a fit and we'll set up a viewing.
+
+Best,
+Vineet
+Hive`;
+  const html = `<div style="margin:0; padding:20px 12px; background:#f5f2ed; font-family:'DM Sans',Arial,Helvetica,sans-serif;">
+  <div style="max-width:480px; margin:0 auto; background:#fefdfb; border:1px solid #e8e3db; border-radius:16px; overflow:hidden;">
+    <div style="height:6px; background:#d4920b;"></div>
+    <div style="padding:24px 20px; color:#1a1a18; line-height:1.55; font-size:15px;">
+      <p style="margin:0 0 14px;">Hi,</p>
+      <p style="margin:0 0 14px;">Attached is our current list of available rooms (${roomsLabel}), including neighborhood, pricing, availability and amenities. Reply to this email if anything looks like a fit and we&rsquo;ll set up a viewing.</p>
+      <p style="margin:18px 0 0;">Best,<br/>Vineet<br/><span style="color:#8a8378;">Hive</span></p>
+    </div>
+  </div>
+</div>`;
+  return { subject, text, html };
+}
+
 export async function sendRentReminder(to: string): Promise<SendResult> {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return { ok: false, error: "RESEND_API_KEY not set" };
-
-  const from = process.env.RESEND_FROM || "onboarding@resend.dev";
-  const replyTo = process.env.RESEND_REPLY_TO;
-
-  const resend = new Resend(apiKey);
-  const { data, error } = await resend.emails.send({
-    from,
-    to,
-    replyTo,
-    subject: REMINDER_SUBJECT,
-    text: REMINDER_TEXT,
-    html: REMINDER_HTML,
-  });
-
-  const result: SendResult = error
-    ? { ok: false, error: error.message }
-    : data?.id
-      ? { ok: true, id: data.id }
-      : { ok: false, error: "No id returned from Resend" };
-  await logEmail({
-    type: "rent_reminder",
-    recipient: to,
-    subject: REMINDER_SUBJECT,
-    status: result.ok ? "sent" : "failed",
-    error: result.ok ? null : result.error,
-    resend_id: result.ok ? result.id : null,
-  });
-  return result;
+  return sendViaResend(
+    {
+      to,
+      from: resendFrom(),
+      replyTo: process.env.RESEND_REPLY_TO,
+      subject: REMINDER_SUBJECT,
+      text: REMINDER_TEXT,
+      html: REMINDER_HTML,
+    },
+    { type: "rent_reminder" },
+  );
 }
 
 // ----- New York variants -----
@@ -115,6 +129,7 @@ export async function sendRentReminderGmail(to: string): Promise<SendResult> {
     recipient: to,
     subject: REMINDER_SUBJECT,
     context: "new_york_gmail",
+    channel: "gmail",
     status: result.ok ? "sent" : "failed",
     error: result.ok ? null : result.error,
     resend_id: result.ok ? result.id || null : null,
@@ -141,6 +156,7 @@ Vinny`;
     recipient: to,
     subject,
     context: `${monthLabel} · new_york_gmail`,
+    channel: "gmail",
     status: result.ok ? "sent" : "failed",
     error: result.ok ? null : result.error,
     resend_id: result.ok ? result.id || null : null,
@@ -159,12 +175,6 @@ export async function sendLeaseEndReminder(
     daysUntil: number;
   },
 ): Promise<SendResult> {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return { ok: false, error: "RESEND_API_KEY not set" };
-
-  const from = process.env.RESEND_FROM || "onboarding@resend.dev";
-  const replyTo = process.env.RESEND_REPLY_TO;
-
   const prettyEnd = (() => {
     const d = new Date(opts.endDate + "T00:00:00");
     if (Number.isNaN(d.getTime())) return opts.endDate;
@@ -198,31 +208,10 @@ ${opts.tenantName}'s tenancy at ${opts.unitLabel} is ending in ${opts.daysUntil}
   </div>
 </div>`;
 
-  const resend = new Resend(apiKey);
-  const { data, error } = await resend.emails.send({
-    from,
-    to,
-    replyTo,
-    subject,
-    text,
-    html,
-  });
-
-  const result: SendResult = error
-    ? { ok: false, error: error.message }
-    : data?.id
-      ? { ok: true, id: data.id }
-      : { ok: false, error: "No id returned from Resend" };
-  await logEmail({
-    type: "lease_end",
-    recipient: to,
-    subject,
-    context: `${opts.unitLabel} · ${opts.tenantName}`,
-    status: result.ok ? "sent" : "failed",
-    error: result.ok ? null : result.error,
-    resend_id: result.ok ? result.id : null,
-  });
-  return result;
+  return sendViaResend(
+    { to, from: resendFrom(), replyTo: process.env.RESEND_REPLY_TO, subject, text, html },
+    { type: "lease_end", context: `${opts.unitLabel} · ${opts.tenantName}` },
+  );
 }
 
 // Balance-specific reminder: sent manually to a tenant who still owes rent for
@@ -232,12 +221,6 @@ export async function sendBalanceReminder(
   amountDue: number,
   monthLabel: string,
 ): Promise<SendResult> {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return { ok: false, error: "RESEND_API_KEY not set" };
-
-  const from = process.env.RESEND_FROM || "onboarding@resend.dev";
-  const replyTo = process.env.RESEND_REPLY_TO;
-
   const amount = `$${Math.round(amountDue).toLocaleString()}`;
   const subject = `Rent balance due — ${monthLabel}`;
   const text = `Hi,
@@ -261,29 +244,8 @@ Thanks`;
   </div>
 </div>`;
 
-  const resend = new Resend(apiKey);
-  const { data, error } = await resend.emails.send({
-    from,
-    to,
-    replyTo,
-    subject,
-    text,
-    html,
-  });
-
-  const result: SendResult = error
-    ? { ok: false, error: error.message }
-    : data?.id
-      ? { ok: true, id: data.id }
-      : { ok: false, error: "No id returned from Resend" };
-  await logEmail({
-    type: "rent_balance",
-    recipient: to,
-    subject,
-    context: monthLabel,
-    status: result.ok ? "sent" : "failed",
-    error: result.ok ? null : result.error,
-    resend_id: result.ok ? result.id : null,
-  });
-  return result;
+  return sendViaResend(
+    { to, from: resendFrom(), replyTo: process.env.RESEND_REPLY_TO, subject, text, html },
+    { type: "rent_balance", context: monthLabel },
+  );
 }

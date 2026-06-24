@@ -26,6 +26,8 @@ export async function logEmail(entry: {
   recipient: string;
   subject: string;
   status: "sent" | "failed";
+  /** Which provider sent it. Gmail sends don't count against the Resend cap. */
+  channel?: "resend" | "gmail";
   error?: string | null;
   context?: string | null;
   resend_id?: string | null;
@@ -42,6 +44,7 @@ export async function logEmail(entry: {
       recipient: entry.recipient,
       subject: entry.subject,
       status: entry.status,
+      channel: entry.channel ?? "resend",
       error: entry.error ?? null,
       context: entry.context ?? null,
       resend_id: entry.resend_id ?? null,

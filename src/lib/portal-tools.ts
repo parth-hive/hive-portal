@@ -7,6 +7,7 @@
  * stringifies these into tool_result content blocks.
  */
 
+import { AsyncLocalStorage } from "node:async_hooks";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { updateRoomsWithNotification } from "@/lib/notifications";
@@ -14,7 +15,35 @@ import { todayISO } from "@/lib/date";
 import { generateAgreementPdf } from "@/lib/agreements";
 import { sendGmailMessage } from "@/lib/google-mail";
 import { sendOutlookMessage } from "@/lib/graph-mail";
-import { agreementEmailTemplate, gmailAgreementBody } from "@/lib/email";
+import {
+  agreementEmailTemplate,
+  gmailAgreementBody,
+  inventorySheetEmailTemplate,
+} from "@/lib/email";
+import { buildInventorySheet } from "@/lib/inventory-sheet";
+import { sendDocument } from "@/lib/telegram";
+
+/**
+ * Per-request context for tools that need to know which Telegram chat they're
+ * acting in (e.g. to deliver a file). The webhook wraps the tool runner in
+ * `runWithToolContext` so handlers can read the active chat id.
+ */
+type ToolContext = { chatId: number };
+const toolContext = new AsyncLocalStorage<ToolContext>();
+
+export function runWithToolContext<T>(ctx: ToolContext, fn: () => T): T {
+  return toolContext.run(ctx, fn);
+}
+
+function requireChatId(): number {
+  const ctx = toolContext.getStore();
+  if (!ctx) {
+    throw new Error(
+      "No Telegram chat context — this tool must run inside runWithToolContext.",
+    );
+  }
+  return ctx.chatId;
+}
 
 function admin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -553,6 +582,50 @@ export async function sendAgreement(args: {
   };
 }
 
+const SHEET_MIME =
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
+
+// Build the public "Shareable Sheet" of listable inventory and deliver it to
+// the current Telegram chat as an .xlsx file attachment.
+export async function shareInventorySheet() {
+  const chatId = requireChatId();
+  const { buffer, filename, count } = await buildInventorySheet(admin());
+  const res = await sendDocument(
+    chatId,
+    { buffer, filename, mimeType: SHEET_MIME },
+    { caption: `Hive inventory — ${count} room${count === 1 ? "" : "s"}` },
+  );
+  if (!res.ok) {
+    return { ok: false, error: res.error ?? "Failed to send the sheet." };
+  }
+  return { ok: true, filename, count };
+}
+
+// Build the public "Shareable Sheet" of listable inventory and email it as an
+// .xlsx attachment from the Outlook work account (branded). Requires a recipient
+// address — the operator is asked for it before this runs.
+export async function emailInventorySheet(args: { recipient_email: string }) {
+  const to = args.recipient_email.trim();
+  if (!to) return { ok: false, error: "No recipient email address provided." };
+
+  const { buffer, filename, count } = await buildInventorySheet(admin());
+  const { subject, text, html } = inventorySheetEmailTemplate({
+    roomCount: count,
+  });
+  const result = await sendOutlookMessage({
+    to,
+    subject,
+    text,
+    html,
+    attachment: { filename, base64: buffer.toString("base64"), mimeType: SHEET_MIME },
+  });
+
+  if (!result.ok) {
+    return { ok: false, mailbox: "outlook", error: result.error };
+  }
+  return { ok: true, mailbox: "outlook", recipient: to, filename, count };
+}
+
 // ----- Tool definitions for the Anthropic tool runner -----
 
 import { betaZodTool } from "@anthropic-ai/sdk/helpers/beta/zod";
@@ -739,6 +812,34 @@ export const tools = [
         .describe('Agreement date "YYYY-MM-DD"; defaults to today'),
     }),
     run: async (args) => JSON.stringify(await sendAgreement(args)),
+  }),
+  betaZodTool({
+    name: "share_inventory_sheet",
+    description:
+      "Generate the public 'Shareable Sheet' of listable inventory — rooms " +
+      "available now plus rooms scheduled to open up — as an .xlsx file and send " +
+      "it to this Telegram chat as a document attachment. Use this whenever the " +
+      "operator asks to share, send, export, or get the inventory sheet/list. " +
+      "After it succeeds, just confirm it was sent; the file itself is delivered " +
+      "separately as an attachment.",
+    inputSchema: z.object({}),
+    run: async () => JSON.stringify(await shareInventorySheet()),
+  }),
+  betaZodTool({
+    name: "email_inventory_sheet",
+    description:
+      "Email the public 'Shareable Sheet' of listable inventory as an .xlsx " +
+      "attachment, sent from the Outlook work account (branded). Use when the " +
+      "operator wants the inventory sheet emailed to someone (a prospect, broker, " +
+      "or themselves). You MUST have a recipient email address first — if the " +
+      "operator hasn't given one, ask for it before calling this. After it " +
+      "succeeds, confirm it was emailed and to whom.",
+    inputSchema: z.object({
+      recipient_email: z
+        .string()
+        .describe("Email address to send the inventory sheet to"),
+    }),
+    run: async (args) => JSON.stringify(await emailInventorySheet(args)),
   }),
   betaZodTool({
     name: "get_collection_summary",

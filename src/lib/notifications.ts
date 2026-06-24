@@ -8,10 +8,13 @@
  */
 
 import type { SupabaseClient } from "@supabase/supabase-js";
-import { Resend } from "resend";
 import { one } from "@/lib/relations";
-import { logEmail } from "./email-log";
+import { sendViaResend, type SendResult } from "./resend-quota";
 import { todayISO } from "@/lib/date";
+
+function resendFrom() {
+  return process.env.RESEND_FROM || "onboarding@resend.dev";
+}
 import { CLEANING_CADENCE_DAYS } from "@/lib/cleaning";
 
 /** Add `days` to an ISO "YYYY-MM-DD" date, returning the same format. */
@@ -215,13 +218,7 @@ export type ChangeEmailInput = {
 
 export async function sendChangeEmail(
   input: ChangeEmailInput,
-): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return { ok: false, error: "RESEND_API_KEY not set" };
-
-  const from = process.env.RESEND_FROM || "onboarding@resend.dev";
-  const replyTo = process.env.RESEND_REPLY_TO;
-
+): Promise<SendResult> {
   const fromLabel = valueLabel(input.field, input.fromV);
   const toLabel = valueLabel(input.field, input.toV);
   const fLabel = fieldLabel(input.field);
@@ -256,31 +253,10 @@ Thanks`;
   <p>Thanks</p>
 </div>`;
 
-  const resend = new Resend(apiKey);
-  const { data, error } = await resend.emails.send({
-    from,
-    to: input.to,
-    replyTo,
-    subject,
-    text,
-    html,
-  });
-
-  const result = error
-    ? { ok: false as const, error: error.message }
-    : data?.id
-      ? { ok: true as const, id: data.id }
-      : { ok: false as const, error: "No id returned from Resend" };
-  await logEmail({
-    type: "room_change",
-    recipient: input.to.join(", "),
-    subject,
-    context: unitRoom,
-    status: result.ok ? "sent" : "failed",
-    error: result.ok ? null : result.error,
-    resend_id: result.ok ? result.id : null,
-  });
-  return result;
+  return sendViaResend(
+    { to: input.to, from: resendFrom(), replyTo: process.env.RESEND_REPLY_TO, subject, text, html },
+    { type: "room_change", context: unitRoom },
+  );
 }
 
 
@@ -621,13 +597,7 @@ function cardHtml(input: CleaningEmailInput): string {
 
 async function sendCleaningEmail(
   input: CleaningEmailInput,
-): Promise<{ ok: true; id: string } | { ok: false; error: string }> {
-  const apiKey = process.env.RESEND_API_KEY;
-  if (!apiKey) return { ok: false, error: "RESEND_API_KEY not set" };
-
-  const from = process.env.RESEND_FROM || "onboarding@resend.dev";
-  const replyTo = process.env.RESEND_REPLY_TO;
-
+): Promise<SendResult> {
   const unitRoom = `${input.unitLabel} · ${input.roomLabel}`;
 
   let subject: string;
@@ -656,29 +626,8 @@ async function sendCleaningEmail(
   ].join("\n");
   const html = cardHtml(input);
 
-  const resend = new Resend(apiKey);
-  const { data, error } = await resend.emails.send({
-    from,
-    to: input.to,
-    replyTo,
-    subject,
-    text: fullBody,
-    html,
-  });
-
-  const result = error
-    ? { ok: false as const, error: error.message }
-    : data?.id
-      ? { ok: true as const, id: data.id }
-      : { ok: false as const, error: "No id returned from Resend" };
-  await logEmail({
-    type: "cleaning_moveout",
-    recipient: input.to,
-    subject,
-    context: unitRoom,
-    status: result.ok ? "sent" : "failed",
-    error: result.ok ? null : result.error,
-    resend_id: result.ok ? result.id : null,
-  });
-  return result;
+  return sendViaResend(
+    { to: input.to, from: resendFrom(), replyTo: process.env.RESEND_REPLY_TO, subject, text: fullBody, html },
+    { type: "cleaning_moveout", context: unitRoom },
+  );
 }

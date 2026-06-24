@@ -593,6 +593,7 @@ export async function sendBalanceReminders(
   const { charges, allocations } = await fetchLedgerSidecars(supabase);
 
   let sent = 0;
+  let queued = 0;
   let failed = 0;
   for (const row of data ?? []) {
     const tenant = one(row.tenants);
@@ -618,11 +619,13 @@ export async function sendBalanceReminders(
     const res = isNewYork
       ? await sendBalanceReminderGmail(email, netBalance, monthLabel)
       : await sendBalanceReminder(email, netBalance, monthLabel);
-    if (res.ok) sent++;
-    else failed++;
+    if (res.ok) {
+      if ("queued" in res) queued++;
+      else sent++;
+    } else failed++;
   }
 
-  if (sent === 0 && failed === 0) {
+  if (sent === 0 && queued === 0 && failed === 0) {
     return { success: "No tenants have an outstanding balance this month." };
   }
 
@@ -631,13 +634,17 @@ export async function sendBalanceReminders(
   await (supabase as any).from("rent_reminder_batches").insert({
     kind: "balance",
     period_month: period,
-    recipient_count: sent,
+    recipient_count: sent + queued,
     triggered_by: user?.email ?? null,
   });
 
   revalidatePath("/tenants");
-  const msg =
-    `Sent ${sent} balance reminder${sent === 1 ? "" : "s"}.` +
-    (failed > 0 ? ` ${failed} failed to send.` : "");
-  return { success: msg };
+  const parts: string[] = [];
+  if (sent > 0) parts.push(`Sent ${sent} balance reminder${sent === 1 ? "" : "s"}.`);
+  if (queued > 0)
+    parts.push(
+      `${queued} queued for tomorrow — Resend daily limit reached.`,
+    );
+  if (failed > 0) parts.push(`${failed} failed to send.`);
+  return { success: parts.join(" ") };
 }
