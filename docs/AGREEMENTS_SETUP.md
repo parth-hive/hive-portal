@@ -58,12 +58,14 @@ MS_REFRESH_TOKEN=
 2. **Certificates & secrets → New client secret** → copy the **Value** →
    `MS_CLIENT_SECRET`.
 3. **API permissions → Add a permission → Microsoft Graph → Delegated** → add
-   **`Mail.ReadWrite`** and **`offline_access`** → **Grant admin consent**.
+   **`Mail.ReadWrite`** (stage drafts), **`Mail.Send`** (send immediately —
+   non-NY agreement sends + inventory email) and **`offline_access`** → **Grant
+   admin consent**.
 4. Mint a refresh token (sign in as `vineet.dutta@hiveny.com`):
    - Open this URL in a browser (replace `{TENANT}` and `{CLIENT_ID}`), sign in as the
      work account, approve:
      ```
-     https://login.microsoftonline.com/{TENANT}/oauth2/v2.0/authorize?client_id={CLIENT_ID}&response_type=code&redirect_uri=http://localhost:3000&response_mode=query&scope=https://graph.microsoft.com/Mail.ReadWrite%20offline_access
+     https://login.microsoftonline.com/{TENANT}/oauth2/v2.0/authorize?client_id={CLIENT_ID}&response_type=code&redirect_uri=http://localhost:3000&response_mode=query&scope=https://graph.microsoft.com/Mail.ReadWrite%20https://graph.microsoft.com/Mail.Send%20offline_access
      ```
    - You'll be redirected to `http://localhost:3000/?code=...`. Copy the `code` value.
    - Exchange it for tokens (run in a terminal):
@@ -73,10 +75,14 @@ MS_REFRESH_TOKEN=
        -d "client_secret={CLIENT_SECRET}" \
        -d "grant_type=authorization_code" \
        -d "redirect_uri=http://localhost:3000" \
-       -d "scope=https://graph.microsoft.com/Mail.ReadWrite offline_access" \
+       -d "scope=https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send offline_access" \
        -d "code=PASTE_CODE_HERE"
      ```
    - Copy `refresh_token` from the JSON response → `MS_REFRESH_TOKEN`.
+
+> Adding `Mail.Send` in the portal is not enough on its own — you must re-mint
+> `MS_REFRESH_TOKEN` via the flow above so the new token carries the Send scope.
+> Confirm in Telegram with `/diag` (Outlook should read `✅ OK`).
 
 ---
 
