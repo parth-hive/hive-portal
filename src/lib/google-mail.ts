@@ -40,7 +40,9 @@ export type SendResult =
 
 function config() {
   const user = process.env.GMAIL_USER;
-  const pass = process.env.GMAIL_APP_PASSWORD;
+  // Google displays app passwords as "abcd efgh ijkl mnop"; the spaces are
+  // cosmetic, so strip all whitespace before authenticating.
+  const pass = process.env.GMAIL_APP_PASSWORD?.replace(/\s+/g, "");
   if (!user || !pass) return null;
   return { user, pass };
 }
