@@ -13,9 +13,8 @@ Each account needs a long-lived **refresh token**, obtained once. Put all values
 `.env.local` (local) and in the Vercel project env (production).
 
 ```
-GMAIL_CLIENT_ID=
-GMAIL_CLIENT_SECRET=
-GMAIL_REFRESH_TOKEN=
+GMAIL_USER=
+GMAIL_APP_PASSWORD=
 MS_CLIENT_ID=
 MS_CLIENT_SECRET=
 MS_TENANT_ID=
@@ -24,25 +23,22 @@ MS_REFRESH_TOKEN=
 
 ---
 
-## A. Gmail (personal account — New York drafts)
+## A. Gmail (personal account — New York correspondence)
 
-1. Go to <https://console.cloud.google.com/> → create/select a project.
-2. **APIs & Services → Library** → enable **Gmail API**.
-3. **OAuth consent screen** → External → add `vdutta1485@gmail.com` as a **Test user**
-   (test mode is fine; refresh tokens for test users stay valid).
-4. **Credentials → Create credentials → OAuth client ID → Desktop app.**
-   Copy the **Client ID** and **Client secret** → these are `GMAIL_CLIENT_ID` /
-   `GMAIL_CLIENT_SECRET`.
-5. Get a refresh token (sign in as `vdutta1485@gmail.com`):
-   - Easiest: <https://developers.google.com/oauthplayground/>
-     - Click the gear (top-right) → check **"Use your own OAuth credentials"** →
-       paste the client ID/secret.
-     - In **Step 1**, enter the scope `https://www.googleapis.com/auth/gmail.compose`
-       → **Authorize APIs** → sign in as the personal account → allow.
-     - **Step 2 → Exchange authorization code for tokens** → copy the **Refresh token**
-       → that's `GMAIL_REFRESH_TOKEN`.
+New York agreements and reminders send over SMTP using a **Gmail App Password** —
+no OAuth, no consent screen, no token expiry.
 
-> Scope must be `gmail.compose` (create drafts). Don't use a read-only scope.
+1. Sign in to `vdutta1485@gmail.com` → <https://myaccount.google.com/security>.
+2. Enable **2-Step Verification** (App Passwords require it).
+3. Go to <https://myaccount.google.com/apppasswords> → create an app password
+   (name it e.g. "Hive Portal"). Copy the **16-character** value.
+4. Set env:
+   - `GMAIL_USER=vdutta1485@gmail.com`
+   - `GMAIL_APP_PASSWORD=` the 16-char password (spaces optional; they're ignored).
+
+> App Passwords don't expire. They stop working only if you turn off 2-Step
+> Verification, change the account password, or revoke the password. Sending uses
+> `smtp.gmail.com:465`.
 
 ---
 
