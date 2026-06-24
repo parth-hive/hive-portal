@@ -602,9 +602,8 @@ export async function shareInventorySheet() {
 }
 
 // Build the public "Shareable Sheet" of listable inventory and email it as an
-// .xlsx attachment from the Outlook work account (branded, and the more stable
-// channel — AAD tokens don't hit Gmail's testing-mode expiry). Requires a
-// recipient address — the operator is asked for it before this runs.
+// .xlsx attachment from the personal Gmail account. Requires a recipient
+// address — the operator is asked for it before this runs.
 export async function emailInventorySheet(args: { recipient_email: string }) {
   const to = args.recipient_email.trim();
   if (!to) return { ok: false, error: "No recipient email address provided." };
@@ -613,7 +612,7 @@ export async function emailInventorySheet(args: { recipient_email: string }) {
   const { subject, text, html } = inventorySheetEmailTemplate({
     roomCount: count,
   });
-  const result = await sendOutlookMessage({
+  const result = await sendGmailMessage({
     to,
     subject,
     text,
@@ -622,9 +621,9 @@ export async function emailInventorySheet(args: { recipient_email: string }) {
   });
 
   if (!result.ok) {
-    return { ok: false, mailbox: "outlook", error: result.error };
+    return { ok: false, mailbox: "gmail", error: result.error };
   }
-  return { ok: true, mailbox: "outlook", recipient: to, filename, count };
+  return { ok: true, mailbox: "gmail", recipient: to, filename, count };
 }
 
 // ----- Tool definitions for the Anthropic tool runner -----
@@ -830,7 +829,7 @@ export const tools = [
     name: "email_inventory_sheet",
     description:
       "Email the public 'Shareable Sheet' of listable inventory as an .xlsx " +
-      "attachment, sent from the Outlook work account (branded). Use when the " +
+      "attachment, sent from the personal Gmail account. Use when the " +
       "operator wants the inventory sheet emailed to someone (a prospect, broker, " +
       "or themselves). You MUST have a recipient email address first — if the " +
       "operator hasn't given one, ask for it before calling this. After it " +

@@ -45,8 +45,8 @@ Style:
 
 Inventory sheet:
 - share_inventory_sheet sends the shareable inventory spreadsheet into this chat
-  as a file. email_inventory_sheet emails it (branded, from the Outlook work
-  account) to a recipient.
+  as a file. email_inventory_sheet emails it (from the personal Gmail account)
+  to a recipient.
 - To email it you need a destination address. If the operator asks to email the
   sheet but doesn't give an address, ask "What email should I send it to?" before
   calling email_inventory_sheet. After it sends, confirm the recipient.
