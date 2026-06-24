@@ -136,6 +136,18 @@ export async function buildInventorySheet(
   for (const key of ["rent", "services", "total"] as const) {
     ws.getColumn(key).numFmt = "$#,##0";
   }
+
+  // Legend — explains the "Services" bundle for recipients of the shared sheet.
+  ws.addRow({});
+  const legend = ws.addRow({
+    cross_street: "Services = Wifi + Electricity + Gas + Cleaning Services",
+  });
+  ws.mergeCells(`A${legend.number}:E${legend.number}`);
+  legend.getCell("cross_street").font = {
+    italic: true,
+    color: { argb: "FF8A8378" },
+  };
+
   ws.views = [{ state: "frozen", ySplit: 1 }];
 
   const arrayBuffer = await wb.xlsx.writeBuffer();

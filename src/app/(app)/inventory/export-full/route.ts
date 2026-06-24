@@ -159,6 +159,15 @@ export async function GET() {
   for (const key of ["rent", "services", "total"] as const) {
     ws.getColumn(key).numFmt = "$#,##0";
   }
+
+  // Legend — explains the "Services" bundle.
+  ws.addRow({});
+  const legend = ws.addRow({
+    unit: "Services = Wifi + Electricity + Gas + Cleaning Services",
+  });
+  ws.mergeCells(`A${legend.number}:E${legend.number}`);
+  legend.getCell("unit").font = { italic: true, color: { argb: "FF8A8378" } };
+
   ws.views = [{ state: "frozen", ySplit: 1 }];
 
   const buffer = await wb.xlsx.writeBuffer();
