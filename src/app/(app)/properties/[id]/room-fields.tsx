@@ -71,15 +71,6 @@ export function RoomFields({ initial }: { initial?: Initial }) {
         <label className={checkboxLabel}>
           <input
             type="checkbox"
-            name="has_ac"
-            defaultChecked={v.has_ac ?? false}
-            className="accent-accent"
-          />
-          AC
-        </label>
-        <label className={checkboxLabel}>
-          <input
-            type="checkbox"
             name="has_private_bathroom"
             defaultChecked={v.has_private_bathroom ?? false}
             className="accent-accent"

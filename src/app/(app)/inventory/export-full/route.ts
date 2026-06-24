@@ -64,7 +64,6 @@ function prettyDate(iso: string | null): string {
 
 function amenitiesFor(room: Row, p: PropertyRel | null): string {
   const tags: string[] = [];
-  if (room.has_ac) tags.push("AC");
   if (room.has_private_bathroom) tags.push("Private bath");
   if (p?.has_gym) tags.push("Gym");
   if (p?.has_elevator) tags.push("Elevator");

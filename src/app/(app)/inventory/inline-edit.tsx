@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import {
+  setRoomAdUrl,
   setRoomAvailableFrom,
   setRoomBaseRent,
   setRoomPhotosUrl,
@@ -163,6 +164,68 @@ export function InlinePhotosEdit({
           className="rounded-full border border-stone bg-white px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink hover:bg-warm"
         >
           Open ↗
+        </a>
+      ) : null}
+      <button
+        type="button"
+        onClick={() => setEditing(true)}
+        className="rounded-full px-2 py-0.5 text-[11px] uppercase tracking-wide text-accent-text hover:bg-warm"
+      >
+        {url ? "Edit" : "+ Add"}
+      </button>
+    </div>
+  );
+}
+
+export function InlineAdEdit({
+  roomId,
+  url,
+}: {
+  roomId: string;
+  url: string | null;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [pending, startTransition] = useTransition();
+
+  const commit = (value: string) => {
+    startTransition(async () => {
+      await setRoomAdUrl(roomId, value.trim() || null);
+      setEditing(false);
+    });
+  };
+
+  if (editing) {
+    return (
+      <input
+        type="url"
+        autoFocus
+        defaultValue={url ?? ""}
+        placeholder="https://…"
+        onFocus={(e) => e.currentTarget.select()}
+        onBlur={(e) => commit(e.currentTarget.value)}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit(e.currentTarget.value);
+          } else if (e.key === "Escape") {
+            setEditing(false);
+          }
+        }}
+        className="w-48 rounded border border-accent bg-white px-1.5 py-0.5 text-[12px] text-ink focus:outline-none"
+      />
+    );
+  }
+
+  return (
+    <div className={`flex items-center gap-1.5 ${pending ? "opacity-60" : ""}`}>
+      {url ? (
+        <a
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-900 hover:bg-green-200"
+        >
+          Live ↗
         </a>
       ) : null}
       <button

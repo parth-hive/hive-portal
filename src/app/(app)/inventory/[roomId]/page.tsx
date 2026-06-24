@@ -113,7 +113,6 @@ export default async function VacancyDetailPage({ params }: PageProps) {
         { label: "Doorman", on: p.has_doorman },
         { label: "Laundry in building", on: p.laundry_in_building },
         { label: "In-unit laundry", on: p.in_unit_laundry },
-        { label: "AC in room", on: room.has_ac },
         { label: "Private bathroom", on: room.has_private_bathroom },
       ]
     : [];

@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { setRoomAmenities, type AmenityValues } from "./actions";
 
 const ROOM_FIELDS: { key: keyof AmenityValues; label: string }[] = [
-  { key: "has_ac", label: "AC" },
   { key: "has_private_bathroom", label: "Private bath" },
 ];
 

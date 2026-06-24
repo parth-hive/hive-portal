@@ -116,9 +116,6 @@ export function RoomRow({
             )}
           </div>
           <div className="mt-2 flex flex-wrap gap-x-3 gap-y-1 text-xs">
-            <span className={room.has_ac ? "text-ink" : "text-muted line-through"}>
-              AC
-            </span>
             <span
               className={
                 room.has_private_bathroom

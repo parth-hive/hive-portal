@@ -66,6 +66,43 @@ export async function setRoomAd(
   return undefined;
 }
 
+/** Edit a room's ad URL inline from the inventory table. */
+export async function setRoomAdUrl(
+  roomId: string,
+  url: string | null,
+): Promise<{ ok: true } | { error: string }> {
+  const ad_url = url && url.trim() ? url.trim() : null;
+  const supabase = await createClient();
+
+  // Whoever saves the URL is recorded as the ad's poster (snapshot of their
+  // name). Clear the poster when the URL is removed.
+  let ad_posted_by: string | null = null;
+  if (ad_url) {
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    const meta = user?.user_metadata ?? {};
+    const name =
+      typeof meta.display_name === "string" && meta.display_name.trim()
+        ? meta.display_name.trim()
+        : typeof meta.full_name === "string" && meta.full_name.trim()
+          ? meta.full_name.trim()
+          : null;
+    ad_posted_by = name ?? user?.email ?? null;
+  }
+
+  const { error } = await supabase
+    .from("rooms")
+    .update({ ad_url, ad_posted_by })
+    .eq("id", roomId);
+
+  if (error) return { error: error.message };
+
+  revalidatePath("/inventory");
+  revalidatePath(`/inventory/${roomId}`);
+  return { ok: true };
+}
+
 export type RentFormState = { error?: string } | undefined;
 
 export async function setRoomRent(
@@ -118,7 +155,6 @@ export async function setRoomPhotosUrl(
 
 export type AmenityValues = {
   // Room-level (rooms table)
-  has_ac: boolean;
   has_private_bathroom: boolean;
   // Building-level (properties table — applies to every room in the unit)
   has_gym: boolean;
@@ -145,7 +181,6 @@ export async function setRoomAmenities(
   const { error: roomErr } = await supabase
     .from("rooms")
     .update({
-      has_ac: a.has_ac,
       has_private_bathroom: a.has_private_bathroom,
     })
     .eq("id", roomId);

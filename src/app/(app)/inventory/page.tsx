@@ -6,6 +6,7 @@ import { processExpiredTenancies } from "../tenants/actions";
 import { CopyListing } from "./copy-listing";
 import { ListingActionSelector } from "./listing-action";
 import {
+  InlineAdEdit,
   InlineBaseRentEdit,
   InlineServicesEdit,
   InlineDateEdit,
@@ -368,6 +369,8 @@ export default async function InventoryPage({ searchParams }: PageProps) {
                 <th className="px-3 py-2 font-medium">Listing action</th>
                 <th className="px-3 py-2 font-medium">Ad</th>
                 <th className="px-3 py-2 font-medium">Ad Posted</th>
+                <th className="px-3 py-2 font-medium">Roommates</th>
+                <th className="px-3 py-2 font-medium">Add tenant</th>
                 <th className="px-3 py-2 text-right font-medium" />
               </tr>
             </thead>
@@ -487,7 +490,6 @@ function InventoryRow({
           roomId={room.id}
           propertyId={p?.id ?? null}
           values={{
-            has_ac: room.has_ac,
             has_private_bathroom: room.has_private_bathroom,
             has_gym: p?.has_gym ?? false,
             has_elevator: p?.has_elevator ?? false,
@@ -525,20 +527,7 @@ function InventoryRow({
       </td>
       <td className="px-3 py-2.5">
         <div className="flex flex-wrap items-center gap-1.5">
-          {room.ad_url ? (
-            <a
-              href={room.ad_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-900 hover:bg-green-200"
-            >
-              Live ↗
-            </a>
-          ) : (
-            <span className="rounded-full border border-stone bg-white px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted">
-              None
-            </span>
-          )}
+          <InlineAdEdit roomId={room.id} url={room.ad_url} />
           {room.ad_boosted && (
             <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[11px] font-medium text-orange-900">
               ✓ Boost
@@ -551,25 +540,31 @@ function InventoryRow({
           <span className="text-muted">-</span>
         )}
       </td>
+      <td className="px-3 py-2.5">
+        {p ? (
+          <Link
+            href={`/properties/${p.id}#residents`}
+            className="rounded-full border border-stone bg-white px-2.5 py-0.5 text-[11px] uppercase tracking-wide text-ink hover:bg-warm"
+          >
+            Roommates
+          </Link>
+        ) : (
+          <span className="text-muted">—</span>
+        )}
+      </td>
+      <td className="px-3 py-2.5">
+        <Link
+          href={`/tenants/new?room_id=${room.id}`}
+          className="rounded-full bg-ink px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-white hover:bg-accent-dark"
+        >
+          + Tenant
+        </Link>
+      </td>
       <td className="px-3 py-2.5 text-right">
         <div className="flex items-center justify-end gap-2">
           {room.marketing_description && (
             <CopyListing text={room.marketing_description} />
           )}
-          {p && (
-            <Link
-              href={`/properties/${p.id}#residents`}
-              className="rounded-full border border-stone bg-white px-2.5 py-0.5 text-[11px] uppercase tracking-wide text-ink hover:bg-warm"
-            >
-              Roommates
-            </Link>
-          )}
-          <Link
-            href={`/tenants/new?room_id=${room.id}`}
-            className="rounded-full bg-ink px-2.5 py-0.5 text-[11px] font-medium uppercase tracking-wide text-white hover:bg-accent-dark"
-          >
-            + Tenant
-          </Link>
           <Link
             href={`/inventory/${room.id}`}
             className="text-[11px] uppercase tracking-wide text-muted hover:text-accent-text"
@@ -586,11 +581,10 @@ function Amenities({
   room,
   property,
 }: {
-  room: Pick<Row, "has_ac" | "has_private_bathroom">;
+  room: Pick<Row, "has_private_bathroom">;
   property: PropertyRel | null;
 }) {
   const tags: string[] = [];
-  if (room.has_ac) tags.push("AC");
   if (room.has_private_bathroom) tags.push("Private bath");
   if (property?.has_gym) tags.push("Gym");
   if (property?.has_elevator) tags.push("Elevator");
