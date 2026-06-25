@@ -315,6 +315,39 @@ export default async function InventoryPage({ searchParams }: PageProps) {
     ),
   ).sort((a, b) => a.localeCompare(b));
 
+  // Ads-posted tally per notification recipient. `ad_posted_by` is a snapshot
+  // of whoever saved the URL (display name, else email), so match a recipient
+  // by either their label or email. Count across all rooms, not just the
+  // currently-listed inventory, to reflect total ads each person has posted.
+  const { data: adPosterData } = await supabase
+    .from("rooms")
+    .select("ad_posted_by")
+    .not("ad_posted_by", "is", null)
+    .returns<{ ad_posted_by: string | null }[]>();
+
+  const { data: recipientData } = await supabase
+    .from("notification_recipients")
+    .select("id, email, label")
+    .returns<{ id: string; email: string; label: string | null }[]>();
+
+  const adCountByPoster = new Map<string, number>();
+  for (const a of adPosterData ?? []) {
+    const key = a.ad_posted_by?.trim().toLowerCase();
+    if (!key) continue;
+    adCountByPoster.set(key, (adCountByPoster.get(key) ?? 0) + 1);
+  }
+
+  const recipientAdCounts = (recipientData ?? [])
+    .map((rec) => {
+      const label = rec.label?.trim() || null;
+      const email = rec.email.trim();
+      const count =
+        (label ? adCountByPoster.get(label.toLowerCase()) ?? 0 : 0) +
+        (adCountByPoster.get(email.toLowerCase()) ?? 0);
+      return { id: rec.id, name: label ?? email, count };
+    })
+    .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
+
   let filtered = activeFilter
     ? rooms.filter((r) => matchesFilter(r, activeFilter, today))
     : rooms.slice();
@@ -436,6 +469,27 @@ export default async function InventoryPage({ searchParams }: PageProps) {
             {hood ? ` · ${hood}` : ""}
           </p>
         </div>
+      )}
+
+      {recipientAdCounts.length > 0 && (
+        <section className="mt-4 rounded-xl bg-white p-3 shadow-sm ring-1 ring-stone/40">
+          <h2 className="text-[11px] uppercase tracking-wide text-muted">
+            Ads posted by recipient
+          </h2>
+          <ul className="mt-2 flex flex-wrap gap-2">
+            {recipientAdCounts.map((r) => (
+              <li
+                key={r.id}
+                className="inline-flex items-center gap-2 rounded-full border border-stone bg-cream/60 px-3 py-1 text-[12px] text-ink"
+              >
+                <span className="font-medium">{r.name}</span>
+                <span className="inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full bg-accent px-1.5 text-[11px] font-semibold text-white">
+                  {r.count}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </section>
       )}
 
       {error && <p className="mt-6 text-sm text-red-700">{error.message}</p>}
