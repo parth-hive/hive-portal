@@ -1,4 +1,5 @@
 import { redirect } from "next/navigation";
+import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { isMaster } from "@/lib/access";
 import { formatDate } from "@/lib/date";
@@ -6,6 +7,14 @@ import { AddRecipientForm } from "./add-form";
 import { toggleRecipient, deleteRecipient } from "./actions";
 
 export const dynamic = "force-dynamic";
+
+function adminClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  return createServiceClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
 
 type Recipient = {
   id: string;
@@ -31,6 +40,19 @@ export default async function NotificationsPage() {
 
   const recipients: Recipient[] = (data ?? []) as Recipient[];
 
+  // Recipients can only be people who already have a portal account. Pull the
+  // list of system (auth) users and offer the ones not already on the list.
+  const { data: usersData } = await adminClient().auth.admin.listUsers({
+    page: 1,
+    perPage: 200,
+  });
+  const alreadyAdded = new Set(recipients.map((r) => r.email.toLowerCase()));
+  const systemUsers = (usersData?.users ?? [])
+    .map((u) => u.email)
+    .filter((e): e is string => !!e)
+    .filter((e) => !alreadyAdded.has(e.toLowerCase()))
+    .sort((a, b) => a.localeCompare(b));
+
   return (
     <div className="mx-auto w-full max-w-3xl">
       <header className="border-b border-stone/60 pb-4">
@@ -38,8 +60,9 @@ export default async function NotificationsPage() {
           <span className="font-display text-accent-text">Notifications</span>
         </h1>
         <p className="mt-1 text-sm text-muted">
-          Email recipients for room status &amp; listing-action changes.
-          Anyone on this list is also re-pinged 24 hours after a change.
+          Email recipients for room status &amp; listing-action changes. Only
+          people with a portal account can be added. Anyone on this list is also
+          re-pinged 24 hours after a change.
         </p>
       </header>
 
@@ -48,7 +71,7 @@ export default async function NotificationsPage() {
           Add recipient
         </h2>
         <div className="mt-3">
-          <AddRecipientForm />
+          <AddRecipientForm users={systemUsers} />
         </div>
       </section>
 

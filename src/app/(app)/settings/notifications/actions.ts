@@ -1,9 +1,18 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 
 export type RecipientFormState = { error?: string } | undefined;
+
+function adminClient() {
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+  return createServiceClient(url, key, {
+    auth: { persistSession: false, autoRefreshToken: false },
+  });
+}
 
 export async function addRecipient(
   _prev: RecipientFormState,
@@ -12,8 +21,19 @@ export async function addRecipient(
   const email = String(formData.get("email") ?? "").trim();
   const label = String(formData.get("label") ?? "").trim() || null;
   if (!email) return { error: "Email is required." };
-  // Cheap shape check; Resend will reject anything truly broken.
-  if (!email.includes("@")) return { error: "That doesn't look like an email." };
+  if (!label) return { error: "Name is required." };
+
+  // Recipients must be existing portal users — not arbitrary addresses.
+  const { data: usersData } = await adminClient().auth.admin.listUsers({
+    page: 1,
+    perPage: 200,
+  });
+  const isSystemUser = (usersData?.users ?? []).some(
+    (u) => u.email?.toLowerCase() === email.toLowerCase(),
+  );
+  if (!isSystemUser) {
+    return { error: "Recipient must be an existing portal user." };
+  }
 
   const supabase = await createClient();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

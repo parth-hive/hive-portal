@@ -3,7 +3,7 @@
 import { useActionState, useEffect, useRef } from "react";
 import { addRecipient, type RecipientFormState } from "./actions";
 
-export function AddRecipientForm() {
+export function AddRecipientForm({ users }: { users: string[] }) {
   const [state, action, pending] = useActionState<RecipientFormState, FormData>(
     addRecipient,
     undefined,
@@ -18,6 +18,19 @@ export function AddRecipientForm() {
     submittedRef.current = pending;
   }, [pending, state]);
 
+  if (users.length === 0) {
+    return (
+      <p className="text-sm text-muted">
+        Everyone with a portal account is already a recipient. Invite more people
+        from{" "}
+        <a href="/settings/users" className="text-accent-text underline">
+          Users
+        </a>{" "}
+        to add them here.
+      </p>
+    );
+  }
+
   return (
     <form
       ref={formRef}
@@ -26,23 +39,32 @@ export function AddRecipientForm() {
     >
       <label className="flex flex-1 min-w-[200px] flex-col gap-1">
         <span className="text-[11px] uppercase tracking-wide text-muted">
-          Email
+          Portal user
         </span>
-        <input
-          type="email"
+        <select
           name="email"
           required
+          defaultValue=""
           className="rounded-lg border border-stone bg-white px-3 py-2 text-sm text-ink focus:border-accent focus:outline-none"
-          placeholder="va@example.com"
-        />
+        >
+          <option value="" disabled>
+            Select a user…
+          </option>
+          {users.map((email) => (
+            <option key={email} value={email}>
+              {email}
+            </option>
+          ))}
+        </select>
       </label>
       <label className="flex flex-1 min-w-[160px] flex-col gap-1">
         <span className="text-[11px] uppercase tracking-wide text-muted">
-          Label (optional)
+          Name
         </span>
         <input
           type="text"
           name="label"
+          required
           className="rounded-lg border border-stone bg-white px-3 py-2 text-sm text-ink focus:border-accent focus:outline-none"
           placeholder="Sales VA"
         />
