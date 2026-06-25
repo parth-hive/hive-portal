@@ -213,6 +213,15 @@ export default async function TenantsPage({ searchParams }: PageProps) {
       a === "Unassigned" ? 1 : b === "Unassigned" ? -1 : a.localeCompare(b),
     )
     .map(([label, g]) => {
+      // Order rooms within a unit by room number (numeric-aware so "10" sorts
+      // after "2"); rows missing a room number fall to the bottom.
+      g.rows.sort((a, b) => {
+        if (a.room_number == null) return b.room_number == null ? 0 : 1;
+        if (b.room_number == null) return -1;
+        return a.room_number.localeCompare(b.room_number, undefined, {
+          numeric: true,
+        });
+      });
       const subDue = g.rows.reduce((s, r) => s + r.due, 0);
       const subPaid = g.rows.reduce((s, r) => s + r.paid, 0);
       const subBalance = g.rows.reduce((s, r) => s + r.balance, 0);
