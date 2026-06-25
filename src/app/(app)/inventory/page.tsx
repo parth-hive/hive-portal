@@ -21,6 +21,7 @@ import {
   ACTION_LABELS,
   ACTION_ORDER,
   ACTION_SWATCH,
+  ACTION_TINT,
   type Action,
 } from "./constants";
 
@@ -656,7 +657,13 @@ function InventoryRow({
 
   return (
     <tr
-      className={`divide-x divide-stone/30 border-t border-stone/30 ${striped ? "bg-cream/40" : "bg-white"} hover:bg-warm/30`}
+      className={`divide-x divide-stone/30 border-t border-stone/30 ${
+        room.listing_action === "no_action"
+          ? striped
+            ? "bg-cream/40"
+            : "bg-white"
+          : ACTION_TINT[room.listing_action]
+      } hover:bg-warm/30`}
     >
       <td className="px-2 py-2.5 text-center align-middle">
         <DeleteListingButton roomId={room.id} label={unitTitle} />
