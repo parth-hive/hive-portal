@@ -30,8 +30,8 @@ export function gmailAgreementBody(opts: { tenantName: string }): {
 } {
   const name = opts.tenantName.trim() || "there";
   return {
-    subject: "Sublease Agreement",
-    text: `Hello ${name},\n\nPlease find attached your Sublease Agreement.`,
+    subject: "Agreement",
+    text: `Hello ${name},\n\nPlease find attached your Agreement.`,
   };
 }
 
@@ -43,10 +43,10 @@ export function agreementEmailTemplate(opts: { tenantName: string }): {
   html: string;
 } {
   const firstName = opts.tenantName.trim().split(/\s+/)[0] || "there";
-  const subject = "Your Hive sublease agreement";
+  const subject = "Your Hive agreement";
   const text = `Hi ${firstName},
 
-Welcome to Hive! Please find your sublease agreement attached. Review it, sign it and send it back. Reply to this email if you have any questions.
+Welcome to Hive! Please find your agreement attached. Review it, sign it and send it back. Reply to this email if you have any questions.
 
 Looking forward to having you with us.
 
@@ -58,7 +58,7 @@ Hive`;
     <div style="height:6px; background:#d4920b;"></div>
     <div style="padding:24px 20px; color:#1a1a18; line-height:1.55; font-size:15px;">
       <p style="margin:0 0 14px;">Hi ${firstName},</p>
-      <p style="margin:0 0 14px;">Welcome to Hive! Please find your sublease agreement attached. Review it, sign it and send it back. Reply to this email if you have any questions.</p>
+      <p style="margin:0 0 14px;">Welcome to Hive! Please find your agreement attached. Review it, sign it and send it back. Reply to this email if you have any questions.</p>
       <p style="margin:0 0 14px;">Looking forward to having you with us.</p>
       <p style="margin:18px 0 0;">Best,<br/>Vineet<br/><span style="color:#8a8378;">Hive</span></p>
     </div>
