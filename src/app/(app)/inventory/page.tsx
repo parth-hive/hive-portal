@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { one } from "@/lib/relations";
-import { formatDate, todayISO } from "@/lib/date";
+import { todayISO } from "@/lib/date";
 import { processExpiredTenancies } from "../tenants/actions";
 import { CopyListing } from "./copy-listing";
 import { ListingActionSelector } from "./listing-action";
@@ -15,15 +15,7 @@ import {
 import { InlineAmenitiesEdit } from "./amenities-edit";
 import { AddInventory, type AddableRoom } from "./add-inventory";
 import { DeleteListingButton } from "./delete-listing";
-import { NeighborhoodFilter } from "./filters";
-import {
-  ACTION_BORDER,
-  ACTION_LABELS,
-  ACTION_ORDER,
-  ACTION_SWATCH,
-  ACTION_TINT,
-  type Action,
-} from "./constants";
+import { ACTION_BORDER, ACTION_TINT, type Action } from "./constants";
 
 export const dynamic = "force-dynamic";
 
@@ -78,52 +70,6 @@ function fmtMoney(n: number | null) {
 }
 
 const todayStr = () => todayISO();
-
-type FilterKey =
-  | "now"
-  | "upcoming"
-  | "no_ad"
-  | "boosted"
-  | "no_action"
-  | "update_price_or_date"
-  | "delete_listing"
-  | "boost_post"
-  | "priority";
-
-function isFilterKey(v: string | undefined): v is FilterKey {
-  return (
-    v === "now" ||
-    v === "upcoming" ||
-    v === "no_ad" ||
-    v === "boosted" ||
-    v === "no_action" ||
-    v === "update_price_or_date" ||
-    v === "delete_listing" ||
-    v === "boost_post" ||
-    v === "priority"
-  );
-}
-
-function matchesFilter(r: Row, filter: FilterKey, today: string) {
-  switch (filter) {
-    case "now":
-      return (
-        r.status === "available" &&
-        (!r.available_from || r.available_from <= today)
-      );
-    case "upcoming":
-      return (
-        r.status === "occupied" ||
-        (r.available_from !== null && r.available_from > today)
-      );
-    case "no_ad":
-      return !r.ad_url;
-    case "boosted":
-      return r.ad_boosted;
-    default:
-      return r.listing_action === filter;
-  }
-}
 
 type SortKey =
   | "unit"
@@ -195,10 +141,8 @@ function compareRooms(a: Row, b: Row, sort: SortKey): number {
 
 type PageProps = {
   searchParams: Promise<{
-    filter?: string;
     sort?: string;
     dir?: string;
-    hood?: string;
   }>;
 };
 
@@ -206,10 +150,8 @@ export default async function InventoryPage({ searchParams }: PageProps) {
   await processExpiredTenancies();
 
   const params = await searchParams;
-  const activeFilter = isFilterKey(params.filter) ? params.filter : null;
   const sortKey = isSortKey(params.sort) ? params.sort : DEFAULT_SORT;
   const sortDir = params.dir === "desc" ? "desc" : "asc";
-  const hood = params.hood?.trim() || null;
 
   const supabase = await createClient();
   const today = todayStr();
@@ -291,30 +233,6 @@ export default async function InventoryPage({ searchParams }: PageProps) {
       a.label.localeCompare(b.label, undefined, { numeric: true }),
     );
 
-  const counts = {
-    total: rooms.length,
-    now: rooms.filter((r) => matchesFilter(r, "now", today)).length,
-    upcoming: rooms.filter((r) => matchesFilter(r, "upcoming", today)).length,
-    no_ad: rooms.filter((r) => !r.ad_url).length,
-    boosted: rooms.filter((r) => r.ad_boosted).length,
-    by_action: Object.fromEntries(
-      ACTION_ORDER.map((a) => [
-        a,
-        rooms.filter((r) => r.listing_action === a).length,
-      ]),
-    ) as Record<Action, number>,
-  };
-
-  // Neighborhood options come from the full inventory, so the dropdown stays
-  // stable regardless of the active filter.
-  const neighborhoods = Array.from(
-    new Set(
-      rooms
-        .map((r) => one(r.properties)?.neighborhood)
-        .filter((n): n is string => !!n),
-    ),
-  ).sort((a, b) => a.localeCompare(b));
-
   // Ads-posted tally per notification recipient. `ad_posted_by` is a snapshot
   // of whoever saved the URL (display name, else email), so match a recipient
   // by either their label or email. Count across all rooms, not just the
@@ -348,12 +266,7 @@ export default async function InventoryPage({ searchParams }: PageProps) {
     })
     .sort((a, b) => b.count - a.count || a.name.localeCompare(b.name));
 
-  let filtered = activeFilter
-    ? rooms.filter((r) => matchesFilter(r, activeFilter, today))
-    : rooms.slice();
-  if (hood) {
-    filtered = filtered.filter((r) => one(r.properties)?.neighborhood === hood);
-  }
+  const filtered = rooms.slice();
   filtered.sort((a, b) => {
     const base = compareRooms(a, b, sortKey);
     // Stable tiebreak on the date so equal sort keys keep a sensible order.
@@ -391,86 +304,6 @@ export default async function InventoryPage({ searchParams }: PageProps) {
         </div>
       </header>
 
-      <section className="mt-4 grid grid-cols-2 gap-2 sm:grid-cols-3 lg:grid-cols-5">
-        <KpiTile
-          label="Total"
-          value={counts.total}
-          href="/inventory"
-          active={activeFilter === null}
-        />
-        <KpiTile
-          label="Available now"
-          value={counts.now}
-          href={activeFilter === "now" ? "/inventory" : "/inventory?filter=now"}
-          active={activeFilter === "now"}
-          dot="bg-accent"
-        />
-        <KpiTile
-          label="Scheduled"
-          value={counts.upcoming}
-          href={
-            activeFilter === "upcoming"
-              ? "/inventory"
-              : "/inventory?filter=upcoming"
-          }
-          active={activeFilter === "upcoming"}
-          dot="bg-ink"
-        />
-        <KpiTile
-          label="No ad yet"
-          value={counts.no_ad}
-          href={
-            activeFilter === "no_ad" ? "/inventory" : "/inventory?filter=no_ad"
-          }
-          active={activeFilter === "no_ad"}
-          dot="bg-red-500"
-        />
-        <KpiTile
-          label="Boosted"
-          value={counts.boosted}
-          href={
-            activeFilter === "boosted"
-              ? "/inventory"
-              : "/inventory?filter=boosted"
-          }
-          active={activeFilter === "boosted"}
-          dot="bg-orange-500"
-        />
-      </section>
-
-      <ul className="mt-3 flex flex-wrap gap-1.5">
-        {ACTION_ORDER.map((a) => {
-          const isActive = activeFilter === a;
-          return (
-            <li key={a}>
-              <Link
-                href={isActive ? "/inventory" : `/inventory?filter=${a}`}
-                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition ${
-                  isActive
-                    ? "border-ink bg-ink text-white"
-                    : "border-stone bg-white text-ink hover:bg-warm"
-                }`}
-              >
-                <span
-                  className={`inline-block h-2 w-2 rounded-full ${ACTION_SWATCH[a]}`}
-                />
-                {ACTION_LABELS[a]} ({counts.by_action[a]})
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-
-      {neighborhoods.length > 0 && (
-        <div className="mt-3 flex flex-wrap items-center justify-between gap-3">
-          <NeighborhoodFilter neighborhoods={neighborhoods} />
-          <p className="text-[12px] text-muted">
-            {filtered.length} of {rooms.length} rooms
-            {hood ? ` · ${hood}` : ""}
-          </p>
-        </div>
-      )}
-
       {recipientAdCounts.length > 0 && (
         <section className="mt-4 rounded-xl bg-white p-3 shadow-sm ring-1 ring-stone/40">
           <h2 className="text-[11px] uppercase tracking-wide text-muted">
@@ -501,16 +334,6 @@ export default async function InventoryPage({ searchParams }: PageProps) {
         </p>
       )}
 
-      {rooms.length > 0 && filtered.length === 0 && (
-        <p className="mt-10 rounded-xl bg-white px-6 py-10 text-center text-sm text-muted shadow-sm">
-          No rooms match this filter.{" "}
-          <Link href="/inventory" className="text-accent-text">
-            Clear filter
-          </Link>
-          .
-        </p>
-      )}
-
       {filtered.length > 0 && (
         <div className="mt-4 overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-stone/40">
           <table className="w-full min-w-[1400px] text-sm">
@@ -523,16 +346,12 @@ export default async function InventoryPage({ searchParams }: PageProps) {
                   sortKey="unit"
                   activeSort={sortKey}
                   dir={sortDir}
-                  filter={activeFilter}
-                  hood={hood}
                 />
                 <SortHeader
                   label="Neighborhood"
                   sortKey="neighborhood"
                   activeSort={sortKey}
                   dir={sortDir}
-                  filter={activeFilter}
-                  hood={hood}
                 />
                 <th className="px-3 py-2 font-medium">Room</th>
                 <SortHeader
@@ -540,16 +359,12 @@ export default async function InventoryPage({ searchParams }: PageProps) {
                   sortKey="available"
                   activeSort={sortKey}
                   dir={sortDir}
-                  filter={activeFilter}
-                  hood={hood}
                 />
                 <SortHeader
                   label="Rent"
                   sortKey="rent"
                   activeSort={sortKey}
                   dir={sortDir}
-                  filter={activeFilter}
-                  hood={hood}
                   align="right"
                 />
                 <SortHeader
@@ -557,8 +372,6 @@ export default async function InventoryPage({ searchParams }: PageProps) {
                   sortKey="services"
                   activeSort={sortKey}
                   dir={sortDir}
-                  filter={activeFilter}
-                  hood={hood}
                   align="right"
                 />
                 <SortHeader
@@ -566,8 +379,6 @@ export default async function InventoryPage({ searchParams }: PageProps) {
                   sortKey="total"
                   activeSort={sortKey}
                   dir={sortDir}
-                  filter={activeFilter}
-                  hood={hood}
                   align="right"
                 />
                 <th className="px-3 py-2 font-medium">Amenities</th>
@@ -596,60 +407,17 @@ export default async function InventoryPage({ searchParams }: PageProps) {
   );
 }
 
-function KpiTile({
-  label,
-  value,
-  href,
-  active,
-  dot,
-}: {
-  label: string;
-  value: number;
-  href: string;
-  active: boolean;
-  dot?: string;
-}) {
-  return (
-    <Link
-      href={href}
-      className={`flex items-center justify-between gap-3 rounded-xl px-3 py-2.5 shadow-sm transition ${
-        active ? "bg-ink text-white" : "bg-white hover:shadow"
-      }`}
-    >
-      <div className="flex items-center gap-2 min-w-0">
-        {dot && !active && (
-          <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} />
-        )}
-        <p
-          className={`truncate text-[11px] uppercase tracking-wide ${active ? "text-white/70" : "text-muted"}`}
-        >
-          {label}
-        </p>
-      </div>
-      <p
-        className={`text-2xl font-light ${active ? "text-white" : "text-ink"}`}
-      >
-        {value}
-      </p>
-    </Link>
-  );
-}
-
 function SortHeader({
   label,
   sortKey,
   activeSort,
   dir,
-  filter,
-  hood,
   align = "left",
 }: {
   label: string;
   sortKey: SortKey;
   activeSort: SortKey;
   dir: "asc" | "desc";
-  filter: FilterKey | null;
-  hood: string | null;
   align?: "left" | "right";
 }) {
   const isActive = activeSort === sortKey;
@@ -657,8 +425,6 @@ function SortHeader({
   const nextDir = isActive && dir === "asc" ? "desc" : "asc";
 
   const qs = new URLSearchParams();
-  if (filter) qs.set("filter", filter);
-  if (hood) qs.set("hood", hood);
   // Keep the URL clean when it lands on the default sort.
   if (!(sortKey === DEFAULT_SORT && nextDir === DEFAULT_DIR)) {
     qs.set("sort", sortKey);
