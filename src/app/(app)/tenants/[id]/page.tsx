@@ -252,7 +252,7 @@ export default async function TenantDetailPage({ params }: PageProps) {
                 </dd>
                 {active.move_out_date && (
                   <>
-                    <dt className="text-muted">Ending</dt>
+                    <dt className="text-muted">Moving out</dt>
                     <dd className="col-span-2">
                       <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs uppercase tracking-wide text-accent-text">
                         {formatDate(active.move_out_date)}
@@ -271,7 +271,7 @@ export default async function TenantDetailPage({ params }: PageProps) {
                   <ReactivateTenancyButton
                     tenancyId={active.id}
                     tenantId={tenant.id}
-                    label="Cancel scheduled end"
+                    label="Cancel move out"
                     variant="primary"
                   />
                 )}
