@@ -29,10 +29,10 @@ export const ACTION_BORDER: Record<Action, string> = {
 
 export const ACTION_TINT: Record<Action, string> = {
   no_action: "bg-gray-50/60",
-  update_price_or_date: "bg-yellow-50/60",
-  delete_listing: "bg-red-50/60",
-  boost_post: "bg-orange-50/60",
-  priority: "bg-purple-50/60",
+  update_price_or_date: "bg-yellow-100",
+  delete_listing: "bg-red-100",
+  boost_post: "bg-orange-100",
+  priority: "bg-purple-100",
 };
 
 export const ACTION_PILL: Record<Action, string> = {
