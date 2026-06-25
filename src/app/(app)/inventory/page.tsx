@@ -14,8 +14,17 @@ import {
 } from "./inline-edit";
 import { InlineAmenitiesEdit } from "./amenities-edit";
 import { AddInventory, type AddableRoom } from "./add-inventory";
+import { LocationFilter } from "./filters";
 import { DeleteListingButton } from "./delete-listing";
 import { ACTION_BORDER, ACTION_TINT, type Action } from "./constants";
+import {
+  DEFAULT_SORT,
+  DEFAULT_DIR,
+  isSortKey,
+  filterAndSortRooms,
+  type SortKey,
+  type LocFilter,
+} from "@/lib/inventory-filter";
 
 export const dynamic = "force-dynamic";
 
@@ -25,6 +34,7 @@ type PropertyRel = {
   street_address: string;
   unit_number: string;
   neighborhood: string | null;
+  is_new_york: boolean;
   has_gym: boolean;
   has_elevator: boolean;
   has_parking: boolean;
@@ -71,88 +81,23 @@ function fmtMoney(n: number | null) {
 
 const todayStr = () => todayISO();
 
-type SortKey =
-  | "unit"
-  | "neighborhood"
-  | "available"
-  | "rent"
-  | "services"
-  | "total";
-
-const DEFAULT_SORT: SortKey = "available";
-const DEFAULT_DIR: "asc" | "desc" = "asc";
-
-function isSortKey(v: string | undefined): v is SortKey {
-  return (
-    v === "unit" ||
-    v === "neighborhood" ||
-    v === "available" ||
-    v === "rent" ||
-    v === "services" ||
-    v === "total"
-  );
-}
-
-function unitTitleOf(r: Row): string {
-  const p = one(r.properties);
-  if (!p) return "";
-  return `${p.building_name?.trim() || p.street_address} Apt ${p.unit_number}`;
-}
-
-// Numbers: nulls sort last (ascending). Dates: a null `available_from` means
-// "available now", so it sorts earliest. Strings: natural/numeric compare.
-function cmpNum(a: number | null, b: number | null): number {
-  if (a === null && b === null) return 0;
-  if (a === null) return 1;
-  if (b === null) return -1;
-  return a - b;
-}
-
-function cmpDate(a: string | null, b: string | null): number {
-  const av = a ?? "";
-  const bv = b ?? "";
-  return av < bv ? -1 : av > bv ? 1 : 0;
-}
-
-function cmpStr(a: string | null, b: string | null): number {
-  return (a ?? "").localeCompare(b ?? "", undefined, { numeric: true });
-}
-
-function compareRooms(a: Row, b: Row, sort: SortKey): number {
-  switch (sort) {
-    case "unit":
-      return cmpStr(unitTitleOf(a), unitTitleOf(b));
-    case "neighborhood":
-      return cmpStr(
-        one(a.properties)?.neighborhood ?? null,
-        one(b.properties)?.neighborhood ?? null,
-      );
-    case "rent":
-      return cmpNum(a.base_rent, b.base_rent);
-    case "services":
-      return cmpNum(a.bundle_fee, b.bundle_fee);
-    case "total":
-      return cmpNum(a.total_rent, b.total_rent);
-    case "available":
-    default:
-      return cmpDate(a.available_from, b.available_from);
-  }
-}
-
 type PageProps = {
   searchParams: Promise<{
     sort?: string;
     dir?: string;
     poster?: string;
+    loc?: string;
   }>;
 };
 
-// Build an /inventory URL preserving the current sort while toggling the
-// ad-poster filter. Keeps the URL clean when everything is at its default.
+// Build an /inventory URL preserving the current sort + location filter while
+// toggling the ad-poster filter. Keeps the URL clean when everything is at its
+// default.
 function inventoryHref(
   sortKey: SortKey,
   sortDir: "asc" | "desc",
   poster: string | null,
+  loc: LocFilter,
 ): string {
   const qs = new URLSearchParams();
   if (!(sortKey === DEFAULT_SORT && sortDir === DEFAULT_DIR)) {
@@ -160,6 +105,7 @@ function inventoryHref(
     qs.set("dir", sortDir);
   }
   if (poster) qs.set("poster", poster);
+  if (loc) qs.set("loc", loc);
   return qs.toString() ? `/inventory?${qs.toString()}` : "/inventory";
 }
 
@@ -170,6 +116,8 @@ export default async function InventoryPage({ searchParams }: PageProps) {
   const sortKey = isSortKey(params.sort) ? params.sort : DEFAULT_SORT;
   const sortDir = params.dir === "desc" ? "desc" : "asc";
   const posterFilter = params.poster?.trim() || null;
+  const locFilter: LocFilter =
+    params.loc === "ny" || params.loc === "non" ? params.loc : null;
 
   const supabase = await createClient();
   const today = todayStr();
@@ -179,7 +127,7 @@ export default async function InventoryPage({ searchParams }: PageProps) {
       `id, room_number, base_rent, bundle_fee, total_rent, available_from, status,
        marketing_description, photos_url, has_ac, has_private_bathroom,
        listing_action, ad_url, ad_boosted, ad_posted_by,
-       properties(id, building_name, street_address, unit_number, neighborhood,
+       properties(id, building_name, street_address, unit_number, neighborhood, is_new_york,
                   has_gym, has_elevator, has_parking, has_doorman, has_rooftop, has_lounge,
                   laundry_in_building, in_unit_laundry),
        tenancies(id, status, start_date, move_out_date, tenants(id, full_name))`,
@@ -315,18 +263,26 @@ export default async function InventoryPage({ searchParams }: PageProps) {
     : null;
   const posterKeys = selectedPoster ? new Set(selectedPoster.keys) : null;
 
-  const filtered = posterKeys
-    ? rooms.filter((r) => {
-        const key = r.ad_posted_by?.trim().toLowerCase();
-        return !!key && posterKeys.has(key);
-      })
-    : rooms.slice();
-  filtered.sort((a, b) => {
-    const base = compareRooms(a, b, sortKey);
-    // Stable tiebreak on the date so equal sort keys keep a sensible order.
-    const cmp = base !== 0 ? base : cmpDate(a.available_from, b.available_from);
-    return sortDir === "desc" ? -cmp : cmp;
+  const filtered = filterAndSortRooms(rooms, {
+    sort: sortKey,
+    dir: sortDir,
+    loc: locFilter,
+    posterKeys,
   });
+
+  // Query string that mirrors the current table view, so the sheet downloads
+  // export exactly what's on screen (same filters + sort) at click time.
+  const exportQuery = (() => {
+    const qs = new URLSearchParams();
+    if (!(sortKey === DEFAULT_SORT && sortDir === DEFAULT_DIR)) {
+      qs.set("sort", sortKey);
+      qs.set("dir", sortDir);
+    }
+    if (posterFilter) qs.set("poster", posterFilter);
+    if (locFilter) qs.set("loc", locFilter);
+    const s = qs.toString();
+    return s ? `?${s}` : "";
+  })();
 
   return (
     <div className="mx-auto w-full max-w-7xl">
@@ -342,14 +298,14 @@ export default async function InventoryPage({ searchParams }: PageProps) {
         </div>
         <div className="flex shrink-0 flex-wrap gap-2">
           <a
-            href="/inventory/export-full"
+            href={`/inventory/export-full${exportQuery}`}
             download
             className="rounded-full border border-stone bg-white px-4 py-2 text-sm font-medium text-ink shadow-sm transition hover:border-accent hover:text-accent-text"
           >
             ↓ Download Sheet
           </a>
           <a
-            href="/inventory/export"
+            href={`/inventory/export${exportQuery}`}
             download
             className="rounded-full border border-stone bg-white px-4 py-2 text-sm font-medium text-ink shadow-sm transition hover:border-accent hover:text-accent-text"
           >
@@ -357,6 +313,10 @@ export default async function InventoryPage({ searchParams }: PageProps) {
           </a>
         </div>
       </header>
+
+      <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl bg-white p-3 shadow-sm ring-1 ring-stone/40">
+        <LocationFilter />
+      </div>
 
       {recipientAdCounts.length > 0 && (
         <section className="mt-4 rounded-xl bg-white p-3 shadow-sm ring-1 ring-stone/40">
@@ -366,7 +326,7 @@ export default async function InventoryPage({ searchParams }: PageProps) {
             </h2>
             {selectedPoster && (
               <Link
-                href={inventoryHref(sortKey, sortDir, null)}
+                href={inventoryHref(sortKey, sortDir, null, locFilter)}
                 scroll={false}
                 className="text-[11px] uppercase tracking-wide text-accent-text hover:text-accent-dark"
               >
@@ -384,6 +344,7 @@ export default async function InventoryPage({ searchParams }: PageProps) {
                       sortKey,
                       sortDir,
                       active ? null : r.id,
+                      locFilter,
                     )}
                     scroll={false}
                     aria-pressed={active}
@@ -419,7 +380,7 @@ export default async function InventoryPage({ searchParams }: PageProps) {
           No currently-listed rooms were posted by{" "}
           <span className="font-medium text-ink">{selectedPoster.name}</span>.{" "}
           <Link
-            href={inventoryHref(sortKey, sortDir, null)}
+            href={inventoryHref(sortKey, sortDir, null, locFilter)}
             scroll={false}
             className="text-accent-text underline hover:text-accent-dark"
           >
@@ -441,6 +402,7 @@ export default async function InventoryPage({ searchParams }: PageProps) {
                   activeSort={sortKey}
                   dir={sortDir}
                   poster={posterFilter}
+                  loc={locFilter}
                 />
                 <SortHeader
                   label="Neighborhood"
@@ -448,6 +410,7 @@ export default async function InventoryPage({ searchParams }: PageProps) {
                   activeSort={sortKey}
                   dir={sortDir}
                   poster={posterFilter}
+                  loc={locFilter}
                 />
                 <th className="px-3 py-2 font-medium">Room</th>
                 <SortHeader
@@ -456,6 +419,7 @@ export default async function InventoryPage({ searchParams }: PageProps) {
                   activeSort={sortKey}
                   dir={sortDir}
                   poster={posterFilter}
+                  loc={locFilter}
                 />
                 <SortHeader
                   label="Rent"
@@ -463,6 +427,7 @@ export default async function InventoryPage({ searchParams }: PageProps) {
                   activeSort={sortKey}
                   dir={sortDir}
                   poster={posterFilter}
+                  loc={locFilter}
                 />
                 <SortHeader
                   label="Services"
@@ -470,6 +435,7 @@ export default async function InventoryPage({ searchParams }: PageProps) {
                   activeSort={sortKey}
                   dir={sortDir}
                   poster={posterFilter}
+                  loc={locFilter}
                 />
                 <SortHeader
                   label="Total"
@@ -477,6 +443,7 @@ export default async function InventoryPage({ searchParams }: PageProps) {
                   activeSort={sortKey}
                   dir={sortDir}
                   poster={posterFilter}
+                  loc={locFilter}
                 />
                 <th className="px-3 py-2 font-medium">Amenities</th>
                 <th className="px-3 py-2 font-medium">Photos</th>
@@ -510,18 +477,20 @@ function SortHeader({
   activeSort,
   dir,
   poster,
+  loc,
 }: {
   label: string;
   sortKey: SortKey;
   activeSort: SortKey;
   dir: "asc" | "desc";
   poster: string | null;
+  loc: LocFilter;
 }) {
   const isActive = activeSort === sortKey;
   // Clicking the active column flips direction; a fresh column starts ascending.
   const nextDir = isActive && dir === "asc" ? "desc" : "asc";
 
-  const href = inventoryHref(sortKey, nextDir, poster);
+  const href = inventoryHref(sortKey, nextDir, poster, loc);
   const arrow = isActive ? (dir === "asc" ? "↑" : "↓") : "↕";
 
   return (

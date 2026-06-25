@@ -9,12 +9,22 @@ import ExcelJS from "exceljs";
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { one } from "@/lib/relations";
 import { todayISO } from "@/lib/date";
+import {
+  filterAndSortRooms,
+  DEFAULT_VIEW,
+  type InventoryView,
+} from "@/lib/inventory-filter";
 
 type PropertyRel = {
   cross_street: string | null;
   neighborhood: string | null;
   bedrooms: number | null;
   bathrooms: number | null;
+  // Carried for filter/sort parity with the inventory table (not displayed).
+  building_name: string | null;
+  street_address: string;
+  unit_number: string;
+  is_new_york: boolean;
   has_gym: boolean;
   has_elevator: boolean;
   has_parking: boolean;
@@ -35,6 +45,7 @@ type Row = {
   photos_url: string | null;
   has_ac: boolean;
   has_private_bathroom: boolean;
+  ad_posted_by: string | null;
   properties: PropertyRel | PropertyRel[] | null;
 };
 
@@ -68,9 +79,14 @@ function amenitiesFor(room: Row, p: PropertyRel | null): string {
  * Accepts any Supabase client (RLS-scoped server client or service-role admin)
  * — the result is identical because the inventory rows aren't user-scoped.
  * Returns the file bytes plus a dated filename and the room count.
+ *
+ * Pass `view` to filter + sort the rooms exactly like the inventory table
+ * (poster / New-York filters, sort column + direction); omit it (e.g. the
+ * Telegram bot) for the default: every listable room, available-date ascending.
  */
 export async function buildInventorySheet(
   supabase: SupabaseClient,
+  view: InventoryView = DEFAULT_VIEW,
 ): Promise<{ buffer: Buffer; filename: string; count: number }> {
   const today = todayISO();
 
@@ -78,8 +94,9 @@ export async function buildInventorySheet(
     .from("rooms")
     .select(
       `id, status, available_from, base_rent, bundle_fee, total_rent,
-       photos_url, has_ac, has_private_bathroom,
+       photos_url, has_ac, has_private_bathroom, ad_posted_by,
        properties(cross_street, neighborhood, bedrooms, bathrooms,
+                  building_name, street_address, unit_number, is_new_york,
                   has_gym, has_elevator, has_parking, has_doorman, has_rooftop,
                   has_lounge, laundry_in_building, in_unit_laundry)`,
     )
@@ -87,10 +104,9 @@ export async function buildInventorySheet(
       `status.eq.available,and(status.eq.occupied,available_from.gte.${today})`,
     )
     .eq("pending_tenant", false)
-    .order("available_from", { ascending: true, nullsFirst: true })
     .returns<Row[]>();
 
-  const rooms = data ?? [];
+  const rooms = filterAndSortRooms(data ?? [], view);
 
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet("Inventory");
