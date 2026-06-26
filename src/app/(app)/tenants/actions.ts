@@ -6,7 +6,12 @@ import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/types";
 import { one } from "@/lib/relations";
 import { updateRoomsWithNotification } from "@/lib/notifications";
-import { sendBalanceReminder, sendBalanceReminderGmail } from "@/lib/email";
+import {
+  sendBalanceReminder,
+  sendBalanceReminderGmail,
+  balanceReminderText,
+} from "@/lib/email";
+import { sendSms } from "@/lib/sms";
 import { todayISO } from "@/lib/date";
 import { computeLedger } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
@@ -539,8 +544,13 @@ export async function deleteCharge(formData: FormData) {
 
 export async function sendBalanceReminders(
   _prev: ReminderState,
-  _formData: FormData,
+  formData: FormData,
 ): Promise<ReminderState> {
+  // Which channel(s) to send on: "email", "sms", or "both" (default).
+  const channel = String(formData.get("channel") ?? "both");
+  const doEmail = channel === "email" || channel === "both";
+  const doSms = channel === "sms" || channel === "both";
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -565,8 +575,8 @@ export async function sendBalanceReminders(
     start_date: string;
     move_out_date: string | null;
     tenants:
-      | { full_name: string; email: string | null }
-      | { full_name: string; email: string | null }[]
+      | { full_name: string; email: string | null; phone: string | null }
+      | { full_name: string; email: string | null; phone: string | null }[]
       | null;
     rooms:
       | { properties: { is_new_york: boolean } | { is_new_york: boolean }[] | null }
@@ -579,7 +589,7 @@ export async function sendBalanceReminders(
     .from("tenancies")
     .select(
       `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date,
-       tenants(full_name, email),
+       tenants(full_name, email, phone),
        rooms(properties(is_new_york)),
        payments(amount, paid_on, payment_type)`,
     )
@@ -590,9 +600,11 @@ export async function sendBalanceReminders(
 
   const { charges, allocations } = await fetchLedgerSidecars(supabase);
 
+  let processed = 0;
   let sent = 0;
   let queued = 0;
   let failed = 0;
+  let texted = 0;
   for (const row of data ?? []) {
     const tenant = one(row.tenants);
     const email = tenant?.email?.trim();
@@ -610,20 +622,30 @@ export async function sendBalanceReminders(
       today,
     );
     if (netBalance <= 0.01) continue;
+    processed++;
 
-    // New York tenants get a plain, unbranded reminder from Vineet's personal
-    // Gmail; everyone else goes through the default Resend sender.
-    const isNewYork = one(one(row.rooms)?.properties)?.is_new_york ?? false;
-    const res = isNewYork
-      ? await sendBalanceReminderGmail(email, netBalance, monthLabel)
-      : await sendBalanceReminder(email, netBalance, monthLabel);
-    if (res.ok) {
-      if ("queued" in res) queued++;
-      else sent++;
-    } else failed++;
+    if (doEmail) {
+      // New York tenants get a plain, unbranded reminder from Vineet's personal
+      // Gmail; everyone else goes through the default Resend sender.
+      const isNewYork = one(one(row.rooms)?.properties)?.is_new_york ?? false;
+      const res = isNewYork
+        ? await sendBalanceReminderGmail(email, netBalance, monthLabel)
+        : await sendBalanceReminder(email, netBalance, monthLabel);
+      if (res.ok) {
+        if ("queued" in res) queued++;
+        else sent++;
+      } else failed++;
+    }
+
+    // Text uses the same wording as the email. A failed text never blocks.
+    const phone = tenant?.phone?.trim();
+    if (doSms && phone) {
+      const smsRes = await sendSms(phone, balanceReminderText(netBalance, monthLabel));
+      if (smsRes.ok) texted++;
+    }
   }
 
-  if (sent === 0 && queued === 0 && failed === 0) {
+  if (processed === 0) {
     return { success: "No tenants have an outstanding balance this month." };
   }
 
@@ -631,18 +653,27 @@ export async function sendBalanceReminders(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (supabase as any).from("rent_reminder_batches").insert({
     kind: "balance",
+    channel: doEmail && doSms ? "both" : doEmail ? "email" : "sms",
     period_month: period,
-    recipient_count: sent + queued,
+    recipient_count: doEmail ? sent + queued : texted,
     triggered_by: user?.email ?? null,
   });
 
   revalidatePath("/tenants");
   const parts: string[] = [];
-  if (sent > 0) parts.push(`Sent ${sent} balance reminder${sent === 1 ? "" : "s"}.`);
+  if (sent > 0) parts.push(`Emailed ${sent} balance reminder${sent === 1 ? "" : "s"}.`);
   if (queued > 0)
     parts.push(
       `${queued} queued for tomorrow — Resend daily limit reached.`,
     );
+  if (texted > 0) parts.push(`Texted ${texted}.`);
   if (failed > 0) parts.push(`${failed} failed to send.`);
+  if (parts.length === 0) {
+    parts.push(
+      doSms
+        ? "No owing tenants have a phone number on file."
+        : "Nothing to send.",
+    );
+  }
   return { success: parts.join(" ") };
 }

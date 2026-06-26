@@ -10,8 +10,12 @@ export type ReminderInfo = {
   outstandingCount: number;
   /** When the monthly "to all" reminder last went out (cron). */
   lastGeneralText: string | null;
-  /** When balance reminders last went out, with recipient count. */
+  /** When balance reminders last went out (any channel), with recipient count. */
   lastBalanceText: string | null;
+  /** When balance-reminder emails last went out, with recipient count. */
+  lastBalanceEmailText: string | null;
+  /** When balance-reminder texts last went out, with recipient count. */
+  lastBalanceSmsText: string | null;
 };
 
 function fmtWhen(iso: string | null): string | null {
@@ -54,7 +58,7 @@ export async function getReminderInfo(
     payments: { amount: number; paid_on: string; payment_type: string }[];
   };
 
-  const [{ data: tenancies }, { data: lastGeneral }, lastBalanceRes] =
+  const [{ data: tenancies }, { data: lastGeneral }, lastBalanceBatchesRes] =
     await Promise.all([
       supabase
         .from("tenancies")
@@ -71,14 +75,15 @@ export async function getReminderInfo(
         .order("sent_at", { ascending: false })
         .limit(1)
         .maybeSingle(),
+      // Recent balance batches (with channel) — newest first; we pick the
+      // latest overall and the latest per channel from this list.
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       (supabase as any)
         .from("rent_reminder_batches")
-        .select("created_at, recipient_count")
+        .select("created_at, recipient_count, channel")
         .eq("kind", "balance")
         .order("created_at", { ascending: false })
-        .limit(1)
-        .maybeSingle(),
+        .limit(20),
     ]);
 
   const { charges, allocations } = await fetchLedgerSidecars(supabase);
@@ -97,16 +102,26 @@ export async function getReminderInfo(
     if (netBalance > 0.01) outstandingCount++;
   }
 
-  const lastBalance = lastBalanceRes?.data as
-    | { created_at: string; recipient_count: number }
-    | null
-    | undefined;
-  const lastGeneralText = fmtWhen(lastGeneral?.sent_at ?? null);
-  const lastBalanceText = lastBalance?.created_at
-    ? `${fmtWhen(lastBalance.created_at)} · ${lastBalance.recipient_count} tenant${
-        lastBalance.recipient_count === 1 ? "" : "s"
-      }`
-    : null;
+  type Batch = { created_at: string; recipient_count: number; channel: string };
+  const batches = (lastBalanceBatchesRes?.data ?? []) as Batch[];
+  const describe = (b: Batch | undefined): string | null =>
+    b?.created_at
+      ? `${fmtWhen(b.created_at)} · ${b.recipient_count} tenant${
+          b.recipient_count === 1 ? "" : "s"
+        }`
+      : null;
 
-  return { outstandingCount, lastGeneralText, lastBalanceText };
+  // Batches are newest-first, so the first match per channel is the latest.
+  const lastEmail = batches.find((b) => b.channel === "email" || b.channel === "both");
+  const lastSms = batches.find((b) => b.channel === "sms" || b.channel === "both");
+
+  const lastGeneralText = fmtWhen(lastGeneral?.sent_at ?? null);
+
+  return {
+    outstandingCount,
+    lastGeneralText,
+    lastBalanceText: describe(batches[0]),
+    lastBalanceEmailText: describe(lastEmail),
+    lastBalanceSmsText: describe(lastSms),
+  };
 }

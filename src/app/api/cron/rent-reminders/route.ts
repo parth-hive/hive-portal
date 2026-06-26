@@ -1,15 +1,24 @@
 /**
- * Monthly rent-reminder cron.
+ * Monthly rent-reminder cron — fires on the LAST DAY of each month at 11:00 AM
+ * Eastern. We email AND text every active tenant a generic reminder.
  *
- * Vercel cron hits this on the 1st of each month. We email every active
- * tenant a generic reminder. The rent_reminder_emails table enforces
- * idempotency via a unique (tenancy_id, period_month) constraint, so a
- * retry (or accidental re-run) won't double-send.
+ * Vercel cron schedules are UTC and can't express "last day of month" or follow
+ * DST, so the route is scheduled daily at both 15:00 and 16:00 UTC (the two UTC
+ * times that map to 11 AM ET across EDT/EST) and this handler gates on the
+ * actual Eastern wall-clock: it only sends when it's 11 AM ET on the month's
+ * last day. The rent_reminder_emails unique (tenancy_id, period_month)
+ * constraint still guards against any double-send. Pass ?force=1 to bypass the
+ * date/time gate for manual testing.
  */
 
 import { NextResponse, type NextRequest } from "next/server";
 import { createClient } from "@supabase/supabase-js";
-import { sendRentReminder, sendRentReminderGmail } from "@/lib/email";
+import {
+  sendRentReminder,
+  sendRentReminderGmail,
+  REMINDER_TEXT,
+} from "@/lib/email";
+import { sendSms } from "@/lib/sms";
 import { todayISO } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
@@ -27,12 +36,51 @@ function todayMonth(): string {
   return todayISO().slice(0, 7);
 }
 
+// Current Eastern-time parts (DST-aware via the IANA zone), used to gate the
+// send to 11 AM ET on the last day of the month.
+function easternParts(): { year: number; month: number; day: number; hour: number } {
+  const parts = Object.fromEntries(
+    new Intl.DateTimeFormat("en-US", {
+      timeZone: "America/New_York",
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      hour12: false,
+    })
+      .formatToParts(new Date())
+      .map((p) => [p.type, p.value]),
+  );
+  // hour12:false renders midnight as "24"; normalize to 0.
+  const hour = Number(parts.hour) % 24;
+  return {
+    year: Number(parts.year),
+    month: Number(parts.month),
+    day: Number(parts.day),
+    hour,
+  };
+}
+
 export async function GET(req: NextRequest) {
   const expected = process.env.CRON_SECRET;
   if (expected) {
     const auth = req.headers.get("authorization") ?? "";
     if (auth !== `Bearer ${expected}`) {
       return NextResponse.json({ error: "unauthorized" }, { status: 401 });
+    }
+  }
+
+  // Gate: only send at 11 AM ET on the last day of the month (?force=1 skips
+  // the gate for manual testing).
+  const force = req.nextUrl.searchParams.get("force") === "1";
+  if (!force) {
+    const { year, month, day, hour } = easternParts();
+    const lastDay = new Date(Date.UTC(year, month, 0)).getUTCDate();
+    if (hour !== 11 || day !== lastDay) {
+      return NextResponse.json({
+        skipped: true,
+        reason: "only runs at 11 AM ET on the last day of the month",
+      });
     }
   }
 
@@ -46,7 +94,7 @@ export async function GET(req: NextRequest) {
     .from("tenancies")
     .select(
       `id, tenant_id, move_out_date, status,
-       tenants!inner(id, email),
+       tenants!inner(id, email, phone),
        rooms!inner(properties!inner(is_new_york))`,
     )
     .eq("status", "active");
@@ -61,7 +109,10 @@ export async function GET(req: NextRequest) {
     id: string;
     tenant_id: string;
     move_out_date: string | null;
-    tenants: { id: string; email: string | null } | { id: string; email: string | null }[] | null;
+    tenants:
+      | { id: string; email: string | null; phone: string | null }
+      | { id: string; email: string | null; phone: string | null }[]
+      | null;
     rooms: RoomRel | RoomRel[] | null;
   };
 
@@ -78,6 +129,7 @@ export async function GET(req: NextRequest) {
   let queued = 0;
   let skipped = 0;
   let failed = 0;
+  let texted = 0;
   const errors: Array<{ tenancy_id: string; error: string }> = [];
 
   for (const row of rows) {
@@ -139,6 +191,15 @@ export async function GET(req: NextRequest) {
       failed++;
       errors.push({ tenancy_id: row.id, error: result.error });
     }
+
+    // Also text the tenant the same reminder when a phone is on file and SMS is
+    // configured. SMS isn't gated by the email idempotency lock, but the lock
+    // above already prevents the whole row from being processed twice a month.
+    const phone = tenant?.phone?.trim();
+    if (phone) {
+      const smsRes = await sendSms(phone, REMINDER_TEXT);
+      if (smsRes.ok) texted++;
+    }
   }
 
   return NextResponse.json({
@@ -148,6 +209,7 @@ export async function GET(req: NextRequest) {
     queued,
     skipped,
     failed,
+    texted,
     errors,
   });
 }

@@ -10,11 +10,24 @@ function resendFrom() {
 
 const REMINDER_SUBJECT = "Rent Reminder";
 
-const REMINDER_TEXT = `Hi,
+// Exported so the SMS channel sends the exact same general-reminder copy.
+export const REMINDER_TEXT = `Hi,
 
 This is a friendly reminder that your rent is due. Please submit payment by the 5th of this month to avoid a $50 late fee. Please ignore if already paid.
 
 Thanks`;
+
+// Balance-reminder body — identical wording to the Gmail send, reused by the
+// SMS channel so texts match emails.
+export function balanceReminderText(amountDue: number, monthLabel: string): string {
+  const amount = `$${Math.round(amountDue).toLocaleString()}`;
+  return `Hi,
+
+My records show an outstanding rent balance of ${amount} for ${monthLabel}. Please submit payment as soon as possible to avoid a $50 late fee.
+
+Thanks
+Vinny`;
+}
 
 const REMINDER_HTML = `<div style="font-family: 'DM Sans', Arial, sans-serif; color:#1a1a18; max-width:560px; line-height:1.5;">
   <p>Hi,</p>
@@ -131,14 +144,8 @@ export async function sendBalanceReminderGmail(
   amountDue: number,
   monthLabel: string,
 ): Promise<SendResult> {
-  const amount = `$${Math.round(amountDue).toLocaleString()}`;
   const subject = `Rent balance due — ${monthLabel}`;
-  const text = `Hi,
-
-My records show an outstanding rent balance of ${amount} for ${monthLabel}. Please submit payment as soon as possible to avoid a $50 late fee.
-
-Thanks
-Vinny`;
+  const text = balanceReminderText(amountDue, monthLabel);
   const result = await sendGmailMessage({ to, subject, text });
   await logEmail({
     type: "rent_balance",

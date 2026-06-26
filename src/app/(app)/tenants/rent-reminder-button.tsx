@@ -7,14 +7,18 @@ export function RentReminderButton({
   outstandingCount,
   lastGeneralText,
   lastBalanceText,
+  lastBalanceEmailText = null,
+  lastBalanceSmsText = null,
   minimal = false,
 }: {
   outstandingCount: number;
   lastGeneralText: string | null;
   lastBalanceText: string | null;
+  lastBalanceEmailText?: string | null;
+  lastBalanceSmsText?: string | null;
   // When true, hide the heading, description, and the general-reminder
-  // last-sent line — just the "Send balance reminders" button + balance
-  // last-sent. Used on the Rent Tracker page.
+  // last-sent line — just the email/text buttons + per-channel last-sent.
+  // Used on the Rent Tracker page.
   minimal?: boolean;
 }) {
   const [state, action, pending] = useActionState<ReminderState, FormData>(
@@ -22,23 +26,32 @@ export function RentReminderButton({
     undefined,
   );
 
-  const sendForm = (
+  const n = outstandingCount;
+  const suffix = n ? ` (${n})` : "";
+  // A balance-reminder form for one channel. `verb` drives the confirm prompt.
+  const channelForm = (
+    channel: "email" | "sms" | "both",
+    label: string,
+    verb: string,
+  ) => (
     <form
+      key={channel}
       action={action}
       onSubmit={(e) => {
         if (
-          outstandingCount === 0 ||
+          n === 0 ||
           !window.confirm(
-            `Send rent balance reminders to ${outstandingCount} tenant${outstandingCount === 1 ? "" : "s"}?`,
+            `${verb} rent balance reminders to ${n} tenant${n === 1 ? "" : "s"}?`,
           )
         ) {
           e.preventDefault();
         }
       }}
     >
+      <input type="hidden" name="channel" value={channel} />
       <button
         type="submit"
-        disabled={pending || outstandingCount === 0}
+        disabled={pending || n === 0}
         // Embedded card variant: a gold underlined text link (no filled box), so
         // the label sits flush-left with the card text. Reconciliation page keeps
         // the filled pill.
@@ -48,9 +61,7 @@ export function RentReminderButton({
             : "rounded-full bg-ink px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-accent-dark disabled:opacity-50"
         }
       >
-        {pending
-          ? "Sending…"
-          : `Send balance reminders${outstandingCount ? ` (${outstandingCount})` : ""}`}
+        {pending ? "Sending…" : `${label}${suffix}`}
       </button>
     </form>
   );
@@ -72,9 +83,15 @@ export function RentReminderButton({
   if (minimal) {
     return (
       <div className="mt-4 border-t border-stone/30 pt-3">
-        {sendForm}
+        <div className="flex flex-col items-start gap-1">
+          {channelForm("email", "Email balance reminders", "Email")}
+          {channelForm("sms", "Text balance reminders", "Text")}
+        </div>
         <p className="mt-2 text-xs text-muted">
-          last sent: <span className="text-ink">{lastBalanceText ?? "never"}</span>
+          last sent — emails:{" "}
+          <span className="text-ink">{lastBalanceEmailText ?? "never"}</span>{" "}
+          · texts:{" "}
+          <span className="text-ink">{lastBalanceSmsText ?? "never"}</span>
         </p>
         {messages}
       </div>
@@ -95,7 +112,7 @@ export function RentReminderButton({
             up to date.
           </p>
         </div>
-        {sendForm}
+        {channelForm("both", "Send balance reminders", "Send")}
       </div>
 
       <div className="mt-3 space-y-1 border-t border-stone/30 pt-3 text-xs text-muted">

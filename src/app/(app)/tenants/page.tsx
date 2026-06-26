@@ -236,8 +236,13 @@ export default async function TenantsPage({ searchParams }: PageProps) {
       };
     });
 
-  // Balance-reminder button state (outstanding count + last-sent note).
-  const { outstandingCount, lastBalanceText } = await getReminderInfo(supabase);
+  // Balance-reminder button state (outstanding count + per-channel last-sent).
+  const {
+    outstandingCount,
+    lastBalanceText,
+    lastBalanceEmailText,
+    lastBalanceSmsText,
+  } = await getReminderInfo(supabase);
 
   return (
     <div className="mx-auto w-full max-w-6xl">
@@ -310,6 +315,8 @@ export default async function TenantsPage({ searchParams }: PageProps) {
                 outstandingCount={outstandingCount}
                 lastGeneralText={null}
                 lastBalanceText={lastBalanceText}
+                lastBalanceEmailText={lastBalanceEmailText}
+                lastBalanceSmsText={lastBalanceSmsText}
               />
             )}
           </div>

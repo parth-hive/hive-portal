@@ -896,6 +896,7 @@ export type Database = {
       }
       rent_reminder_batches: {
         Row: {
+          channel: string
           created_at: string
           id: string
           kind: string
@@ -904,6 +905,7 @@ export type Database = {
           triggered_by: string | null
         }
         Insert: {
+          channel?: string
           created_at?: string
           id?: string
           kind: string
@@ -912,6 +914,7 @@ export type Database = {
           triggered_by?: string | null
         }
         Update: {
+          channel?: string
           created_at?: string
           id?: string
           kind?: string

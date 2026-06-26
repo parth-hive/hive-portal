@@ -2,7 +2,11 @@
   "crons": [
     {
       "path": "/api/cron/rent-reminders",
-      "schedule": "0 13 1 * *"
+      "schedule": "0 15 * * *"
+    },
+    {
+      "path": "/api/cron/rent-reminders",
+      "schedule": "0 16 * * *"
     },
     {
       "path": "/api/cron/notification-followups",
