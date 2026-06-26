@@ -17,7 +17,7 @@ const STATIC_PAGES: Item[] = [
   { id: "p-dashboard", kind: "page", label: "Dashboard", href: "/" },
   { id: "p-properties", kind: "page", label: "Properties", href: "/properties" },
   { id: "p-inventory", kind: "page", label: "Inventory", href: "/inventory" },
-  { id: "p-tenants", kind: "page", label: "Tenants & Rent", href: "/tenants" },
+  { id: "p-tenants", kind: "page", label: "Rent Tracker", sublabel: "Tenants", href: "/tenants" },
   { id: "p-reconciliation", kind: "page", label: "Reconciliation", href: "/reconciliation" },
   { id: "p-cleaning", kind: "page", label: "Cleaning", href: "/cleaning" },
   { id: "p-credentials", kind: "page", label: "Credentials", href: "/credentials" },

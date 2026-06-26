@@ -245,7 +245,7 @@ export default async function TenantsPage({ searchParams }: PageProps) {
       <header className="flex flex-wrap items-end justify-between gap-3 border-b border-stone/60 pb-6">
         <div>
           <h1 className="text-3xl tracking-tight text-ink">
-            Tenants &amp; <span className="font-display text-accent-text">Rent</span>
+            Rent <span className="font-display text-accent-text">Tracker</span>
           </h1>
           <p className="mt-1 text-sm text-muted">
             Active tenancies and their rent status for the current month.

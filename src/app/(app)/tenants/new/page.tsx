@@ -93,7 +93,7 @@ export default async function NewTenantPage({ searchParams }: PageProps) {
           href="/tenants"
           className="text-xs uppercase tracking-wide text-muted hover:text-ink"
         >
-          ← Tenants &amp; Rent
+          ← Rent Tracker
         </Link>
         <h1 className="mt-2 text-3xl tracking-tight text-ink">
           Add a <span className="font-display text-accent-text">tenant</span>

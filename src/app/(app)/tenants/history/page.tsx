@@ -129,7 +129,7 @@ export default async function TenantHistoryPage({ searchParams }: PageProps) {
             href="/tenants"
             className="text-xs uppercase tracking-wide text-muted hover:text-ink"
           >
-            ← Tenants &amp; Rent
+            ← Rent Tracker
           </Link>
           <h1 className="mt-2 text-3xl tracking-tight text-ink">
             Tenant <span className="font-display text-accent-text">history</span>
