@@ -3,14 +3,14 @@ import { createClient } from "@/lib/supabase/server";
 import { one } from "@/lib/relations";
 import { SearchInput } from "@/components/search-input";
 import { BalanceFilter } from "./balance-filter";
+import { RentReminderButton } from "./rent-reminder-button";
+import { getReminderInfo } from "./reminder-info";
 import { processExpiredTenancies } from "./actions";
 import {
   TenantGroups,
   type DisplayGroup,
   type DisplayRow,
 } from "./tenant-groups";
-import { RentReminderButton } from "./rent-reminder-button";
-import { getReminderInfo } from "./reminder-info";
 import { computeLedger } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
 import { todayISO } from "@/lib/date";
@@ -236,10 +236,8 @@ export default async function TenantsPage({ searchParams }: PageProps) {
       };
     });
 
-  // Reminder button state (outstanding count + last-sent note), shared with
-  // the reconciliation run page.
-  const { outstandingCount, lastGeneralText, lastBalanceText } =
-    await getReminderInfo(supabase);
+  // Balance-reminder button state (outstanding count + last-sent note).
+  const { outstandingCount, lastBalanceText } = await getReminderInfo(supabase);
 
   return (
     <div className="mx-auto w-full max-w-6xl">
@@ -275,29 +273,39 @@ export default async function TenantsPage({ searchParams }: PageProps) {
       </header>
 
       {rows.length > 0 && (
-        <section className="mt-6 grid gap-4 sm:grid-cols-3">
-          <div className="rounded-2xl bg-white p-5 shadow-sm">
-            <p className="text-xs uppercase tracking-wide text-muted">
+        <section className="mt-6 grid items-start gap-4 sm:grid-cols-3">
+          <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-stone/30 transition hover:-translate-y-0.5 hover:shadow-md hover:ring-accent/40">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
               Expected this month
             </p>
-            <p className="mt-2 text-2xl font-light text-ink">
+            <p className="mt-3 text-3xl font-semibold tabular-nums text-ink">
               {fmtMoney(expectedTotal)}
             </p>
           </div>
-          <div className="rounded-2xl bg-white p-5 shadow-sm">
-            <p className="text-xs uppercase tracking-wide text-muted">Collected</p>
-            <p className="mt-2 text-2xl font-light text-ink">
+          <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-stone/30 transition hover:-translate-y-0.5 hover:shadow-md hover:ring-accent/40">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
+              Collected
+            </p>
+            <p className="mt-3 text-3xl font-semibold tabular-nums text-ink">
               {fmtMoney(paidTotal)}
             </p>
           </div>
-          <div className="rounded-2xl bg-white p-5 shadow-sm">
-            <p className="text-xs uppercase tracking-wide text-muted">
+          <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-stone/30 transition hover:-translate-y-0.5 hover:shadow-md hover:ring-accent/40">
+            <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
               Total outstanding
             </p>
-            <p className="mt-2 text-2xl font-light text-ink">
+            <p className="mt-3 text-3xl font-semibold tabular-nums text-ink">
               {fmtMoney(outstandingTotal)}
             </p>
             <p className="mt-1 text-xs text-muted">Running balance, all months</p>
+            {rows.length > 0 && (
+              <RentReminderButton
+                minimal
+                outstandingCount={outstandingCount}
+                lastGeneralText={null}
+                lastBalanceText={lastBalanceText}
+              />
+            )}
           </div>
         </section>
       )}
@@ -336,14 +344,6 @@ export default async function TenantsPage({ searchParams }: PageProps) {
           </section>
         );
       })()}
-
-      {rows.length > 0 && (
-        <RentReminderButton
-          outstandingCount={outstandingCount}
-          lastGeneralText={lastGeneralText}
-          lastBalanceText={lastBalanceText}
-        />
-      )}
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <SearchInput
