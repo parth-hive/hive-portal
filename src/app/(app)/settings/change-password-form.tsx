@@ -21,7 +21,7 @@ export function ChangePasswordForm() {
   return (
     <form ref={formRef} action={action} className="flex flex-col gap-3">
       <label className="flex flex-col gap-1">
-        <span className="text-[11px] uppercase tracking-wide text-muted">
+        <span className="text-xs uppercase tracking-wide text-muted">
           Current password
         </span>
         <input
@@ -33,7 +33,7 @@ export function ChangePasswordForm() {
         />
       </label>
       <label className="flex flex-col gap-1">
-        <span className="text-[11px] uppercase tracking-wide text-muted">
+        <span className="text-xs uppercase tracking-wide text-muted">
           New password
         </span>
         <input
@@ -47,7 +47,7 @@ export function ChangePasswordForm() {
         />
       </label>
       <label className="flex flex-col gap-1">
-        <span className="text-[11px] uppercase tracking-wide text-muted">
+        <span className="text-xs uppercase tracking-wide text-muted">
           Confirm new password
         </span>
         <input

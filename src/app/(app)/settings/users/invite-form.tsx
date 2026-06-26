@@ -25,7 +25,7 @@ export function InviteUserForm() {
       className="flex flex-wrap items-end gap-3"
     >
       <label className="flex flex-1 min-w-[220px] flex-col gap-1">
-        <span className="text-[11px] uppercase tracking-wide text-muted">
+        <span className="text-xs uppercase tracking-wide text-muted">
           Email
         </span>
         <input

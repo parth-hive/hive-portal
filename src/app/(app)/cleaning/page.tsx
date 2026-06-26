@@ -229,7 +229,7 @@ export default async function CleaningPage({ searchParams }: PageProps) {
 
       {view === "schedule" && propertyOptions.length > 0 && (
         <section className="mt-8">
-          <h2 className="text-xs uppercase tracking-wide text-muted">
+          <h2 className="text-sm uppercase tracking-wide text-muted">
             Cleaning schedule ({filteredSchedule.length})
           </h2>
           {filteredSchedule.length === 0 ? (
@@ -260,7 +260,7 @@ export default async function CleaningPage({ searchParams }: PageProps) {
                     </span>
                   )}
                   <span
-                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${STATUS_PILL[s.status]}`}
+                    className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${STATUS_PILL[s.status]}`}
                   >
                     {s.status === "never"
                       ? "-"
@@ -280,7 +280,7 @@ export default async function CleaningPage({ searchParams }: PageProps) {
 
       {view === "schedule" && (
         <section className="mt-10">
-          <h2 className="text-xs uppercase tracking-wide text-muted">
+          <h2 className="text-sm uppercase tracking-wide text-muted">
             All cleanings ({rows.length})
           </h2>
           {rows.length === 0 ? (
@@ -342,7 +342,7 @@ type CleanerRow = {
 function CleanersTable({ cleaners }: { cleaners: CleanerRow[] }) {
   return (
     <table className="w-full text-sm">
-      <thead className="bg-warm/60 text-left text-[11px] uppercase tracking-wide text-muted">
+      <thead className="bg-warm/60 text-left text-xs uppercase tracking-wide text-muted">
         <tr>
           <th className="px-4 py-2 font-medium">Name</th>
           <th className="px-4 py-2 font-medium">Email</th>
@@ -377,11 +377,11 @@ function CleanersTable({ cleaners }: { cleaners: CleanerRow[] }) {
             </td>
             <td className="px-4 py-2.5">
               {c.enabled ? (
-                <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-accent-text">
+                <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-accent-text">
                   Enabled
                 </span>
               ) : (
-                <span className="rounded-full border border-stone bg-white px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted">
+                <span className="rounded-full border border-stone bg-white px-2 py-0.5 text-xs uppercase tracking-wide text-muted">
                   Paused
                 </span>
               )}
@@ -397,7 +397,7 @@ function CleanersTable({ cleaners }: { cleaners: CleanerRow[] }) {
                   />
                   <button
                     type="submit"
-                    className="rounded-full border border-stone bg-white px-2.5 py-0.5 text-[11px] uppercase tracking-wide text-ink hover:bg-warm"
+                    className="rounded-full border border-stone bg-white px-2.5 py-0.5 text-xs uppercase tracking-wide text-ink hover:bg-warm"
                   >
                     {c.enabled ? "Pause" : "Resume"}
                   </button>
@@ -406,7 +406,7 @@ function CleanersTable({ cleaners }: { cleaners: CleanerRow[] }) {
                   <input type="hidden" name="id" value={c.id} />
                   <button
                     type="submit"
-                    className="rounded-full px-2.5 py-0.5 text-[11px] uppercase tracking-wide text-red-700 hover:bg-red-50"
+                    className="rounded-full px-2.5 py-0.5 text-xs uppercase tracking-wide text-red-700 hover:bg-red-50"
                   >
                     Remove
                   </button>

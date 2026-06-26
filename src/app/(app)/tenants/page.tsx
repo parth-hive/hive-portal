@@ -275,27 +275,33 @@ export default async function TenantsPage({ searchParams }: PageProps) {
       {rows.length > 0 && (
         <section className="mt-6 grid items-start gap-4 sm:grid-cols-3">
           <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-stone/30 transition hover:-translate-y-0.5 hover:shadow-md hover:ring-accent/40">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
-              Expected this month
-            </p>
-            <p className="mt-3 text-3xl font-semibold tabular-nums text-ink">
-              {fmtMoney(expectedTotal)}
-            </p>
-          </div>
-          <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-stone/30 transition hover:-translate-y-0.5 hover:shadow-md hover:ring-accent/40">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
-              Collected
-            </p>
-            <p className="mt-3 text-3xl font-semibold tabular-nums text-ink">
-              {fmtMoney(paidTotal)}
+            <p className="flex flex-wrap items-baseline gap-x-2">
+              <span className="text-xs font-medium uppercase tracking-wide text-muted">
+                Expected this month:
+              </span>
+              <span className="text-lg font-semibold tabular-nums text-ink">
+                {fmtMoney(expectedTotal)}
+              </span>
             </p>
           </div>
           <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-stone/30 transition hover:-translate-y-0.5 hover:shadow-md hover:ring-accent/40">
-            <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
-              Total outstanding
+            <p className="flex flex-wrap items-baseline gap-x-2">
+              <span className="text-xs font-medium uppercase tracking-wide text-muted">
+                Collected:
+              </span>
+              <span className="text-lg font-semibold tabular-nums text-ink">
+                {fmtMoney(paidTotal)}
+              </span>
             </p>
-            <p className="mt-3 text-3xl font-semibold tabular-nums text-ink">
-              {fmtMoney(outstandingTotal)}
+          </div>
+          <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-stone/30 transition hover:-translate-y-0.5 hover:shadow-md hover:ring-accent/40">
+            <p className="flex flex-wrap items-baseline gap-x-2">
+              <span className="text-xs font-medium uppercase tracking-wide text-muted">
+                Total outstanding:
+              </span>
+              <span className="text-lg font-semibold tabular-nums text-ink">
+                {fmtMoney(outstandingTotal)}
+              </span>
             </p>
             <p className="mt-1 text-xs text-muted">Running balance, all months</p>
             {rows.length > 0 && (

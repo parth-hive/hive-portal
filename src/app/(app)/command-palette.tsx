@@ -193,7 +193,7 @@ export function CommandPalette() {
             placeholder="Search tenants, properties, rooms…"
             className="flex-1 bg-transparent py-3 text-sm text-ink placeholder:text-muted focus:outline-none"
           />
-          <kbd className="rounded border border-stone/60 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-muted">
+          <kbd className="rounded border border-stone/60 px-1.5 py-0.5 text-xs uppercase tracking-wide text-muted">
             Esc
           </kbd>
         </div>
@@ -221,10 +221,10 @@ export function CommandPalette() {
                   <div className="min-w-0">
                     <p className="truncate text-sm text-ink">{item.label}</p>
                     {item.sublabel && (
-                      <p className="truncate text-[11px] text-muted">{item.sublabel}</p>
+                      <p className="truncate text-xs text-muted">{item.sublabel}</p>
                     )}
                   </div>
-                  <span className="text-[10px] uppercase tracking-wide text-muted">
+                  <span className="text-xs uppercase tracking-wide text-muted">
                     {KIND_LABEL[item.kind]}
                   </span>
                 </button>
@@ -232,7 +232,7 @@ export function CommandPalette() {
             );
           })}
         </ul>
-        <div className="border-t border-stone/40 px-4 py-2 text-[11px] text-muted">
+        <div className="border-t border-stone/40 px-4 py-2 text-xs text-muted">
           <kbd className="rounded border border-stone/60 px-1">↑↓</kbd>{" "}
           navigate&nbsp;·&nbsp;
           <kbd className="rounded border border-stone/60 px-1">⏎</kbd> open

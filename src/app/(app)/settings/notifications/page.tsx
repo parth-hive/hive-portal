@@ -67,7 +67,7 @@ export default async function NotificationsPage() {
       </header>
 
       <section className="mt-6 rounded-2xl bg-white p-5 shadow-sm">
-        <h2 className="text-xs font-medium uppercase tracking-wide text-muted">
+        <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
           Add recipient
         </h2>
         <div className="mt-3">
@@ -77,7 +77,7 @@ export default async function NotificationsPage() {
 
       <section className="mt-6 overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-stone/40">
         <table className="w-full text-sm">
-          <thead className="bg-warm/60 text-left text-[11px] uppercase tracking-wide text-muted">
+          <thead className="bg-warm/60 text-left text-xs uppercase tracking-wide text-muted">
             <tr>
               <th className="px-4 py-2 font-medium">Email</th>
               <th className="px-4 py-2 font-medium">Label</th>
@@ -110,11 +110,11 @@ export default async function NotificationsPage() {
                 </td>
                 <td className="px-4 py-2.5">
                   {r.enabled ? (
-                    <span className="rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-accent-text">
+                    <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-accent-text">
                       Enabled
                     </span>
                   ) : (
-                    <span className="rounded-full border border-stone bg-white px-2 py-0.5 text-[11px] uppercase tracking-wide text-muted">
+                    <span className="rounded-full border border-stone bg-white px-2 py-0.5 text-xs uppercase tracking-wide text-muted">
                       Paused
                     </span>
                   )}
@@ -130,7 +130,7 @@ export default async function NotificationsPage() {
                       />
                       <button
                         type="submit"
-                        className="rounded-full border border-stone bg-white px-2.5 py-0.5 text-[11px] uppercase tracking-wide text-ink hover:bg-warm"
+                        className="rounded-full border border-stone bg-white px-2.5 py-0.5 text-xs uppercase tracking-wide text-ink hover:bg-warm"
                       >
                         {r.enabled ? "Pause" : "Resume"}
                       </button>
@@ -139,7 +139,7 @@ export default async function NotificationsPage() {
                       <input type="hidden" name="id" value={r.id} />
                       <button
                         type="submit"
-                        className="rounded-full px-2.5 py-0.5 text-[11px] uppercase tracking-wide text-red-700 hover:bg-red-50"
+                        className="rounded-full px-2.5 py-0.5 text-xs uppercase tracking-wide text-red-700 hover:bg-red-50"
                       >
                         Remove
                       </button>

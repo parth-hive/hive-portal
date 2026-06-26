@@ -137,13 +137,13 @@ export function CredentialRow({
     >
       <td className="px-3 py-2">
         <span
-          className={`rounded-full px-2 py-0.5 text-[11px] uppercase tracking-wide ${CATEGORY_PILL[credential.category]}`}
+          className={`rounded-full px-2 py-0.5 text-xs uppercase tracking-wide ${CATEGORY_PILL[credential.category]}`}
         >
           {CATEGORY_LABELS[credential.category]}
         </span>
       </td>
       <td className="px-3 py-2 text-ink">{credential.service_name}</td>
-      <td className="px-3 py-2 text-[12px] text-muted">
+      <td className="px-3 py-2 text-xs text-muted">
         {credential.owner_label ?? "—"}
       </td>
       <td className="px-3 py-2">
@@ -162,13 +162,13 @@ export function CredentialRow({
       <td className="px-3 py-2">
         {credential.password ? (
           <div className="flex items-center gap-1.5">
-            <span className="font-mono text-[12px] text-ink">
+            <span className="font-mono text-xs text-ink">
               {revealed ? credential.password : maskPassword(credential.password)}
             </span>
             <button
               type="button"
               onClick={toggleReveal}
-              className="text-[10px] uppercase tracking-wide text-muted hover:text-accent-text"
+              className="text-xs uppercase tracking-wide text-muted hover:text-accent-text"
             >
               {revealed ? "Hide" : "Reveal"}
             </button>
@@ -204,7 +204,7 @@ export function CredentialRow({
             href={credential.login_url}
             target="_blank"
             rel="noopener noreferrer"
-            className="rounded-full border border-stone bg-white px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink hover:bg-warm"
+            className="rounded-full border border-stone bg-white px-2 py-0.5 text-xs uppercase tracking-wide text-ink hover:bg-warm"
           >
             Open ↗
           </a>
@@ -217,7 +217,7 @@ export function CredentialRow({
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className="text-[11px] uppercase tracking-wide text-muted hover:text-accent-text"
+            className="text-xs uppercase tracking-wide text-muted hover:text-accent-text"
           >
             Edit
           </button>
@@ -234,7 +234,7 @@ export function CredentialRow({
                   e.preventDefault();
                 }
               }}
-              className="text-[11px] uppercase tracking-wide text-muted hover:text-red-700"
+              className="text-xs uppercase tracking-wide text-muted hover:text-red-700"
             >
               Delete
             </button>
@@ -256,7 +256,7 @@ function CopyChip({
     <button
       type="button"
       onClick={onClick}
-      className={`rounded-full px-1.5 py-0.5 text-[10px] uppercase tracking-wide transition ${
+      className={`rounded-full px-1.5 py-0.5 text-xs uppercase tracking-wide transition ${
         copied
           ? "bg-accent/15 text-accent-text"
           : "text-muted hover:text-accent-text"

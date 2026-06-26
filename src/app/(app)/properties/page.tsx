@@ -95,7 +95,7 @@ export default async function PropertiesPage({ searchParams }: PageProps) {
       {properties.length > 0 && (
         <div className="mt-6 overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-stone/40">
           <table className="w-full min-w-[800px] text-sm">
-            <thead className="sticky top-0 z-10 bg-warm/60 text-left text-[11px] uppercase tracking-wide text-muted">
+            <thead className="sticky top-0 z-10 bg-warm/60 text-left text-xs uppercase tracking-wide text-muted">
               <tr>
                 <th className="px-3 py-2 font-medium">Unit</th>
                 <th className="px-3 py-2 font-medium">Neighborhood</th>
@@ -125,7 +125,7 @@ export default async function PropertiesPage({ searchParams }: PageProps) {
                         <span className="text-muted">Apt {p.unit_number}</span>
                       </Link>
                       {p.building_name && (
-                        <div className="text-[11px] text-muted">
+                        <div className="text-xs text-muted">
                           {p.street_address}
                         </div>
                       )}

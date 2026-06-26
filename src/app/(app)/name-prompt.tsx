@@ -50,7 +50,7 @@ export function NamePrompt() {
         </p>
         <form action={action} className="mt-5 flex flex-col gap-3">
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] uppercase tracking-wide text-muted">
+            <span className="text-xs uppercase tracking-wide text-muted">
               Full name
             </span>
             <input

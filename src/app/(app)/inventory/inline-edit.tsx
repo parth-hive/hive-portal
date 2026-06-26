@@ -156,7 +156,7 @@ export function InlinePhotosEdit({
             setEditing(false);
           }
         }}
-        className="w-48 rounded border border-accent bg-white px-1.5 py-0.5 text-[12px] text-ink focus:outline-none"
+        className="w-48 rounded border border-accent bg-white px-1.5 py-0.5 text-xs text-ink focus:outline-none"
       />
     );
   }
@@ -168,7 +168,7 @@ export function InlinePhotosEdit({
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="text-[12px] text-purple-700 underline hover:text-purple-900"
+          className="text-xs text-purple-700 underline hover:text-purple-900"
         >
           Open
         </a>
@@ -176,7 +176,7 @@ export function InlinePhotosEdit({
       <button
         type="button"
         onClick={() => setEditing(true)}
-        className="rounded-full px-2 py-0.5 text-[11px] uppercase tracking-wide text-accent-text hover:bg-warm"
+        className="rounded-full px-2 py-0.5 text-xs uppercase tracking-wide text-accent-text hover:bg-warm"
       >
         {url ? "Edit" : "+ Add"}
       </button>
@@ -228,19 +228,19 @@ export function InlineAdEdit({
             href={ad.url}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-[12px] text-purple-700 underline hover:text-purple-900"
+            className="text-xs text-purple-700 underline hover:text-purple-900"
           >
             Open
           </a>
           {ad.posted_by?.trim() && (
-            <span className="text-[11px] text-muted">{ad.posted_by.trim()}</span>
+            <span className="text-xs text-muted">{ad.posted_by.trim()}</span>
           )}
           <button
             type="button"
             onClick={() => remove(ad.id)}
             aria-label="Remove ad"
             title="Remove ad"
-            className="rounded-full px-1 text-[12px] leading-none text-muted hover:bg-warm hover:text-red-700"
+            className="rounded-full px-1 text-xs leading-none text-muted hover:bg-warm hover:text-red-700"
           >
             ×
           </button>
@@ -261,13 +261,13 @@ export function InlineAdEdit({
               setAdding(false);
             }
           }}
-          className="w-48 rounded border border-accent bg-white px-1.5 py-0.5 text-[12px] text-ink focus:outline-none"
+          className="w-48 rounded border border-accent bg-white px-1.5 py-0.5 text-xs text-ink focus:outline-none"
         />
       ) : (
         <button
           type="button"
           onClick={() => setAdding(true)}
-          className="rounded-full px-2 py-0.5 text-[11px] uppercase tracking-wide text-accent-text hover:bg-warm"
+          className="rounded-full px-2 py-0.5 text-xs uppercase tracking-wide text-accent-text hover:bg-warm"
         >
           Add
         </button>

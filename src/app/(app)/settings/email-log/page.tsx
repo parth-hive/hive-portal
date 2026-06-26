@@ -133,21 +133,21 @@ export default async function EmailLogPage({ searchParams }: PageProps) {
           </div>
           <div className="grid grid-cols-3 gap-5 text-right">
             <div>
-              <p className="text-[11px] uppercase tracking-wide text-muted">Today</p>
+              <p className="text-xs uppercase tracking-wide text-muted">Today</p>
               <p className={`text-lg font-semibold ${atDaily ? "text-accent-text" : "text-ink"}`}>
                 {usage.today}
                 <span className="text-sm font-normal text-muted"> / {usage.dailyCap}</span>
               </p>
             </div>
             <div>
-              <p className="text-[11px] uppercase tracking-wide text-muted">This month</p>
+              <p className="text-xs uppercase tracking-wide text-muted">This month</p>
               <p className={`text-lg font-semibold ${atMonthly ? "text-accent-text" : "text-ink"}`}>
                 {usage.month}
                 <span className="text-sm font-normal text-muted"> / {usage.monthlyCap}</span>
               </p>
             </div>
             <div>
-              <p className="text-[11px] uppercase tracking-wide text-muted">Queued</p>
+              <p className="text-xs uppercase tracking-wide text-muted">Queued</p>
               <p className={`text-lg font-semibold ${backlog > 0 ? "text-accent-text" : "text-ink"}`}>
                 {backlog}
               </p>
@@ -171,7 +171,7 @@ export default async function EmailLogPage({ searchParams }: PageProps) {
 
       <div className="mt-6 space-y-3">
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] uppercase tracking-wide text-muted">
+          <span className="text-xs uppercase tracking-wide text-muted">
             For
           </span>
           <Link href={hrefWith({ type: null })} className={chip(!typeFilter)}>
@@ -184,7 +184,7 @@ export default async function EmailLogPage({ searchParams }: PageProps) {
           ))}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <span className="text-[11px] uppercase tracking-wide text-muted">
+          <span className="text-xs uppercase tracking-wide text-muted">
             Status
           </span>
           <Link href={hrefWith({ status: null })} className={chip(!statusFilter)}>
@@ -216,7 +216,7 @@ export default async function EmailLogPage({ searchParams }: PageProps) {
       {!error && rows.length > 0 && (
         <section className="mt-6 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-stone/40">
           <table className="w-full text-sm">
-            <thead className="bg-warm/60 text-left text-[11px] uppercase tracking-wide text-muted">
+            <thead className="bg-warm/60 text-left text-xs uppercase tracking-wide text-muted">
               <tr>
                 <th className="px-4 py-2 font-medium">Sent</th>
                 <th className="px-4 py-2 font-medium">For</th>
@@ -238,18 +238,18 @@ export default async function EmailLogPage({ searchParams }: PageProps) {
                   <td className="px-4 py-2.5">
                     <p className="text-ink">{r.subject ?? "—"}</p>
                     {r.context && (
-                      <p className="text-[11px] text-muted">{r.context}</p>
+                      <p className="text-xs text-muted">{r.context}</p>
                     )}
                   </td>
                   <td className="px-4 py-2.5">
                     {r.status === "sent" ? (
-                      <span className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-green-900">
+                      <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-green-900">
                         Sent
                       </span>
                     ) : (
                       <span
                         title={r.error ?? undefined}
-                        className="rounded-full bg-red-100 px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide text-red-900"
+                        className="rounded-full bg-red-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-red-900"
                       >
                         Failed
                       </span>

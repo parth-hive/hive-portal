@@ -137,7 +137,7 @@ export default async function AuditLogPage({
         className="mt-6 flex flex-wrap items-end gap-3 rounded-2xl bg-white p-4 shadow-sm"
       >
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] uppercase tracking-wide text-muted">
+          <span className="text-xs uppercase tracking-wide text-muted">
             Table
           </span>
           <select
@@ -154,7 +154,7 @@ export default async function AuditLogPage({
           </select>
         </label>
         <label className="flex flex-col gap-1">
-          <span className="text-[11px] uppercase tracking-wide text-muted">
+          <span className="text-xs uppercase tracking-wide text-muted">
             Action
           </span>
           <select
@@ -191,7 +191,7 @@ export default async function AuditLogPage({
 
       <section className="mt-6 overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-stone/40">
         <table className="w-full min-w-[800px] text-sm">
-          <thead className="bg-warm/60 text-left text-[11px] uppercase tracking-wide text-muted">
+          <thead className="bg-warm/60 text-left text-xs uppercase tracking-wide text-muted">
             <tr>
               <th className="px-3 py-2 font-medium">When</th>
               <th className="px-3 py-2 font-medium">Who</th>
@@ -227,7 +227,7 @@ export default async function AuditLogPage({
                 </td>
                 <td className="px-3 py-2">
                   <span
-                    className={`rounded-full px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide ${ACTION_PILL[r.action]}`}
+                    className={`rounded-full px-2 py-0.5 text-xs font-medium uppercase tracking-wide ${ACTION_PILL[r.action]}`}
                   >
                     {ACTION_LABEL[r.action]}
                   </span>
@@ -235,10 +235,10 @@ export default async function AuditLogPage({
                 <td className="px-3 py-2 text-ink">
                   {TABLE_LABEL[r.table_name] ?? r.table_name}
                 </td>
-                <td className="px-3 py-2 font-mono text-[11px] text-muted">
+                <td className="px-3 py-2 font-mono text-xs text-muted">
                   {r.record_id ? r.record_id.slice(0, 8) : "—"}
                 </td>
-                <td className="px-3 py-2 text-[12px] text-ink">
+                <td className="px-3 py-2 text-xs text-ink">
                   {r.action === "update" && r.changed_columns?.length
                     ? r.changed_columns.join(", ")
                     : r.action === "insert"

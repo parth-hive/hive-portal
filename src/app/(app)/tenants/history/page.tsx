@@ -164,7 +164,7 @@ export default async function TenantHistoryPage({ searchParams }: PageProps) {
       {filtered.length > 0 && (
         <section className="mt-6 overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-stone/40">
           <table className="w-full min-w-[900px] text-sm">
-            <thead className="bg-warm/60 text-left text-[11px] uppercase tracking-wide text-muted">
+            <thead className="bg-warm/60 text-left text-xs uppercase tracking-wide text-muted">
               <tr>
                 <th className="px-3 py-2 font-medium">Tenant</th>
                 <th className="px-3 py-2 font-medium">Unit / Room</th>
@@ -189,12 +189,12 @@ export default async function TenantHistoryPage({ searchParams }: PageProps) {
                       {r.tenant_name}
                     </Link>
                     {r.email && (
-                      <div className="text-[11px] text-muted">{r.email}</div>
+                      <div className="text-xs text-muted">{r.email}</div>
                     )}
                   </td>
                   <td className="px-3 py-2.5 text-ink">
                     {r.unit}
-                    <div className="text-[11px] text-muted">{r.room}</div>
+                    <div className="text-xs text-muted">{r.room}</div>
                   </td>
                   <td className="px-3 py-2.5 tabular-nums text-ink">
                     {formatDate(r.start_date)}

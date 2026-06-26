@@ -17,7 +17,7 @@ export function NeighborhoodFilter({
   const current = searchParams.get("hood") ?? "";
 
   return (
-    <label className="inline-flex items-center gap-1.5 text-[12px] text-muted">
+    <label className="inline-flex items-center gap-1.5 text-xs text-muted">
       <span className="uppercase tracking-wide">Neighborhood</span>
       <select
         value={current}
@@ -27,7 +27,7 @@ export function NeighborhoodFilter({
           else params.delete("hood");
           router.push(`/inventory?${params.toString()}`);
         }}
-        className="rounded-full border border-stone bg-white px-3 py-1 text-[12px] text-ink shadow-sm transition hover:border-accent focus:border-accent focus:outline-none"
+        className="rounded-full border border-stone bg-white px-3 py-1 text-xs text-ink shadow-sm transition hover:border-accent focus:border-accent focus:outline-none"
       >
         <option value="">All neighborhoods</option>
         {neighborhoods.map((n) => (

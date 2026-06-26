@@ -144,7 +144,7 @@ export function AddInventory({
             ) : (
               <div className="mt-5 flex flex-col gap-3">
                 <label className="flex flex-col gap-1">
-                  <span className="text-[11px] uppercase tracking-wide text-muted">
+                  <span className="text-xs uppercase tracking-wide text-muted">
                     Room
                   </span>
                   <div className="relative">
@@ -188,7 +188,7 @@ export function AddInventory({
                                 <span className="text-sm text-ink">
                                   {r.label}
                                 </span>
-                                <span className="text-[11px] text-muted">
+                                <span className="text-xs text-muted">
                                   {STATUS_LABEL[r.status]}
                                   {r.tenantName ? ` · ${r.tenantName}` : ""}
                                 </span>
@@ -208,7 +208,7 @@ export function AddInventory({
                       room. Set a move-out date to end the tenancy and list it.
                     </p>
                     <label className="mt-1 flex flex-col gap-1">
-                      <span className="text-[11px] uppercase tracking-wide text-muted">
+                      <span className="text-xs uppercase tracking-wide text-muted">
                         Move-out date
                       </span>
                       <input
@@ -223,7 +223,7 @@ export function AddInventory({
 
                 {selected && !occupied && (
                   <label className="flex flex-col gap-1">
-                    <span className="text-[11px] uppercase tracking-wide text-muted">
+                    <span className="text-xs uppercase tracking-wide text-muted">
                       Available from{" "}
                       <span className="normal-case text-muted/70">
                         (optional — blank means now)

@@ -65,7 +65,7 @@ export default async function AdminSettingsPage() {
 
       {visibleLinks.length > 0 && (
         <section className="mt-6">
-          <h2 className="text-xs font-medium uppercase tracking-wide text-muted">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
             Administration
           </h2>
           <div className="mt-3 grid gap-3 sm:grid-cols-2">
@@ -89,7 +89,7 @@ export default async function AdminSettingsPage() {
       )}
 
       <section className="mt-6 rounded-2xl bg-white p-5 shadow-sm">
-        <h2 className="text-xs font-medium uppercase tracking-wide text-muted">
+        <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
           Change password
         </h2>
         <p className="mt-1 text-sm text-muted">

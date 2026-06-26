@@ -291,7 +291,7 @@ export default async function PropertyDetailPage({ params }: PageProps) {
                 </span>
               )}
               <span
-                className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${pill}`}
+                className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${pill}`}
               >
                 {label}
               </span>
@@ -341,7 +341,7 @@ export default async function PropertyDetailPage({ params }: PageProps) {
         ) : (
           <div className="mt-4 overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-stone/40">
             <table className="w-full min-w-[1000px] text-sm">
-              <thead className="bg-warm/60 text-left text-[11px] uppercase tracking-wide text-muted">
+              <thead className="bg-warm/60 text-left text-xs uppercase tracking-wide text-muted">
                 <tr>
                   <th className="px-3 py-2 font-medium">Category</th>
                   <th className="px-3 py-2 font-medium">Service</th>
@@ -454,7 +454,7 @@ function ResidentsWidget({ rows }: { rows: ResidentRow[] }) {
                       {c.full_name}
                     </Link>
                     {c.room_number && (
-                      <p className="text-[11px] uppercase tracking-wide text-muted">
+                      <p className="text-xs uppercase tracking-wide text-muted">
                         {c.room_number}
                       </p>
                     )}
@@ -525,7 +525,7 @@ function ResidentsWidget({ rows }: { rows: ResidentRow[] }) {
                   )}
                   <Link
                     href={`/tenants/${c.id}`}
-                    className="ml-auto text-[11px] uppercase tracking-wide text-muted hover:text-accent-text"
+                    className="ml-auto text-xs uppercase tracking-wide text-muted hover:text-accent-text"
                   >
                     Edit →
                   </Link>

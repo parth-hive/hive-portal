@@ -140,7 +140,7 @@ export default async function ReportsPage({
       >
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] uppercase tracking-wide text-muted">
+            <span className="text-xs uppercase tracking-wide text-muted">
               From
             </span>
             <input
@@ -151,7 +151,7 @@ export default async function ReportsPage({
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] uppercase tracking-wide text-muted">
+            <span className="text-xs uppercase tracking-wide text-muted">
               To
             </span>
             <input
@@ -162,7 +162,7 @@ export default async function ReportsPage({
             />
           </label>
           <label className="flex flex-col gap-1">
-            <span className="text-[11px] uppercase tracking-wide text-muted">
+            <span className="text-xs uppercase tracking-wide text-muted">
               Neighborhood
             </span>
             <select
@@ -179,7 +179,7 @@ export default async function ReportsPage({
             </select>
           </label>
           <label className="flex flex-col gap-1 lg:col-span-2">
-            <span className="text-[11px] uppercase tracking-wide text-muted">
+            <span className="text-xs uppercase tracking-wide text-muted">
               Property
             </span>
             <select
@@ -213,7 +213,7 @@ export default async function ReportsPage({
             </Link>
           )}
           {propertyParam && neighborhoodParam && (
-            <span className="text-[11px] text-muted">
+            <span className="text-xs text-muted">
               Property overrides neighborhood
             </span>
           )}
@@ -254,19 +254,19 @@ export default async function ReportsPage({
       </section>
 
       <section className="mt-10">
-        <h2 className="text-xs uppercase tracking-wide text-muted">
+        <h2 className="text-sm uppercase tracking-wide text-muted">
           Collection trend
         </h2>
         <CollectionChart data={monthly} />
       </section>
 
       <section className="mt-10">
-        <h2 className="text-xs uppercase tracking-wide text-muted">
+        <h2 className="text-sm uppercase tracking-wide text-muted">
           Monthly collection
         </h2>
         <div className="mt-3 overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-stone/40">
           <table className="w-full min-w-[800px] text-sm">
-            <thead className="bg-warm/60 text-left text-[11px] uppercase tracking-wide text-muted">
+            <thead className="bg-warm/60 text-left text-xs uppercase tracking-wide text-muted">
               <tr>
                 <th className="px-3 py-2 font-medium">Month</th>
                 <th className="px-3 py-2 text-right font-medium">Expected</th>
@@ -328,7 +328,7 @@ export default async function ReportsPage({
             </tbody>
           </table>
         </div>
-        <p className="mt-2 text-[11px] text-muted">
+        <p className="mt-2 text-xs text-muted">
           <span className="mr-3">
             <span className="mr-1 inline-block h-2 w-2 rounded-full bg-accent align-middle" />
             Collected
@@ -341,12 +341,12 @@ export default async function ReportsPage({
       </section>
 
       <section className="mt-10">
-        <h2 className="text-xs uppercase tracking-wide text-muted">
+        <h2 className="text-sm uppercase tracking-wide text-muted">
           Revenue by property{hasFilter ? " (in range)" : " (lifetime)"}
         </h2>
         <div className="mt-3 overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-stone/40">
           <table className="w-full min-w-[600px] text-sm">
-            <thead className="bg-warm/60 text-left text-[11px] uppercase tracking-wide text-muted">
+            <thead className="bg-warm/60 text-left text-xs uppercase tracking-wide text-muted">
               <tr>
                 <th className="px-3 py-2 font-medium">Property</th>
                 <th className="px-3 py-2 text-right font-medium">Collected</th>
@@ -513,7 +513,7 @@ function CollectionChart({ data }: { data: ChartRow[] }) {
                 x={padL - 8}
                 y={y + 4}
                 textAnchor="end"
-                className="fill-muted text-[10px]"
+                className="fill-muted text-xs"
               >
                 ${shortMoney(v)}
               </text>
@@ -562,14 +562,14 @@ function CollectionChart({ data }: { data: ChartRow[] }) {
             x={xAt(i)}
             y={H - padB + 16}
             textAnchor="middle"
-            className="fill-muted text-[10px]"
+            className="fill-muted text-xs"
           >
             {shortMonth(m)}
           </text>
         ))}
       </svg>
 
-      <div className="mt-2 flex flex-wrap items-center gap-4 text-[11px] text-muted">
+      <div className="mt-2 flex flex-wrap items-center gap-4 text-xs text-muted">
         <span className="inline-flex items-center gap-1.5">
           <span className="inline-block h-2 w-3 rounded-sm bg-accent" />
           Collected

@@ -103,7 +103,7 @@ export default function ResetPasswordPage() {
             Set a new password for <span className="text-ink">{email ?? ""}</span>.
           </p>
           <label className="mt-4 flex flex-col gap-1">
-            <span className="text-[11px] uppercase tracking-wide text-muted">
+            <span className="text-xs uppercase tracking-wide text-muted">
               New password
             </span>
             <input
@@ -117,7 +117,7 @@ export default function ResetPasswordPage() {
             />
           </label>
           <label className="mt-3 flex flex-col gap-1">
-            <span className="text-[11px] uppercase tracking-wide text-muted">
+            <span className="text-xs uppercase tracking-wide text-muted">
               Confirm password
             </span>
             <input

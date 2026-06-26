@@ -294,7 +294,7 @@ export default async function ReconciliationRunPage({
                 </td>
                 <td className="px-5 py-4">
                   <span
-                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide ${STATUS_PILL[m.status]}`}
+                    className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${STATUS_PILL[m.status]}`}
                   >
                     {STATUS_LABEL[m.status]}
                   </span>
@@ -338,7 +338,7 @@ export default async function ReconciliationRunPage({
                 <div className="min-w-0">
                   <p className="truncate text-ink">{d.raw ?? d.description}</p>
                   {d.date && (
-                    <p className="text-[11px] text-muted">{formatDate(d.date)}</p>
+                    <p className="text-xs text-muted">{formatDate(d.date)}</p>
                   )}
                 </div>
                 <span className="shrink-0 font-medium text-ink tabular-nums">

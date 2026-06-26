@@ -38,7 +38,7 @@ export function AddRecipientForm({ users }: { users: string[] }) {
       className="flex flex-wrap items-end gap-3"
     >
       <label className="flex flex-1 min-w-[200px] flex-col gap-1">
-        <span className="text-[11px] uppercase tracking-wide text-muted">
+        <span className="text-xs uppercase tracking-wide text-muted">
           Portal user
         </span>
         <select
@@ -58,7 +58,7 @@ export function AddRecipientForm({ users }: { users: string[] }) {
         </select>
       </label>
       <label className="flex flex-1 min-w-[160px] flex-col gap-1">
-        <span className="text-[11px] uppercase tracking-wide text-muted">
+        <span className="text-xs uppercase tracking-wide text-muted">
           Name
         </span>
         <input

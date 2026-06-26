@@ -149,7 +149,7 @@ export default async function CredentialsPage({ searchParams }: PageProps) {
         <li>
           <Link
             href="/credentials"
-            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition ${
+            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition ${
               activeCategory === null
                 ? "border-ink bg-ink text-white"
                 : "border-stone bg-white text-ink hover:bg-warm"
@@ -168,7 +168,7 @@ export default async function CredentialsPage({ searchParams }: PageProps) {
                 href={
                   isActive ? "/credentials" : `/credentials?category=${c}`
                 }
-                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[11px] transition ${
+                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition ${
                   isActive
                     ? "border-ink bg-ink text-white"
                     : "border-stone bg-white text-ink hover:bg-warm"
@@ -220,7 +220,7 @@ export default async function CredentialsPage({ searchParams }: PageProps) {
         return (
           <div className="mt-4 overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-stone/40">
             <table className="w-full min-w-[1100px] text-sm">
-              <thead className="sticky top-0 z-10 bg-warm/60 text-left text-[11px] uppercase tracking-wide text-muted">
+              <thead className="sticky top-0 z-10 bg-warm/60 text-left text-xs uppercase tracking-wide text-muted">
                 <tr>
                   <th className="px-3 py-2 font-medium">Category</th>
                   <th className="px-3 py-2 font-medium">Service</th>
@@ -264,7 +264,7 @@ function GroupBlock({
       <tr className="border-t border-stone/40 bg-warm/40">
         <td
           colSpan={8}
-          className="px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-ink/80"
+          className="px-3 py-1.5 text-xs font-semibold uppercase tracking-wide text-ink/80"
         >
           {label}{" "}
           <span className="text-muted">({items.length})</span>

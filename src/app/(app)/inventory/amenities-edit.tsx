@@ -65,7 +65,7 @@ export function InlineAmenitiesEdit({
   const row = (key: keyof AmenityValues, label: string) => (
     <label
       key={key}
-      className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-[13px] text-ink hover:bg-warm/60"
+      className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm text-ink hover:bg-warm/60"
     >
       <input
         type="checkbox"
@@ -97,16 +97,16 @@ export function InlineAmenitiesEdit({
               className="fixed z-50 w-64 rounded-xl bg-white p-3 shadow-xl ring-1 ring-stone/40"
               style={{ top: pos.top, left: pos.left }}
             >
-              <p className="px-1.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+              <p className="px-1.5 text-xs font-medium uppercase tracking-wide text-muted">
                 Room
               </p>
               {ROOM_FIELDS.map((f) => row(f.key, f.label))}
 
-              <p className="mt-2 px-1.5 text-[10px] font-medium uppercase tracking-wide text-muted">
+              <p className="mt-2 px-1.5 text-xs font-medium uppercase tracking-wide text-muted">
                 Building
               </p>
               {BUILDING_FIELDS.map((f) => row(f.key, f.label))}
-              <p className="mt-1 px-1.5 text-[10px] leading-tight text-muted">
+              <p className="mt-1 px-1.5 text-xs leading-tight text-muted">
                 Building amenities apply to every room in this unit.
               </p>
 
@@ -114,7 +114,7 @@ export function InlineAmenitiesEdit({
                 <button
                   type="button"
                   onClick={() => setOpen(false)}
-                  className="rounded-full px-3 py-1 text-[12px] text-muted hover:text-ink"
+                  className="rounded-full px-3 py-1 text-xs text-muted hover:text-ink"
                 >
                   Cancel
                 </button>
@@ -122,7 +122,7 @@ export function InlineAmenitiesEdit({
                   type="button"
                   onClick={save}
                   disabled={pending}
-                  className="rounded-full bg-ink px-3 py-1 text-[12px] font-medium text-white shadow-sm hover:bg-accent-dark disabled:opacity-50"
+                  className="rounded-full bg-ink px-3 py-1 text-xs font-medium text-white shadow-sm hover:bg-accent-dark disabled:opacity-50"
                 >
                   {pending ? "Saving…" : "Save"}
                 </button>

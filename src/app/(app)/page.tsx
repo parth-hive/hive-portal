@@ -293,7 +293,7 @@ export default async function Dashboard() {
           aria-hidden="true"
         />
         <div className="relative">
-          <p className="text-[11px] font-medium uppercase tracking-[0.22em] text-accent">
+          <p className="text-xs font-medium uppercase tracking-[0.22em] text-accent">
             {dateLabel}
           </p>
           <h1 className="mt-2 text-3xl font-medium tracking-tight md:text-4xl">
@@ -305,7 +305,7 @@ export default async function Dashboard() {
           </h1>
           <p className="mt-2 text-sm text-cream/60">
             Press{" "}
-            <kbd className="rounded border border-cream/30 px-1 text-[10px] text-cream/80">
+            <kbd className="rounded border border-cream/30 px-1 text-xs text-cream/80">
               ⌘K
             </kbd>{" "}
             to jump to anything.
@@ -384,7 +384,7 @@ export default async function Dashboard() {
           ) : (
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="text-center text-[11px] uppercase tracking-wide text-muted">
+                <thead className="text-center text-xs uppercase tracking-wide text-muted">
                   <tr className="border-b border-stone/40">
                     <th className="px-3 py-2 text-left font-medium">Unit</th>
                     <th className="px-3 py-2 font-medium">Room</th>
@@ -459,7 +459,7 @@ export default async function Dashboard() {
           ) : (
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="text-center text-[11px] uppercase tracking-wide text-muted">
+                <thead className="text-center text-xs uppercase tracking-wide text-muted">
                   <tr className="border-b border-stone/40">
                     <th className="px-3 py-2 text-left font-medium">Unit</th>
                     <th className="px-3 py-2 font-medium">Last Cleaned</th>
@@ -533,7 +533,7 @@ export default async function Dashboard() {
           ) : (
             <div className="mt-4 overflow-x-auto">
               <table className="w-full text-sm">
-                <thead className="text-center text-[11px] uppercase tracking-wide text-muted">
+                <thead className="text-center text-xs uppercase tracking-wide text-muted">
                   <tr className="border-b border-stone/40">
                     <th className="px-3 py-2 text-left font-medium">Unit</th>
                     <th className="px-3 py-2 font-medium">Room</th>
@@ -632,7 +632,7 @@ function Stat({
       className="group rounded-2xl bg-white p-5 shadow-sm ring-1 ring-stone/30 transition hover:-translate-y-0.5 hover:shadow-md hover:ring-accent/40"
     >
       <div className="flex items-center justify-between">
-        <p className="text-[11px] font-medium uppercase tracking-wide text-muted">
+        <p className="text-xs font-medium uppercase tracking-wide text-muted">
           {label}
         </p>
         <span
@@ -685,7 +685,7 @@ function Worklist({
         </div>
         <Link
           href={href}
-          className="shrink-0 rounded-full bg-warm px-2.5 py-1 text-[10px] font-medium uppercase tracking-wide text-muted transition hover:bg-stone/40 hover:text-ink"
+          className="shrink-0 rounded-full bg-warm px-2.5 py-1 text-xs font-medium uppercase tracking-wide text-muted transition hover:bg-stone/40 hover:text-ink"
         >
           {countLabel}
         </Link>
@@ -732,11 +732,11 @@ function WorklistRow({
         <div className="min-w-0">
           <p className="truncate text-sm font-medium text-ink">{primary}</p>
           {secondary && (
-            <p className="truncate text-[11px] text-muted">{secondary}</p>
+            <p className="truncate text-xs text-muted">{secondary}</p>
           )}
         </div>
         <span
-          className={`shrink-0 rounded-full px-2.5 py-1 text-[11px] font-medium tabular-nums ${pill}`}
+          className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium tabular-nums ${pill}`}
         >
           {right}
         </span>

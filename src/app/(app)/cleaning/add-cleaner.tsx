@@ -25,7 +25,7 @@ export function AddCleanerForm() {
       className="flex flex-wrap items-end gap-3"
     >
       <label className="flex flex-1 min-w-[140px] flex-col gap-1">
-        <span className="text-[11px] uppercase tracking-wide text-muted">
+        <span className="text-xs uppercase tracking-wide text-muted">
           Name
         </span>
         <input
@@ -36,7 +36,7 @@ export function AddCleanerForm() {
         />
       </label>
       <label className="flex flex-1 min-w-[180px] flex-col gap-1">
-        <span className="text-[11px] uppercase tracking-wide text-muted">
+        <span className="text-xs uppercase tracking-wide text-muted">
           Email
         </span>
         <input
@@ -47,7 +47,7 @@ export function AddCleanerForm() {
         />
       </label>
       <label className="flex flex-1 min-w-[140px] flex-col gap-1">
-        <span className="text-[11px] uppercase tracking-wide text-muted">
+        <span className="text-xs uppercase tracking-wide text-muted">
           Phone (optional)
         </span>
         <input
