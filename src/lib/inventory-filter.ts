@@ -64,7 +64,7 @@ export function parseInventoryParams(sp: URLSearchParams): {
 
 /**
  * Resolve a selected ad-poster id (from the `poster` search param) into the set
- * of lowercased keys that an `ad_posted_by` value is matched against — mirroring
+ * of lowercased keys that an ad's poster is matched against — mirroring
  * how the inventory page builds the poster pills. An id may be a synthetic
  * `poster:<key>` (someone who posted but isn't a configured recipient) or a
  * `notification_recipients.id` (matched by its label and email).
@@ -131,7 +131,9 @@ export type SortableRoom = {
   base_rent: number | null;
   bundle_fee: number | null;
   total_rent: number | null;
-  ad_posted_by: string | null;
+  /** Every ad on the room — the poster filter matches a room if ANY ad's
+   *  poster is selected. */
+  ads: { posted_by: string | null }[];
   properties: SortableProperty | SortableProperty[] | null;
 };
 
@@ -174,8 +176,12 @@ export function filterAndSortRooms<T extends SortableRoom>(
   const { sort, dir, posterKeys } = view;
   const filtered = rooms.filter((r) => {
     if (posterKeys) {
-      const key = r.ad_posted_by?.trim().toLowerCase();
-      if (!(key && posterKeys.has(key))) return false;
+      // Keep the room if any of its ads was posted by the selected person.
+      const match = r.ads.some((a) => {
+        const key = a.posted_by?.trim().toLowerCase();
+        return !!key && posterKeys.has(key);
+      });
+      if (!match) return false;
     }
     return true;
   });

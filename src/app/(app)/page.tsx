@@ -48,6 +48,7 @@ export default async function Dashboard() {
     cleanings,
     tenancies,
     payments,
+    roomAds,
   ] = await Promise.all([
     supabase.from("properties").select("*", { count: "exact", head: true }),
     supabase.from("rooms").select("*", { count: "exact", head: true }),
@@ -57,7 +58,7 @@ export default async function Dashboard() {
     supabase
       .from("rooms")
       .select(
-        `id, room_number, status, available_from, ad_url, ad_posted_by,
+        `id, room_number, status, available_from,
          total_rent, pending_tenant, listing_action,
          properties(building_name, street_address, unit_number)`,
       ),
@@ -76,7 +77,23 @@ export default async function Dashboard() {
     supabase
       .from("payments")
       .select("tenancy_id, amount, paid_on, payment_type"),
+    // room_ads post-dates the generated types — query it untyped.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any).from("room_ads").select("room_id, posted_by"),
   ]);
+
+  // Distinct ad posters per room (a room can have several ads).
+  const adPostersByRoom = new Map<string, string[]>();
+  for (const a of (roomAds.data ?? []) as {
+    room_id: string;
+    posted_by: string | null;
+  }[]) {
+    const name = a.posted_by?.trim();
+    if (!name) continue;
+    const list = adPostersByRoom.get(a.room_id) ?? [];
+    if (!list.includes(name)) list.push(name);
+    adPostersByRoom.set(a.room_id, list);
+  }
 
   // Last past cleaning per property (skip future-dated move-out rows).
   const lastByProperty = new Map<string, string>();
@@ -199,8 +216,6 @@ export default async function Dashboard() {
     room_number: string | null;
     status: string;
     available_from: string | null;
-    ad_url: string | null;
-    ad_posted_by: string | null;
     total_rent: number | null;
     pending_tenant: boolean;
     listing_action: string;
@@ -219,7 +234,7 @@ export default async function Dashboard() {
       room: (r.room_number ?? "").replace(/^room\s+/i, ""),
       available_from: r.available_from,
       total_rent: r.total_rent,
-      ad_posted_by: r.ad_posted_by,
+      ad_posted_by: adPostersByRoom.get(r.id)?.join(", ") ?? null,
     }))
     .sort((a, b) => {
       if (!a.available_from && !b.available_from) return 0;

@@ -296,6 +296,7 @@ export type Database = {
       }
       email_log: {
         Row: {
+          channel: string
           context: string | null
           created_at: string
           error: string | null
@@ -307,6 +308,7 @@ export type Database = {
           type: string
         }
         Insert: {
+          channel?: string
           context?: string | null
           created_at?: string
           error?: string | null
@@ -318,6 +320,7 @@ export type Database = {
           type: string
         }
         Update: {
+          channel?: string
           context?: string | null
           created_at?: string
           error?: string | null
@@ -326,6 +329,57 @@ export type Database = {
           resend_id?: string | null
           status?: string
           subject?: string | null
+          type?: string
+        }
+        Relationships: []
+      }
+      email_queue: {
+        Row: {
+          attempts: number
+          context: string | null
+          created_at: string
+          from_addr: string
+          html_body: string | null
+          id: string
+          last_error: string | null
+          reply_to: string | null
+          sent_at: string | null
+          status: string
+          subject: string
+          text_body: string | null
+          to_addrs: string[]
+          type: string
+        }
+        Insert: {
+          attempts?: number
+          context?: string | null
+          created_at?: string
+          from_addr: string
+          html_body?: string | null
+          id?: string
+          last_error?: string | null
+          reply_to?: string | null
+          sent_at?: string | null
+          status?: string
+          subject: string
+          text_body?: string | null
+          to_addrs: string[]
+          type: string
+        }
+        Update: {
+          attempts?: number
+          context?: string | null
+          created_at?: string
+          from_addr?: string
+          html_body?: string | null
+          id?: string
+          last_error?: string | null
+          reply_to?: string | null
+          sent_at?: string | null
+          status?: string
+          subject?: string
+          text_body?: string | null
+          to_addrs?: string[]
           type?: string
         }
         Relationships: []
@@ -932,6 +986,45 @@ export type Database = {
           },
         ]
       }
+      room_ads: {
+        Row: {
+          created_at: string
+          id: string
+          posted_by: string | null
+          room_id: string
+          url: string
+        }
+        Insert: {
+          created_at?: string
+          id?: string
+          posted_by?: string | null
+          room_id: string
+          url: string
+        }
+        Update: {
+          created_at?: string
+          id?: string
+          posted_by?: string | null
+          room_id?: string
+          url?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "room_ads_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "rooms"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "room_ads_room_id_fkey"
+            columns: ["room_id"]
+            isOneToOne: false
+            referencedRelation: "v_room_occupancy"
+            referencedColumns: ["room_id"]
+          },
+        ]
+      }
       room_change_events: {
         Row: {
           changed_at: string
@@ -1093,8 +1186,8 @@ export type Database = {
           first_month_rent: number | null
           id: string
           lease_end_date: string | null
-          lease_end_reminded_at: string | null
           lease_end_reminded_30_at: string | null
+          lease_end_reminded_at: string | null
           lease_pdf_path: string | null
           monthly_rent: number
           move_out_date: string | null
@@ -1111,8 +1204,8 @@ export type Database = {
           first_month_rent?: number | null
           id?: string
           lease_end_date?: string | null
-          lease_end_reminded_at?: string | null
           lease_end_reminded_30_at?: string | null
+          lease_end_reminded_at?: string | null
           lease_pdf_path?: string | null
           monthly_rent: number
           move_out_date?: string | null
@@ -1129,8 +1222,8 @@ export type Database = {
           first_month_rent?: number | null
           id?: string
           lease_end_date?: string | null
-          lease_end_reminded_at?: string | null
           lease_end_reminded_30_at?: string | null
+          lease_end_reminded_at?: string | null
           lease_pdf_path?: string | null
           monthly_rent?: number
           move_out_date?: string | null

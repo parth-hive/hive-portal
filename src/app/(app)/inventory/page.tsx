@@ -22,6 +22,7 @@ import {
   ACTION_LABELS,
   ACTION_ORDER,
   type Action,
+  type AdRow,
 } from "./constants";
 import {
   DEFAULT_SORT,
@@ -71,9 +72,8 @@ type Row = {
   has_ac: boolean;
   has_private_bathroom: boolean;
   listing_action: Action;
-  ad_url: string | null;
-  ad_boosted: boolean;
-  ad_posted_by: string | null;
+  // Every ad posted for this room (see room_ads); attached after the query.
+  ads: AdRow[];
   properties: PropertyRel | PropertyRel[] | null;
   tenancies: TenancyRel[] | null;
 };
@@ -124,7 +124,7 @@ export default async function InventoryPage({ searchParams }: PageProps) {
     .select(
       `id, room_number, base_rent, bundle_fee, total_rent, available_from, status,
        marketing_description, photos_url, has_ac, has_private_bathroom,
-       listing_action, ad_url, ad_boosted, ad_posted_by,
+       listing_action,
        properties(id, building_name, street_address, unit_number, neighborhood,
                   has_gym, has_elevator, has_parking, has_doorman, has_rooftop, has_lounge,
                   laundry_in_building, in_unit_laundry),
@@ -135,9 +135,32 @@ export default async function InventoryPage({ searchParams }: PageProps) {
     )
     .eq("pending_tenant", false)
     .order("available_from", { ascending: true, nullsFirst: true })
-    .returns<Row[]>();
+    .returns<Omit<Row, "ads">[]>();
 
-  const rooms = data ?? [];
+  // All ads across every room (room_ads post-dates the generated types). Used
+  // both to attach each room's ads and to tally ads-per-poster below.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: adRowsData } = await (supabase as any)
+    .from("room_ads")
+    .select("id, room_id, url, posted_by")
+    .order("created_at", { ascending: true });
+  const allAds = (adRowsData ?? []) as {
+    id: string;
+    room_id: string;
+    url: string;
+    posted_by: string | null;
+  }[];
+  const adsByRoom = new Map<string, AdRow[]>();
+  for (const a of allAds) {
+    const list = adsByRoom.get(a.room_id) ?? [];
+    list.push({ id: a.id, url: a.url, posted_by: a.posted_by });
+    adsByRoom.set(a.room_id, list);
+  }
+
+  const rooms: Row[] = (data ?? []).map((r) => ({
+    ...r,
+    ads: adsByRoom.get(r.id) ?? [],
+  }));
 
   // Rooms that aren't currently listed — candidates for "+ Add Inventory".
   // Anything not matching the inventory filter above: reserved/maintenance, or
@@ -197,19 +220,14 @@ export default async function InventoryPage({ searchParams }: PageProps) {
       a.label.localeCompare(b.label, undefined, { numeric: true }),
     );
 
-  // Ads-posted tally per person. `ad_posted_by` is a snapshot of whoever saved
-  // the URL (display name, else email). We count across all rooms (not just the
-  // currently-listed inventory) so the numbers reflect total ads each person
-  // has posted. The list is seeded with everyone on the notification-recipients
-  // list (so configured people show even with zero ads) and then unioned with
-  // anyone who has posted an ad but isn't on that list — matching a recipient
-  // to their posts by either their label or email.
-  const { data: adPosterData } = await supabase
-    .from("rooms")
-    .select("ad_posted_by")
-    .not("ad_posted_by", "is", null)
-    .returns<{ ad_posted_by: string | null }[]>();
-
+  // Ads-posted tally per person. Each ad's `posted_by` is a snapshot of whoever
+  // saved it (display name, else email), and every ad counts — two ads by the
+  // same person (even on one room) count twice. We count across all rooms (not
+  // just the currently-listed inventory) so the numbers reflect total ads each
+  // person has posted. The list is seeded with everyone on the
+  // notification-recipients list (so configured people show even with zero ads)
+  // and then unioned with anyone who has posted an ad but isn't on that list —
+  // matching a recipient to their posts by either their label or email.
   const { data: recipientData } = await supabase
     .from("notification_recipients")
     .select("id, email, label")
@@ -217,8 +235,8 @@ export default async function InventoryPage({ searchParams }: PageProps) {
 
   // key (lowercased poster string) -> { display name, count }
   const adCountByPoster = new Map<string, { name: string; count: number }>();
-  for (const a of adPosterData ?? []) {
-    const raw = a.ad_posted_by?.trim();
+  for (const a of allAds) {
+    const raw = a.posted_by?.trim();
     if (!raw) continue;
     const key = raw.toLowerCase();
     const cur = adCountByPoster.get(key);
@@ -618,19 +636,24 @@ function InventoryRow({
         />
       </td>
       <td className="px-3 py-2.5">
-        <div className="flex flex-wrap items-center gap-1.5">
-          <InlineAdEdit roomId={room.id} url={room.ad_url} />
-          {room.ad_boosted && (
-            <span className="rounded-full bg-orange-100 px-2 py-0.5 text-[11px] font-medium text-orange-900">
-              ✓ Boost
-            </span>
-          )}
-        </div>
+        <InlineAdEdit roomId={room.id} ads={room.ads} />
       </td>
       <td className="px-3 py-2.5 text-[12px] text-ink">
-        {room.ad_posted_by?.trim() || (
-          <span className="text-muted">-</span>
-        )}
+        {(() => {
+          // Distinct posters across this room's ads, in first-posted order.
+          const posters = Array.from(
+            new Set(
+              room.ads
+                .map((a) => a.posted_by?.trim())
+                .filter((n): n is string => !!n),
+            ),
+          );
+          return posters.length ? (
+            posters.join(", ")
+          ) : (
+            <span className="text-muted">-</span>
+          );
+        })()}
       </td>
       <td className="px-3 py-2.5">
         {p ? (

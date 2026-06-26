@@ -28,36 +28,55 @@ export async function setListingAction(roomId: string, action: Action) {
 
 export type AdFormState = { error?: string } | undefined;
 
+// A room can carry several ads, each posted by a different person. Every ad is
+// its own room_ads row, snapshotting who saved it (display name, else email), so
+// the inventory poster tally counts each ad independently.
+type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
+
+async function currentPosterName(
+  supabase: SupabaseServerClient,
+): Promise<string | null> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  const meta = user?.user_metadata ?? {};
+  const name =
+    typeof meta.display_name === "string" && meta.display_name.trim()
+      ? meta.display_name.trim()
+      : typeof meta.full_name === "string" && meta.full_name.trim()
+        ? meta.full_name.trim()
+        : null;
+  return name ?? user?.email ?? null;
+}
+
+/** Add an ad URL to a room (form version — used on the room detail page). */
 export async function setRoomAd(
   roomId: string,
   _prev: AdFormState,
   formData: FormData,
 ): Promise<AdFormState> {
-  const ad_url = String(formData.get("ad_url") ?? "").trim() || null;
+  const url = String(formData.get("ad_url") ?? "").trim();
+  if (!url) return { error: "Enter an ad URL." };
+  return addRoomAd(roomId, url);
+}
+
+/** Add an ad URL to a room. Multiple people can each add their own. */
+export async function addRoomAd(
+  roomId: string,
+  url: string,
+): Promise<{ error?: string } | undefined> {
+  const ad_url = url.trim();
+  if (!ad_url) return { error: "Enter an ad URL." };
 
   const supabase = await createClient();
+  const posted_by = await currentPosterName(supabase);
 
-  // Whoever saves the URL is recorded as the ad's poster (snapshot of their
-  // name). Clear the poster when the URL is removed.
-  let ad_posted_by: string | null = null;
-  if (ad_url) {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    const meta = user?.user_metadata ?? {};
-    const name =
-      typeof meta.display_name === "string" && meta.display_name.trim()
-        ? meta.display_name.trim()
-        : typeof meta.full_name === "string" && meta.full_name.trim()
-          ? meta.full_name.trim()
-          : null;
-    ad_posted_by = name ?? user?.email ?? null;
-  }
-
-  const { error } = await supabase
-    .from("rooms")
-    .update({ ad_url, ad_posted_by })
-    .eq("id", roomId);
+  // room_ads post-dates the generated types — access it untyped (project
+  // convention for new tables).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any)
+    .from("room_ads")
+    .insert({ room_id: roomId, url: ad_url, posted_by });
 
   if (error) return { error: error.message };
 
@@ -66,35 +85,17 @@ export async function setRoomAd(
   return undefined;
 }
 
-/** Edit a room's ad URL inline from the inventory table. */
-export async function setRoomAdUrl(
+/** Remove a single ad from a room. */
+export async function deleteRoomAd(
+  adId: string,
   roomId: string,
-  url: string | null,
 ): Promise<{ ok: true } | { error: string }> {
-  const ad_url = url && url.trim() ? url.trim() : null;
   const supabase = await createClient();
-
-  // Whoever saves the URL is recorded as the ad's poster (snapshot of their
-  // name). Clear the poster when the URL is removed.
-  let ad_posted_by: string | null = null;
-  if (ad_url) {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    const meta = user?.user_metadata ?? {};
-    const name =
-      typeof meta.display_name === "string" && meta.display_name.trim()
-        ? meta.display_name.trim()
-        : typeof meta.full_name === "string" && meta.full_name.trim()
-          ? meta.full_name.trim()
-          : null;
-    ad_posted_by = name ?? user?.email ?? null;
-  }
-
-  const { error } = await supabase
-    .from("rooms")
-    .update({ ad_url, ad_posted_by })
-    .eq("id", roomId);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any)
+    .from("room_ads")
+    .delete()
+    .eq("id", adId);
 
   if (error) return { error: error.message };
 

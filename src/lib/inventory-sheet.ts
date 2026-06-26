@@ -44,7 +44,9 @@ type Row = {
   photos_url: string | null;
   has_ac: boolean;
   has_private_bathroom: boolean;
-  ad_posted_by: string | null;
+  // Carried only for filter parity with the inventory table (poster filter) —
+  // not displayed in the shareable sheet.
+  ads: { posted_by: string | null }[];
   properties: PropertyRel | PropertyRel[] | null;
 };
 
@@ -93,7 +95,7 @@ export async function buildInventorySheet(
     .from("rooms")
     .select(
       `id, status, available_from, base_rent, bundle_fee, total_rent,
-       photos_url, has_ac, has_private_bathroom, ad_posted_by,
+       photos_url, has_ac, has_private_bathroom,
        properties(cross_street, neighborhood, bedrooms, bathrooms,
                   building_name, street_address, unit_number,
                   has_gym, has_elevator, has_parking, has_doorman, has_rooftop,
@@ -103,9 +105,31 @@ export async function buildInventorySheet(
       `status.eq.available,and(status.eq.occupied,available_from.gte.${today})`,
     )
     .eq("pending_tenant", false)
-    .returns<Row[]>();
+    .returns<Omit<Row, "ads">[]>();
 
-  const rooms = filterAndSortRooms(data ?? [], view);
+  // Attach each room's ad posters for the poster filter (room_ads post-dates
+  // the generated types). Only fetched when a poster filter is active.
+  const adsByRoom = new Map<string, { posted_by: string | null }[]>();
+  if (view.posterKeys) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: adRowsData } = await (supabase as any)
+      .from("room_ads")
+      .select("room_id, posted_by");
+    for (const a of (adRowsData ?? []) as {
+      room_id: string;
+      posted_by: string | null;
+    }[]) {
+      const list = adsByRoom.get(a.room_id) ?? [];
+      list.push({ posted_by: a.posted_by });
+      adsByRoom.set(a.room_id, list);
+    }
+  }
+  const withAds: Row[] = (data ?? []).map((r) => ({
+    ...r,
+    ads: adsByRoom.get(r.id) ?? [],
+  }));
+
+  const rooms = filterAndSortRooms(withAds, view);
 
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet("Inventory");

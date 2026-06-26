@@ -9,6 +9,7 @@ import {
   ACTION_BORDER,
   ACTION_TINT,
   type Action,
+  type AdRow,
 } from "../constants";
 import { RentEdit } from "./rent-edit";
 import { AdEdit } from "./ad-edit";
@@ -45,7 +46,6 @@ type Room = {
   marketing_description: string | null;
   photos_url: string | null;
   listing_action: Action;
-  ad_url: string | null;
   properties: PropertyRel | PropertyRel[] | null;
 };
 
@@ -68,31 +68,39 @@ export default async function VacancyDetailPage({ params }: PageProps) {
   const { roomId } = await params;
   const supabase = await createClient();
 
-  const [{ data: room }, { data: tenancies }] = await Promise.all([
-    supabase
-      .from("rooms")
-      .select(
-        `id, room_number, status, base_rent, bundle_fee, total_rent,
+  const [{ data: room }, { data: tenancies }, { data: adRowsData }] =
+    await Promise.all([
+      supabase
+        .from("rooms")
+        .select(
+          `id, room_number, status, base_rent, bundle_fee, total_rent,
          available_from, has_ac, has_private_bathroom,
          marketing_description, photos_url, listing_action,
-         ad_url,
          properties(id, building_name, street_address, unit_number,
                     cross_street, neighborhood,
                     has_gym, has_elevator, has_parking, has_doorman,
                     laundry_in_building, in_unit_laundry)`,
-      )
-      .eq("id", roomId)
-      .maybeSingle<Room>(),
-    supabase
-      .from("tenancies")
-      .select(
-        `id, start_date, move_out_date, status,
+        )
+        .eq("id", roomId)
+        .maybeSingle<Room>(),
+      supabase
+        .from("tenancies")
+        .select(
+          `id, start_date, move_out_date, status,
          tenants(id, full_name, email, phone)`,
-      )
-      .eq("room_id", roomId)
-      .order("start_date", { ascending: false })
-      .returns<Tenancy[]>(),
-  ]);
+        )
+        .eq("room_id", roomId)
+        .order("start_date", { ascending: false })
+        .returns<Tenancy[]>(),
+      // room_ads post-dates the generated types — query it untyped.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (supabase as any)
+        .from("room_ads")
+        .select("id, url, posted_by")
+        .eq("room_id", roomId)
+        .order("created_at", { ascending: true }),
+    ]);
+  const ads = (adRowsData ?? []) as AdRow[];
 
   if (!room) notFound();
 
@@ -270,7 +278,7 @@ export default async function VacancyDetailPage({ params }: PageProps) {
         </section>
 
         <section className="mt-6">
-          <AdEdit roomId={room.id} adUrl={room.ad_url} />
+          <AdEdit roomId={room.id} ads={ads} />
         </section>
 
         <section className="mt-6 rounded-2xl bg-white p-6 shadow-sm">

@@ -47,9 +47,7 @@ type Row = {
   has_ac: boolean;
   has_private_bathroom: boolean;
   listing_action: Action;
-  ad_url: string | null;
-  ad_boosted: boolean;
-  ad_posted_by: string | null;
+  ads: { url: string; posted_by: string | null }[];
   properties: PropertyRel | PropertyRel[] | null;
   tenancies: TenancyRel[] | null;
 };
@@ -95,8 +93,7 @@ export async function GET(request: Request) {
     .from("rooms")
     .select(
       `id, room_number, status, available_from, base_rent, bundle_fee, total_rent,
-       photos_url, has_ac, has_private_bathroom, listing_action, ad_url,
-       ad_boosted, ad_posted_by,
+       photos_url, has_ac, has_private_bathroom, listing_action,
        properties(building_name, street_address, unit_number, neighborhood,
                   has_gym, has_elevator, has_parking, has_doorman, has_rooftop,
                   has_lounge, laundry_in_building, in_unit_laundry),
@@ -106,9 +103,30 @@ export async function GET(request: Request) {
       `status.eq.available,and(status.eq.occupied,available_from.gte.${today})`,
     )
     .eq("pending_tenant", false)
-    .returns<Row[]>();
+    .returns<Omit<Row, "ads">[]>();
 
-  const rooms = filterAndSortRooms(data ?? [], { sort, dir, posterKeys });
+  // Attach each room's ads (room_ads post-dates the generated types).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: adRowsData } = await (supabase as any)
+    .from("room_ads")
+    .select("room_id, url, posted_by")
+    .order("created_at", { ascending: true });
+  const adsByRoom = new Map<string, { url: string; posted_by: string | null }[]>();
+  for (const a of (adRowsData ?? []) as {
+    room_id: string;
+    url: string;
+    posted_by: string | null;
+  }[]) {
+    const list = adsByRoom.get(a.room_id) ?? [];
+    list.push({ url: a.url, posted_by: a.posted_by });
+    adsByRoom.set(a.room_id, list);
+  }
+  const withAds: Row[] = (data ?? []).map((r) => ({
+    ...r,
+    ads: adsByRoom.get(r.id) ?? [],
+  }));
+
+  const rooms = filterAndSortRooms(withAds, { sort, dir, posterKeys });
 
   const wb = new ExcelJS.Workbook();
   const ws = wb.addWorksheet("Inventory");
@@ -125,9 +143,8 @@ export async function GET(request: Request) {
     { header: "Photos", key: "photos", width: 10 },
     { header: "Tenant", key: "tenant", width: 24 },
     { header: "Listing action", key: "listing_action", width: 16 },
-    { header: "Ad", key: "ad", width: 10 },
-    { header: "Boosted", key: "boosted", width: 10 },
-    { header: "Ad Posted", key: "ad_posted", width: 20 },
+    { header: "Ads", key: "ad", width: 40 },
+    { header: "Ad Posted", key: "ad_posted", width: 24 },
   ];
   ws.getRow(1).font = { bold: true };
 
@@ -145,6 +162,15 @@ export async function GET(request: Request) {
       ordered.find((t) => t.status === "ended");
     const tenantName = featured ? one(featured.tenants)?.full_name ?? "" : "";
 
+    // A room can have several ads from different people. List every URL
+    // (newline-separated so they stay copyable) and the distinct posters.
+    const adUrls = r.ads.map((a) => a.url);
+    const adPosters = Array.from(
+      new Set(
+        r.ads.map((a) => a.posted_by?.trim()).filter((n): n is string => !!n),
+      ),
+    );
+
     const row = ws.addRow({
       unit,
       neighborhood: p?.neighborhood ?? "",
@@ -157,12 +183,11 @@ export async function GET(request: Request) {
       photos: r.photos_url ? { text: "Link", hyperlink: r.photos_url } : "",
       tenant: tenantName,
       listing_action: ACTION_LABELS[r.listing_action] ?? r.listing_action,
-      ad: r.ad_url ? { text: "Link", hyperlink: r.ad_url } : "None",
-      boosted: r.ad_boosted ? "Yes" : "No",
-      ad_posted: r.ad_posted_by ?? "",
+      ad: adUrls.length ? adUrls.join("\n") : "None",
+      ad_posted: adPosters.join(", "),
     });
     if (r.photos_url) row.getCell("photos").font = LINK_FONT;
-    if (r.ad_url) row.getCell("ad").font = LINK_FONT;
+    if (adUrls.length > 1) row.getCell("ad").alignment = { wrapText: true };
   }
 
   for (const key of ["rent", "services", "total"] as const) {

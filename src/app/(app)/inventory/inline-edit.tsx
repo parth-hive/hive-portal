@@ -1,13 +1,16 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { toast } from "sonner";
 import {
-  setRoomAdUrl,
+  addRoomAd,
+  deleteRoomAd,
   setRoomAvailableFrom,
   setRoomBaseRent,
   setRoomPhotosUrl,
   setRoomServicesFee,
 } from "./actions";
+import type { AdRow } from "./constants";
 
 function fmtMoney(n: number | null) {
   if (n === null || n === undefined) return "—";
@@ -161,9 +164,9 @@ export function InlinePhotosEdit({
           href={url}
           target="_blank"
           rel="noopener noreferrer"
-          className="rounded-full border border-stone bg-white px-2 py-0.5 text-[11px] uppercase tracking-wide text-ink hover:bg-warm"
+          className="text-[12px] text-purple-700 underline hover:text-purple-900"
         >
-          Open ↗
+          Open
         </a>
       ) : null}
       <button
@@ -177,64 +180,94 @@ export function InlinePhotosEdit({
   );
 }
 
+// A room can hold several ads, each posted by a different person. List every
+// ad as an "Open" link with its poster, allow removing any, and add a new one
+// inline — each addition is recorded under the current user.
 export function InlineAdEdit({
   roomId,
-  url,
+  ads,
 }: {
   roomId: string;
-  url: string | null;
+  ads: AdRow[];
 }) {
-  const [editing, setEditing] = useState(false);
+  const [adding, setAdding] = useState(false);
   const [pending, startTransition] = useTransition();
 
-  const commit = (value: string) => {
+  const add = (value: string) => {
+    const url = value.trim();
     startTransition(async () => {
-      await setRoomAdUrl(roomId, value.trim() || null);
-      setEditing(false);
+      if (url) {
+        const res = await addRoomAd(roomId, url);
+        if (res?.error) {
+          toast.error(`Couldn't add ad: ${res.error}`);
+          return; // keep the input open so the URL isn't lost
+        }
+      }
+      setAdding(false);
     });
   };
 
-  if (editing) {
-    return (
-      <input
-        type="url"
-        autoFocus
-        defaultValue={url ?? ""}
-        placeholder="https://…"
-        onFocus={(e) => e.currentTarget.select()}
-        onBlur={(e) => commit(e.currentTarget.value)}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            commit(e.currentTarget.value);
-          } else if (e.key === "Escape") {
-            setEditing(false);
-          }
-        }}
-        className="w-48 rounded border border-accent bg-white px-1.5 py-0.5 text-[12px] text-ink focus:outline-none"
-      />
-    );
-  }
+  const remove = (adId: string) => {
+    startTransition(async () => {
+      const res = await deleteRoomAd(adId, roomId);
+      if ("error" in res) toast.error(`Couldn't remove ad: ${res.error}`);
+    });
+  };
 
   return (
-    <div className={`flex items-center gap-1.5 ${pending ? "opacity-60" : ""}`}>
-      {url ? (
-        <a
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="rounded-full bg-green-100 px-2 py-0.5 text-[11px] font-medium text-green-900 hover:bg-green-200"
+    <div
+      className={`flex flex-col items-start gap-1 ${pending ? "opacity-60" : ""}`}
+    >
+      {ads.map((ad) => (
+        <div key={ad.id} className="flex items-center gap-1.5">
+          <a
+            href={ad.url}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-[12px] text-purple-700 underline hover:text-purple-900"
+          >
+            Open
+          </a>
+          {ad.posted_by?.trim() && (
+            <span className="text-[11px] text-muted">{ad.posted_by.trim()}</span>
+          )}
+          <button
+            type="button"
+            onClick={() => remove(ad.id)}
+            aria-label="Remove ad"
+            title="Remove ad"
+            className="rounded-full px-1 text-[12px] leading-none text-muted hover:bg-warm hover:text-red-700"
+          >
+            ×
+          </button>
+        </div>
+      ))}
+
+      {adding ? (
+        <input
+          type="url"
+          autoFocus
+          placeholder="https://…"
+          onBlur={(e) => add(e.currentTarget.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") {
+              e.preventDefault();
+              add(e.currentTarget.value);
+            } else if (e.key === "Escape") {
+              setAdding(false);
+            }
+          }}
+          className="w-48 rounded border border-accent bg-white px-1.5 py-0.5 text-[12px] text-ink focus:outline-none"
+        />
+      ) : (
+        <button
+          type="button"
+          onClick={() => setAdding(true)}
+          className="rounded-full px-2 py-0.5 text-[11px] uppercase tracking-wide text-accent-text hover:bg-warm"
         >
-          Live ↗
-        </a>
-      ) : null}
-      <button
-        type="button"
-        onClick={() => setEditing(true)}
-        className="rounded-full px-2 py-0.5 text-[11px] uppercase tracking-wide text-accent-text hover:bg-warm"
-      >
-        {url ? "Edit" : "+ Add"}
-      </button>
+          Add
+        </button>
+      )}
     </div>
   );
 }

@@ -2,6 +2,9 @@ import type { Database } from "@/lib/supabase/types";
 
 export type Action = Database["public"]["Enums"]["listing_action"];
 
+/** One ad posted for a room (a row in room_ads). */
+export type AdRow = { id: string; url: string; posted_by: string | null };
+
 export const ACTION_LABELS: Record<Action, string> = {
   no_action: "No action",
   update_price_or_date: "Price/date",

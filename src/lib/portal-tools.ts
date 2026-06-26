@@ -185,13 +185,31 @@ export async function listInventory() {
     .from("rooms")
     .select(
       `id, room_number, total_rent, available_from, status, listing_action,
-       ad_url, ad_boosted, has_ac, has_private_bathroom,
+       has_ac, has_private_bathroom,
        marketing_description, photos_url,
        properties(id, building_name, street_address, unit_number, neighborhood)`,
     )
     .or(`status.eq.available,and(status.eq.occupied,available_from.gte.${today})`)
     .order("available_from", { ascending: true, nullsFirst: true });
   if (error) throw new Error(error.message);
+
+  // Each room can carry several ads (room_ads post-dates the generated types).
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: adRowsData } = await (supabase as any)
+    .from("room_ads")
+    .select("room_id, url, posted_by")
+    .order("created_at", { ascending: true });
+  const adsByRoom = new Map<string, { url: string; posted_by: string | null }[]>();
+  for (const a of (adRowsData ?? []) as {
+    room_id: string;
+    url: string;
+    posted_by: string | null;
+  }[]) {
+    const list = adsByRoom.get(a.room_id) ?? [];
+    list.push({ url: a.url, posted_by: a.posted_by });
+    adsByRoom.set(a.room_id, list);
+  }
+
   return (data ?? []).map((r) => {
     const p = one(r.properties);
     return {
@@ -204,7 +222,7 @@ export async function listInventory() {
       available_from: r.available_from,
       status: r.status,
       listing_action: r.listing_action,
-      ad: { url: r.ad_url, boosted: r.ad_boosted },
+      ads: adsByRoom.get(r.id) ?? [],
       has_ac: r.has_ac,
       has_private_bathroom: r.has_private_bathroom,
       description: r.marketing_description,
