@@ -18,12 +18,17 @@
 
 import type { DraftInput, DraftResult, SendResult } from "./google-mail";
 
-const GRAPH_MESSAGES_URL = "https://graph.microsoft.com/v1.0/me/messages";
-const GRAPH_SENDMAIL_URL = "https://graph.microsoft.com/v1.0/me/sendMail";
+const GRAPH_BASE = "https://graph.microsoft.com/v1.0";
+const GRAPH_MESSAGES_URL = `${GRAPH_BASE}/me/messages`;
 
 const SCOPE_READWRITE =
   "https://graph.microsoft.com/Mail.ReadWrite offline_access";
 const SCOPE_SEND = "https://graph.microsoft.com/Mail.Send offline_access";
+// The reliable send path (createDraft → send → verify) touches both the
+// ReadWrite (create draft / read Sent Items) and Send surfaces, so it mints a
+// single token consented for both.
+const SCOPE_READWRITE_SEND =
+  "https://graph.microsoft.com/Mail.ReadWrite https://graph.microsoft.com/Mail.Send offline_access";
 
 function config() {
   const clientId = process.env.MS_CLIENT_ID;
@@ -152,11 +157,29 @@ export async function createOutlookDraft(
   }
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 /**
- * Send a message immediately from the M365 work account (saved to Sent Items),
- * rather than staging a draft. Used for non-New-York agreements once the
- * operator opts to send straight from Telegram. Requires the Mail.Send scope to
- * be consented on the refresh token; /me/sendMail returns 202 with no body.
+ * Send a message from the M365 work account and CONFIRM it actually left the
+ * mailbox. Used for non-New-York agreements sent straight from Telegram.
+ *
+ * Why not /me/sendMail: that endpoint is fire-and-forget — it returns 202
+ * ("queued"), then sends asynchronously. If the async send later fails
+ * (throttling under a burst of agreements, a transient mailbox error, attachment
+ * processing), the message is silently dropped and never reaches Sent Items,
+ * yet the caller already saw 202 and reports "sent". That false success is the
+ * bug this function exists to avoid.
+ *
+ * Instead, three steps:
+ *   1. POST /me/messages           — create a durable draft, capture its stable
+ *                                    internetMessageId.
+ *   2. POST /me/messages/{id}/send — send that persisted draft.
+ *   3. poll Sent Items by internetMessageId — only report success once the
+ *      message is actually visible in Sent. If it never appears, return an error
+ *      so the operator is told to retry rather than falsely told it sent.
+ *
+ * Requires the refresh token to be consented for both Mail.ReadWrite and
+ * Mail.Send (+ offline_access).
  */
 export async function sendOutlookMessage(
   input: DraftInput,
@@ -165,44 +188,95 @@ export async function sendOutlookMessage(
     return { ok: false, error: "Outlook is not configured (missing MS_* env)." };
   }
   try {
-    const token = await accessToken(SCOPE_SEND);
-    const res = await fetch(GRAPH_SENDMAIL_URL, {
+    const token = await accessToken(SCOPE_READWRITE_SEND);
+    const authHeaders = {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    };
+
+    // 1. Create the draft (synchronous — durably persisted before we send).
+    const createRes = await fetch(GRAPH_MESSAGES_URL, {
       method: "POST",
-      headers: {
-        Authorization: `Bearer ${token}`,
-        "Content-Type": "application/json",
-      },
+      headers: authHeaders,
       body: JSON.stringify({
-        message: {
-          subject: input.subject,
-          body: input.html
-            ? { contentType: "HTML", content: input.html }
-            : { contentType: "Text", content: input.text },
-          toRecipients: [{ emailAddress: { address: input.to } }],
-          attachments: input.attachment
-            ? [
-                {
-                  "@odata.type": "#microsoft.graph.fileAttachment",
-                  name: input.attachment.filename,
-                  contentType:
-                    input.attachment.mimeType || "application/pdf",
-                  contentBytes: input.attachment.base64,
-                },
-              ]
-            : [],
-        },
-        saveToSentItems: true,
+        subject: input.subject,
+        body: input.html
+          ? { contentType: "HTML", content: input.html }
+          : { contentType: "Text", content: input.text },
+        toRecipients: [{ emailAddress: { address: input.to } }],
+        attachments: input.attachment
+          ? [
+              {
+                "@odata.type": "#microsoft.graph.fileAttachment",
+                name: input.attachment.filename,
+                contentType: input.attachment.mimeType || "application/pdf",
+                contentBytes: input.attachment.base64,
+              },
+            ]
+          : [],
       }),
     });
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "");
+    if (!createRes.ok) {
+      const detail = await createRes.text().catch(() => "");
       return {
         ok: false,
-        error: `Outlook send failed (${res.status}): ${detail.slice(0, 200)}`,
+        error: `Outlook draft create failed (${createRes.status}): ${detail.slice(0, 200)}`,
       };
     }
-    // sendMail returns 202 Accepted with an empty body — no id to surface.
-    return { ok: true, id: "" };
+    const draft = (await createRes.json()) as {
+      id?: string;
+      internetMessageId?: string;
+    };
+    if (!draft.id) {
+      return { ok: false, error: "Outlook draft create returned no message id." };
+    }
+
+    // 2. Send the persisted draft. /send returns 202 with an empty body.
+    const sendRes = await fetch(
+      `${GRAPH_MESSAGES_URL}/${encodeURIComponent(draft.id)}/send`,
+      { method: "POST", headers: authHeaders },
+    );
+    if (!sendRes.ok) {
+      const detail = await sendRes.text().catch(() => "");
+      return {
+        ok: false,
+        error: `Outlook send failed (${sendRes.status}): ${detail.slice(0, 200)}`,
+      };
+    }
+
+    // 3. Verify the message actually landed in Sent Items before reporting
+    //    success. Keyed on internetMessageId, which survives the draft → sent
+    //    move. Poll briefly: the async send + Sent-Items write usually completes
+    //    within a couple of seconds.
+    const messageId = draft.internetMessageId;
+    if (!messageId) {
+      // No id to verify against — fall back to trusting the 202 rather than
+      // failing a send that probably succeeded.
+      return { ok: true, id: "" };
+    }
+    const verifyUrl =
+      `${GRAPH_BASE}/me/mailFolders/sentitems/messages` +
+      `?$filter=${encodeURIComponent(`internetMessageId eq '${messageId}'`)}` +
+      `&$select=id&$top=1`;
+    const delays = [800, 1200, 1600, 2400, 3200]; // ~9s total budget
+    for (let attempt = 0; attempt <= delays.length; attempt++) {
+      const checkRes = await fetch(verifyUrl, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (checkRes.ok) {
+        const found = (await checkRes.json()) as { value?: unknown[] };
+        if (Array.isArray(found.value) && found.value.length > 0) {
+          return { ok: true, id: messageId };
+        }
+      }
+      if (attempt < delays.length) await sleep(delays[attempt]);
+    }
+    return {
+      ok: false,
+      error:
+        "Outlook accepted the send but the message did not appear in Sent Items " +
+        "within ~9s — it may have been silently dropped. Please retry.",
+    };
   } catch (e) {
     return {
       ok: false,
