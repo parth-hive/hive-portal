@@ -91,7 +91,6 @@ export function RecordPayment({
           >
             <option value="rent">Rent</option>
             <option value="security_deposit">Security deposit</option>
-            <option value="broker_fee">Broker fee</option>
             <option value="late_fee">Late fee</option>
             <option value="utility">Utility</option>
             <option value="refund">Refund</option>

@@ -31,7 +31,7 @@ function fmtWhen(iso: string | null): string | null {
  * Shared by the Tenants & Rent page and the reconciliation run page so the
  * "Send balance reminders" button shows the same count and last-sent note in
  * both places. Mirrors the send action: a tenant is "outstanding" when their
- * running ledger net balance (rent carry-forward plus any deposit / broker /
+ * running ledger net balance (rent carry-forward plus any deposit /
  * late-fee amounts owed) is positive, skipping tenancies already ended or not
  * started.
  */

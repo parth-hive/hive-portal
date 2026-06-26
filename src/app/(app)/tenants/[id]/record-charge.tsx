@@ -68,7 +68,6 @@ export function RecordCharge({
             className={fieldInput}
           >
             <option value="security_deposit">Security deposit</option>
-            <option value="broker_fee">Broker fee</option>
             <option value="late_fee">Late fee</option>
             <option value="other">Other</option>
           </select>

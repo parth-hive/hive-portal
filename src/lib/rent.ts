@@ -8,9 +8,8 @@
  * settled, so turning the ledger on does not retroactively invent arrears for
  * long-standing tenants whose older payments may not all be in the system.
  *
- * Alongside rent we track three more buckets the operator collects on:
+ * Alongside rent we track more buckets the operator collects on:
  *   • security deposit — owed amount lives on `tenancies.security_deposit`
- *   • broker fee       — ad-hoc `tenancy_charges` rows (kind 'broker_fee')
  *   • late fee (~$50)  — ad-hoc `tenancy_charges` rows (kind 'late_fee')
  *
  * When rent is overpaid the excess becomes an `availableCredit`. The operator
@@ -53,7 +52,6 @@ export type Bucket = { owed: number; paid: number; balance: number };
 export type Ledger = {
   rent: Bucket; // `owed` is the cumulative amount due since the anchor
   deposit: Bucket;
-  broker: Bucket;
   lateFee: Bucket;
   other: Bucket;
   /** Single running balance across all buckets. Negative means account credit. */
@@ -128,9 +126,8 @@ export function computeLedger(
   };
 
   // The security deposit is now an ad-hoc charge (kind 'security_deposit') like
-  // broker / late fees, so the tenancy's deposit field is purely informational.
+  // late fees, so the tenancy's deposit field is purely informational.
   const deposit = bucket(chargedOf("security_deposit"), "security_deposit");
-  const broker = bucket(chargedOf("broker_fee"), "broker_fee");
   const lateFee = bucket(chargedOf("late_fee"), "late_fee");
   const other = bucket(chargedOf("other"), "other");
 
@@ -138,20 +135,16 @@ export function computeLedger(
   // single pot, so an overpayment anywhere nets against what's owed elsewhere
   // and surfaces as account-wide credit. Negative `netBalance` == credit.
   const netBalance =
-    rent.balance +
-    deposit.balance +
-    broker.balance +
-    lateFee.balance +
-    other.balance;
+    rent.balance + deposit.balance + lateFee.balance + other.balance;
   const availableCredit = Math.max(0, -netBalance);
 
-  return { rent, deposit, broker, lateFee, other, netBalance, availableCredit };
+  return { rent, deposit, lateFee, other, netBalance, availableCredit };
 }
 
 // ---------------------------------------------------------------------------
 // Chronological ledger entries — the line-by-line view on the tenant page.
 // Every month's rent is auto-posted as a charge, ad-hoc charges (deposit /
-// broker / late fee) are charges too, and payments come through as negatives,
+// late fee) are charges too, and payments come through as negatives,
 // with a running balance carried down the list so it visibly settles to zero.
 // ---------------------------------------------------------------------------
 
@@ -159,7 +152,6 @@ export function computeLedger(
 export const KIND_LABEL: Record<string, string> = {
   rent: "Rent",
   security_deposit: "Security deposit",
-  broker_fee: "Broker fee",
   late_fee: "Late fee",
   utility: "Utility",
   refund: "Refund",
@@ -252,7 +244,7 @@ export function buildLedgerEntries(
     });
   }
 
-  // Ad-hoc charges (deposit / broker / late fee / other). 'Other' charges that
+  // Ad-hoc charges (deposit / late fee / other). 'Other' charges that
   // share the same description text are consolidated into one summed line.
   const otherGroups = new Map<
     string,

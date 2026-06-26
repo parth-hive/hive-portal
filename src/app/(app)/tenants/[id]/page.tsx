@@ -140,7 +140,7 @@ export default async function TenantDetailPage({ params }: PageProps) {
   const past = (tenancies ?? []).filter((t) => t.status !== "active");
 
   // Running ledger for the active tenancy: auto monthly rent + ad-hoc charges
-  // (deposit / broker / late fee) + payments, in one carry-forward balance.
+  // (deposit / late fee) + payments, in one carry-forward balance.
   let charges: Charge[] = [];
   let allocations: Allocation[] = [];
   if (active) {
@@ -175,7 +175,6 @@ export default async function TenantDetailPage({ params }: PageProps) {
   const summaryRows = ledger
     ? [
         { label: "Security deposit", amount: ledger.deposit.owed },
-        { label: "Broker fees", amount: ledger.broker.owed },
         { label: "Late fees", amount: ledger.lateFee.owed },
       ]
     : [];

@@ -164,7 +164,6 @@ export async function GET(
   summaryHeader.font = { size: 12, bold: true };
   const summaryRows: Array<[string, number]> = [
     ["Security deposit", ledger.deposit.owed],
-    ["Broker fees", ledger.broker.owed],
     ["Late fees", ledger.lateFee.owed],
     ["Rent charged", ledger.rent.owed],
   ];

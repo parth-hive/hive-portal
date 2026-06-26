@@ -12,12 +12,11 @@ import { computeLedger } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
 
 type PaymentType = Database["public"]["Enums"]["payment_type"];
-// Typed as string[] (not PaymentType[]) so 'broker_fee' validates even before
-// the generated enum types are regenerated against the ledger migration.
+// Typed as string[] (not PaymentType[]) so values validate even before the
+// generated enum types are regenerated against the ledger migration.
 const VALID_PAYMENT_TYPES: string[] = [
   "rent",
   "security_deposit",
-  "broker_fee",
   "late_fee",
   "utility",
   "other",
@@ -25,11 +24,10 @@ const VALID_PAYMENT_TYPES: string[] = [
 ];
 
 // Ad-hoc charges that post to the ledger alongside the auto monthly rent: the
-// security deposit, a broker fee, a $50 late fee, or misc. Keep in sync with
-// the tenancy_charges.kind CHECK constraint.
+// security deposit, a $50 late fee, or misc. Keep in sync with the
+// tenancy_charges.kind CHECK constraint.
 const VALID_CHARGE_KINDS = [
   "security_deposit",
-  "broker_fee",
   "late_fee",
   "other",
 ] as const;
@@ -482,7 +480,7 @@ export async function deletePayment(formData: FormData) {
   if (tenant_id) revalidatePath(`/tenants/${tenant_id}`);
 }
 
-// ----- Add an ad-hoc charge (broker fee, late fee, misc) to a tenancy -----
+// ----- Add an ad-hoc charge (late fee, misc) to a tenancy -----
 
 export async function addCharge(
   tenancyId: string,
@@ -535,7 +533,7 @@ export async function deleteCharge(formData: FormData) {
 
 // ----- Manually email tenants with an outstanding balance -----
 // Emails each active tenant whose running ledger balance (rent carry-forward
-// plus any deposit / broker / late-fee amounts owed) is positive. Meant to be
+// plus any deposit / late-fee amounts owed) is positive. Meant to be
 // run after the month's reconciliation has posted payments. Records a batch row
 // so the page can show when these last went out.
 
