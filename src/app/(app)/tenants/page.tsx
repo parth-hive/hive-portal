@@ -201,6 +201,7 @@ export default async function TenantsPage({ searchParams }: PageProps) {
       tenant_id: r.tenant_id,
       tenant_name: tenant?.full_name ?? "—",
       tenant_email: tenant?.email ?? null,
+      tenant_phone: tenant?.phone ?? null,
       move_out_date: r.move_out_date,
       room_number: room?.room_number ?? null,
       due: r.due,

@@ -9,6 +9,7 @@ export type DisplayRow = {
   tenant_id: string;
   tenant_name: string;
   tenant_email: string | null;
+  tenant_phone: string | null;
   move_out_date: string | null;
   room_number: string | null;
   due: number;
@@ -183,9 +184,11 @@ export function TenantGroups({
                             >
                               {r.tenant_name}
                             </Link>
-                            {r.tenant_email && (
+                            {(r.tenant_email || r.tenant_phone) && (
                               <p className="text-sm text-muted">
-                                {r.tenant_email}
+                                {[r.tenant_email, r.tenant_phone]
+                                  .filter(Boolean)
+                                  .join(" · ")}
                               </p>
                             )}
                             {r.move_out_date && (
