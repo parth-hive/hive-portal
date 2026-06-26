@@ -50,13 +50,6 @@ type Payment = {
 
 const MONEY_FMT = "$#,##0.00";
 
-function slug(s: string): string {
-  return s
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "") || "tenant";
-}
-
 export async function GET(
   _req: Request,
   ctx: { params: Promise<{ id: string }> },
@@ -213,7 +206,12 @@ export async function GET(
   }
 
   const buffer = await wb.xlsx.writeBuffer();
-  const filename = `hive-ledger-${slug(tenant.full_name)}-${today}.xlsx`;
+  // e.g. "Ledger_Filippo-Curioni.xlsx" — keep the tenant's name readable,
+  // just make it filename-safe (spaces/punctuation → hyphens).
+  const nameSafe =
+    tenant.full_name.trim().replace(/[^A-Za-z0-9]+/g, "-").replace(/^-+|-+$/g, "") ||
+    "tenant";
+  const filename = `Ledger_${nameSafe}.xlsx`;
   return new NextResponse(buffer, {
     status: 200,
     headers: {
