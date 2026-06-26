@@ -81,7 +81,7 @@ export default async function AppLayout({
             <rect x="28" y="74" width="24" height="6" rx="3" fill="currentColor" />
             <circle cx="40" cy="88" r="4" fill="currentColor" />
           </svg>
-          <span>
+          <span className="font-serif font-bold">
             Hive <span className="font-display text-accent-text">Portal</span>
           </span>
         </Link>

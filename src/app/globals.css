@@ -9,7 +9,9 @@
   --color-cream: #f5f2ed;
   --color-warm: #e8e3db;
   --color-stone: #c4bdb3;
-  --color-muted: #8a8378;
+  /* Darkened from hiveny.com's #8a8378 for readability: secondary text now
+     clears WCAG AA comfortably (~5.6:1 on white) instead of ~3.3:1. */
+  --color-muted: #4f4a41;
   --color-white: #fefdfb;
 
   --font-sans: var(--font-dm-sans), -apple-system, "Segoe UI", sans-serif;
@@ -25,9 +27,35 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
-/* Italic display accent (e.g. *Vacancy*) */
+/* Italic display accent (e.g. *Vacancy*) — bold to match the page titles. */
 .font-display {
   font-family: var(--font-serif);
   font-style: italic;
-  font-weight: 400;
+  font-weight: 700;
+}
+
+/* Page titles render in the Cormorant serif, bold, so the whole split-color
+   heading shares one font: the base word upright, the gold `.font-display`
+   accent italic. Page titles are h1; the "Hive Portal" logo (a span) opts in
+   with the `font-serif` utility. */
+h1 {
+  font-family: var(--font-serif);
+  font-weight: 700;
+}
+
+/* All enabled buttons show the hand/pointer cursor on hover (browsers default
+   <button> to the arrow cursor). Disabled buttons keep the default. */
+button:not(:disabled),
+[role="button"]:not([aria-disabled="true"]) {
+  cursor: pointer;
+}
+
+/* Card surfaces site-wide: white panels with rounded-xl/2xl corners get a
+   stone hairline edge so they stand out on the cream background. Uses `border`
+   (not box-shadow) so each card's own shadow-sm / hover:shadow-md / ring still
+   work — the dashboard-style "pop" hover stays intact. Buttons and pills use
+   rounded-full / rounded-lg and are left untouched. */
+.bg-white.rounded-xl,
+.bg-white.rounded-2xl {
+  border: 1px solid rgba(196, 189, 179, 0.55);
 }

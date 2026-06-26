@@ -54,7 +54,7 @@ export function MobileNav({
             <rect x="28" y="74" width="24" height="6" rx="3" fill="currentColor" />
             <circle cx="40" cy="88" r="4" fill="currentColor" />
           </svg>
-          <span>
+          <span className="font-serif font-bold">
             Hive <span className="font-display text-accent-text">Portal</span>
           </span>
         </Link>
@@ -89,7 +89,7 @@ export function MobileNav({
           />
           <aside className="absolute right-0 top-0 flex h-full w-72 flex-col bg-white px-4 py-6 shadow-xl">
             <div className="flex items-center justify-between px-2">
-              <Link href="/" className="text-lg tracking-tight text-ink">
+              <Link href="/" className="font-serif font-bold text-lg tracking-tight text-ink">
                 Hive <span className="font-display text-accent-text">Portal</span>
               </Link>
               <button
