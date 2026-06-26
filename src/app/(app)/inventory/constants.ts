@@ -30,12 +30,14 @@ export const ACTION_BORDER: Record<Action, string> = {
   priority: "border-l-purple-500",
 };
 
+// Row background tint per action. Kept in sync with the inventory legend
+// swatch, which uses these exact classes — so the legend matches the rows.
 export const ACTION_TINT: Record<Action, string> = {
   no_action: "bg-gray-50/60",
-  update_price_or_date: "bg-yellow-100",
-  delete_listing: "bg-red-100",
-  boost_post: "bg-orange-100",
-  priority: "bg-purple-100",
+  update_price_or_date: "bg-yellow-200",
+  delete_listing: "bg-red-200",
+  boost_post: "bg-orange-200",
+  priority: "bg-purple-200",
 };
 
 export const ACTION_PILL: Record<Action, string> = {

@@ -18,7 +18,6 @@ import { DeleteListingButton } from "./delete-listing";
 import {
   ACTION_BORDER,
   ACTION_TINT,
-  ACTION_SWATCH,
   ACTION_LABELS,
   ACTION_ORDER,
   type Action,
@@ -335,7 +334,7 @@ export default async function InventoryPage({ searchParams }: PageProps) {
         {ACTION_ORDER.map((a) => (
           <span key={a} className="inline-flex items-center gap-1.5 text-xs text-ink">
             <span
-              className={`h-3 w-3 shrink-0 rounded-sm ${ACTION_SWATCH[a]}`}
+              className={`h-3 w-3 shrink-0 rounded-sm ring-1 ring-stone/40 ${ACTION_TINT[a]}`}
               aria-hidden
             />
             {ACTION_LABELS[a]}
