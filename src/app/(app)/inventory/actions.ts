@@ -5,6 +5,14 @@ import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/types";
 import { updateRoomsWithNotification } from "@/lib/notifications";
 
+// Accept only http(s) web links for ad / photo URLs: a scheme, a host with a
+// dot (or localhost), and no spaces. Guards against pasted plain text or
+// half-typed values getting stored as a "URL".
+const URL_RE = /^https?:\/\/(localhost[^\s]*|[^\s/$.?#]+\.[^\s]*)$/i;
+function isValidUrl(value: string): boolean {
+  return URL_RE.test(value.trim());
+}
+
 type Action = Database["public"]["Enums"]["listing_action"];
 const VALID: Action[] = [
   "no_action",
@@ -67,6 +75,8 @@ export async function addRoomAd(
 ): Promise<{ error?: string } | undefined> {
   const ad_url = url.trim();
   if (!ad_url) return { error: "Enter an ad URL." };
+  if (!isValidUrl(ad_url))
+    return { error: "That doesn't look like a URL (must start with http:// or https://)." };
 
   const supabase = await createClient();
   const posted_by = await currentPosterName(supabase);
@@ -143,6 +153,8 @@ export async function setRoomPhotosUrl(
   url: string | null,
 ): Promise<{ ok: true } | { error: string }> {
   const value = url && url.trim() ? url.trim() : null;
+  if (value && !isValidUrl(value))
+    return { error: "That doesn't look like a URL (must start with http:// or https://)." };
   const supabase = await createClient();
   const { error } = await supabase
     .from("rooms")

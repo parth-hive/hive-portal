@@ -130,7 +130,11 @@ export function InlinePhotosEdit({
 
   const commit = (value: string) => {
     startTransition(async () => {
-      await setRoomPhotosUrl(roomId, value.trim() || null);
+      const res = await setRoomPhotosUrl(roomId, value.trim() || null);
+      if ("error" in res) {
+        toast.error(`Couldn't save photos link: ${res.error}`);
+        return; // keep editing so the value isn't lost
+      }
       setEditing(false);
     });
   };

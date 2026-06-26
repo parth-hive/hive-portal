@@ -659,7 +659,7 @@ function InventoryRow({
         {p ? (
           <Link
             href={`/properties/${p.id}#residents`}
-            className="inline-block whitespace-nowrap rounded-full border border-stone bg-white px-2.5 py-0.5 text-[11px] uppercase tracking-wide text-ink hover:bg-warm"
+            className="whitespace-nowrap text-[12px] text-purple-700 underline underline-offset-2 hover:text-purple-900"
           >
             Roommates
           </Link>
