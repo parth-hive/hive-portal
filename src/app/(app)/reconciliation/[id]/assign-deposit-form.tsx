@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { assignUnmatchedDeposit } from "../actions";
 
@@ -35,7 +35,77 @@ export function AssignDepositForm({
   tenants: AssignTenantOption[];
 }) {
   const [tenancyId, setTenancyId] = useState("");
+  const [query, setQuery] = useState("");
+  const [open, setOpen] = useState(false);
+  const [activeIndex, setActiveIndex] = useState(0);
   const [pending, startTransition] = useTransition();
+  const boxRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLUListElement>(null);
+
+  const selectedLabel = useMemo(
+    () => tenants.find((t) => t.tenancyId === tenancyId)?.label ?? "",
+    [tenants, tenancyId],
+  );
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return tenants;
+    return tenants.filter((t) => t.label.toLowerCase().includes(q));
+  }, [tenants, query]);
+
+  // Close the dropdown when clicking outside the control.
+  useEffect(() => {
+    if (!open) return;
+    function onDown(e: MouseEvent) {
+      if (boxRef.current && !boxRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  // Reset/clamp the highlighted row whenever the filtered list changes.
+  useEffect(() => {
+    setActiveIndex(0);
+  }, [query, open]);
+
+  // Keep the highlighted row visible while arrow-keying through a long list.
+  useEffect(() => {
+    if (!open) return;
+    const el = listRef.current?.children[activeIndex] as HTMLElement | undefined;
+    el?.scrollIntoView({ block: "nearest" });
+  }, [activeIndex, open]);
+
+  function pick(t: AssignTenantOption) {
+    setTenancyId(t.tenancyId);
+    setQuery("");
+    setOpen(false);
+  }
+
+  function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (!open) {
+        setOpen(true);
+        return;
+      }
+      setActiveIndex((i) => Math.min(i + 1, filtered.length - 1));
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setActiveIndex((i) => Math.max(i - 1, 0));
+    } else if (e.key === "Enter") {
+      if (open && filtered[activeIndex]) {
+        e.preventDefault();
+        pick(filtered[activeIndex]);
+      }
+    } else if (e.key === "Escape") {
+      if (open) {
+        e.preventDefault();
+        setOpen(false);
+      }
+    }
+  }
 
   function assign() {
     if (!tenancyId) {
@@ -64,19 +134,67 @@ export function AssignDepositForm({
       <span className="shrink-0 font-medium text-ink tabular-nums">
         {fmtMoney(amount)}
       </span>
-      <select
-        value={tenancyId}
-        onChange={(e) => setTenancyId(e.target.value)}
-        disabled={pending}
-        className="max-w-[14rem] shrink-0 rounded-lg border border-stone bg-white px-2 py-1.5 text-sm text-ink focus:border-accent focus:outline-none"
-      >
-        <option value="">Assign to…</option>
-        {tenants.map((t) => (
-          <option key={t.tenancyId} value={t.tenancyId}>
-            {t.label}
-          </option>
-        ))}
-      </select>
+      <div ref={boxRef} className="relative w-[14rem] shrink-0">
+        <input
+          type="text"
+          value={open ? query : selectedLabel}
+          onChange={(e) => {
+            setQuery(e.target.value);
+            if (!open) setOpen(true);
+          }}
+          onFocus={() => setOpen(true)}
+          onKeyDown={onKeyDown}
+          disabled={pending}
+          placeholder="Assign to…"
+          role="combobox"
+          aria-expanded={open}
+          aria-controls="assign-tenant-list"
+          className="w-full rounded-lg border border-stone bg-white px-2 py-1.5 text-sm text-ink placeholder:text-muted focus:border-accent focus:outline-none"
+        />
+        {tenancyId && !open && (
+          <button
+            type="button"
+            onClick={() => {
+              setTenancyId("");
+              setQuery("");
+            }}
+            disabled={pending}
+            aria-label="Clear selection"
+            className="absolute right-2 top-1/2 -translate-y-1/2 text-muted hover:text-ink"
+          >
+            ×
+          </button>
+        )}
+        {open && (
+          <ul
+            id="assign-tenant-list"
+            ref={listRef}
+            role="listbox"
+            className="absolute left-0 right-0 top-full z-10 mt-1 max-h-60 overflow-auto rounded-lg border border-stone bg-white py-1 shadow-lg"
+          >
+            {filtered.length === 0 ? (
+              <li className="px-2 py-1.5 text-sm text-muted">No matches</li>
+            ) : (
+              filtered.map((t, i) => (
+                <li key={t.tenancyId}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={i === activeIndex}
+                    onClick={() => pick(t)}
+                    onMouseEnter={() => setActiveIndex(i)}
+                    className={`block w-full truncate px-2 py-1.5 text-left text-sm text-ink ${
+                      i === activeIndex ? "bg-cream" : ""
+                    } ${t.tenancyId === tenancyId ? "font-medium" : ""}`}
+                  >
+                    {t.label}
+                  </button>
+                </li>
+              ))
+            )}
+          </ul>
+        )}
+      </div>
       <button
         type="button"
         onClick={assign}

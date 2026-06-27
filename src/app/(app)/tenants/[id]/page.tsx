@@ -15,12 +15,22 @@ import {
 } from "./tenant-actions";
 import { LeaseDownload } from "./lease-download";
 import { LeaseEndEdit } from "./lease-end-edit";
+import { TenantBackLink } from "./tenant-back-link";
 import { computeLedger, buildLedgerEntries } from "@/lib/rent";
 import { todayISO } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
 
-type PageProps = { params: Promise<{ id: string }> };
+type PageProps = {
+  params: Promise<{ id: string }>;
+  searchParams: Promise<{ from?: string }>;
+};
+
+/** Known referrers for the profile back link, so the fallback href/label point
+ *  back to where the user actually came from (not always the Rent Tracker). */
+const BACK_TARGETS: Record<string, { href: string; label: string }> = {
+  reconciliation: { href: "/reconciliation", label: "Reconciliation" },
+};
 
 type PropertyRel = {
   id: string;
@@ -99,8 +109,16 @@ function unitTitle(t: Tenancy) {
   return `${p.building_name?.trim() || p.street_address} Apt ${p.unit_number}`;
 }
 
-export default async function TenantDetailPage({ params }: PageProps) {
+export default async function TenantDetailPage({
+  params,
+  searchParams,
+}: PageProps) {
   const { id } = await params;
+  const { from } = await searchParams;
+  const back = (from ? BACK_TARGETS[from] : undefined) ?? {
+    href: "/tenants",
+    label: "Rent Tracker",
+  };
   const supabase = await createClient();
 
   const [{ data: tenant }, { data: tenancies }, { data: payments }] =
@@ -183,12 +201,7 @@ export default async function TenantDetailPage({ params }: PageProps) {
     <div className="mx-auto w-full max-w-5xl">
       <header className="flex flex-wrap items-end justify-between gap-3 border-b border-stone/60 pb-6">
         <div>
-          <Link
-            href="/tenants"
-            className="text-xs uppercase tracking-wide text-muted hover:text-ink"
-          >
-            ← Rent Tracker
-          </Link>
+          <TenantBackLink fallbackHref={back.href} label={back.label} />
           <h1 className="mt-2 text-3xl tracking-tight text-ink">
             {tenant.full_name}
           </h1>

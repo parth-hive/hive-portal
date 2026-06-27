@@ -77,11 +77,6 @@ export function TenantGroups({
       return next;
     });
 
-  // When every group is collapsed there are no tenant rows showing, so the
-  // whole column-header row has nothing under it — hide it entirely.
-  const allCollapsed =
-    groups.length > 0 && groups.every((g) => collapsed.has(g.label));
-
   return (
     <section className="mt-8">
       <div className="mb-3 flex items-center justify-end gap-2">
@@ -101,21 +96,25 @@ export function TenantGroups({
         </button>
       </div>
 
-      <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
+      <div className="rounded-2xl bg-white shadow-sm">
         <table className="w-full text-base">
-          {!allCollapsed && (
-            <thead className="bg-warm/60 text-left text-sm uppercase tracking-wide text-muted">
-              <tr>
-                <th className="px-5 py-3 font-medium">Tenant</th>
-                <th className="px-5 py-3 font-medium">Room</th>
-                <th className="px-5 py-3 text-right font-medium">Due</th>
-                {admin && (
-                  <th className="px-5 py-3 text-right font-medium">Paid</th>
-                )}
-                <th className="px-5 py-3 text-right font-medium">Balance</th>
-              </tr>
-            </thead>
-          )}
+          <thead className="sticky top-0 z-10 bg-warm text-left text-sm uppercase tracking-wide text-muted shadow-sm md:top-14">
+            <tr>
+              <th className="rounded-tl-2xl bg-warm px-5 py-3 font-medium">
+                Unit/Tenant
+              </th>
+              <th className="bg-warm px-5 py-3 font-medium">Room</th>
+              <th className="bg-warm px-5 py-3 text-right font-medium">Due</th>
+              {admin && (
+                <th className="bg-warm px-5 py-3 text-right font-medium">
+                  Paid
+                </th>
+              )}
+              <th className="rounded-tr-2xl bg-warm px-5 py-3 text-right font-medium">
+                Balance
+              </th>
+            </tr>
+          </thead>
           <tbody>
             {groups.map((g, i) => {
               const isCollapsed = collapsed.has(g.label);

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { isMaster } from "@/lib/access";
 import { one } from "@/lib/relations";
 import { todayISO } from "@/lib/date";
 import {
@@ -588,6 +589,16 @@ export async function deleteRun(formData: FormData) {
   if (!id) return;
 
   const supabase = await createClient();
+  // Deleting a run also wipes the payments it posted, so restrict it to the
+  // master operator. UI hides the button for everyone else; this is the real
+  // enforcement since the action is directly invokable.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!isMaster(user?.email)) {
+    throw new Error("Only an admin can delete a reconciliation run.");
+  }
+
   const { data: objects } = await supabase.storage
     .from("reconciliation")
     .list(id);

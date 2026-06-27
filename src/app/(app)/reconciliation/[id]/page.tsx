@@ -285,16 +285,16 @@ export default async function ReconciliationRunPage({
         />
       </section>
 
-      <section className="mt-8 overflow-hidden rounded-2xl bg-white shadow-sm">
+      <section className="mt-8 rounded-2xl bg-white shadow-sm">
         <table className="w-full text-sm">
-          <thead className="bg-warm/60 text-left text-xs uppercase tracking-wide text-muted">
+          <thead className="sticky top-0 z-10 bg-warm text-left text-xs uppercase tracking-wide text-muted shadow-sm md:top-14">
             <tr>
-              <th className="px-5 py-3 font-medium">Tenant</th>
-              <th className="px-5 py-3 font-medium">Unit</th>
-              <th className="px-5 py-3 text-right font-medium">Expected</th>
-              <th className="px-5 py-3 text-right font-medium">Paid</th>
-              <th className="px-5 py-3 text-right font-medium">Difference</th>
-              <th className="px-5 py-3 font-medium">Status</th>
+              <th className="rounded-tl-2xl bg-warm px-5 py-3 font-medium">Tenant</th>
+              <th className="bg-warm px-5 py-3 font-medium">Unit</th>
+              <th className="bg-warm px-5 py-3 text-right font-medium">Expected</th>
+              <th className="bg-warm px-5 py-3 text-right font-medium">Paid</th>
+              <th className="bg-warm px-5 py-3 text-right font-medium">Difference</th>
+              <th className="rounded-tr-2xl bg-warm px-5 py-3 font-medium">Status</th>
             </tr>
           </thead>
           <tbody>
@@ -303,7 +303,7 @@ export default async function ReconciliationRunPage({
                 <td className="px-5 py-4">
                   {m.tenant_id ? (
                     <Link
-                      href={`/tenants/${m.tenant_id}`}
+                      href={`/tenants/${m.tenant_id}?from=reconciliation`}
                       className="text-ink hover:text-accent-text"
                     >
                       {m.tenant_name}
@@ -382,9 +382,11 @@ export default async function ReconciliationRunPage({
         </section>
       )}
 
-      <section className="mt-12 border-t border-stone/60 pt-6">
-        <DeleteRunButton id={run.id} label={monthLabel(run.month)} />
-      </section>
+      {admin && (
+        <section className="mt-12 border-t border-stone/60 pt-6">
+          <DeleteRunButton id={run.id} label={monthLabel(run.month)} />
+        </section>
+      )}
     </div>
   );
 }

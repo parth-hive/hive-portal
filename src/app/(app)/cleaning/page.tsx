@@ -166,15 +166,19 @@ export default async function CleaningPage({ searchParams }: PageProps) {
             />
           </div>
 
-          <section className="mt-4 overflow-x-auto rounded-2xl bg-white shadow-sm ring-1 ring-stone/40">
+          <section className="mt-4 overflow-x-auto rounded-2xl bg-white shadow-sm ring-1 ring-stone/40 md:overflow-x-visible">
             <table className="w-full min-w-[720px] text-sm">
-              <thead className="bg-warm/60 text-left text-xs uppercase tracking-wide text-muted">
+              <thead className="sticky top-0 z-10 bg-warm text-left text-xs uppercase tracking-wide text-muted shadow-sm md:top-14">
                 <tr>
-                  <th className="px-4 py-2 font-medium">Unit</th>
-                  <th className="px-4 py-2 font-medium">Cleaner</th>
-                  <th className="px-4 py-2 font-medium">Last cleaned</th>
-                  <th className="px-4 py-2 font-medium">Next cleaning</th>
-                  <th className="px-4 py-2 font-medium">Following</th>
+                  <th className="rounded-tl-2xl bg-warm px-4 py-2 font-medium">
+                    Unit
+                  </th>
+                  <th className="bg-warm px-4 py-2 font-medium">Cleaner</th>
+                  <th className="bg-warm px-4 py-2 font-medium">Last cleaned</th>
+                  <th className="bg-warm px-4 py-2 font-medium">Next cleaning</th>
+                  <th className="rounded-tr-2xl bg-warm px-4 py-2 font-medium">
+                    Following
+                  </th>
                 </tr>
               </thead>
               <tbody>
