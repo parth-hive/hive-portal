@@ -78,7 +78,7 @@ export function TenantGroups({
     });
 
   // When every group is collapsed there are no tenant rows showing, so the
-  // "Room" column header has nothing under it — drop the label.
+  // whole column-header row has nothing under it — hide it entirely.
   const allCollapsed =
     groups.length > 0 && groups.every((g) => collapsed.has(g.label));
 
@@ -103,17 +103,19 @@ export function TenantGroups({
 
       <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
         <table className="w-full text-base">
-          <thead className="bg-warm/60 text-left text-sm uppercase tracking-wide text-muted">
-            <tr>
-              <th className="px-5 py-3 font-medium">Tenant</th>
-              <th className="px-5 py-3 font-medium">{allCollapsed ? "" : "Room"}</th>
-              <th className="px-5 py-3 text-right font-medium">Due</th>
-              {admin && (
-                <th className="px-5 py-3 text-right font-medium">Paid</th>
-              )}
-              <th className="px-5 py-3 text-right font-medium">Balance</th>
-            </tr>
-          </thead>
+          {!allCollapsed && (
+            <thead className="bg-warm/60 text-left text-sm uppercase tracking-wide text-muted">
+              <tr>
+                <th className="px-5 py-3 font-medium">Tenant</th>
+                <th className="px-5 py-3 font-medium">Room</th>
+                <th className="px-5 py-3 text-right font-medium">Due</th>
+                {admin && (
+                  <th className="px-5 py-3 text-right font-medium">Paid</th>
+                )}
+                <th className="px-5 py-3 text-right font-medium">Balance</th>
+              </tr>
+            </thead>
+          )}
           <tbody>
             {groups.map((g, i) => {
               const isCollapsed = collapsed.has(g.label);
