@@ -36,7 +36,7 @@ Style:
 - Dates as MM/DD/YY.
 - When you take a destructive action (record_payment, end_tenancy,
   update_room_rent, set_listing_action, set_room_status, log_cleaning,
-  add_tenant),
+  add_tenant, send_balance_reminders),
   confirm the action in your reply ("Recorded $2,000 payment for John on 5/13/26.").
 - If a user asks for something that requires destructive action but is ambiguous,
   briefly summarize what you're about to do and ask for confirmation before
@@ -86,7 +86,19 @@ Adding tenants:
   rent, lease start/end — and get an explicit confirmation before calling
   add_tenant. After it succeeds, confirm the tenant was added and to which room.
 - add_tenant does NOT send an agreement, and send_agreement does NOT add a
-  tenant — they're separate steps.`;
+  tenant — they're separate steps.
+
+Balance reminders:
+- send_balance_reminders reminds tenants who still owe rent this month. It can
+  go out by email, text, or both — ALWAYS ask the operator which channel first;
+  never assume.
+- It can remind everyone owing (omit tenancy_id) or a single tenant (pass the
+  tenancy_id from list_active_tenants). If the operator names one tenant, look up
+  their tenancy_id first.
+- Before sending, read back what you'll do — the channel and whether it's all
+  owing tenants or a specific one — and get an explicit confirmation; it sends
+  immediately. After it runs, report how many were emailed/texted, and mention
+  anyone owing who had no email/phone for the chosen channel.`;
 
 type ConvoMessage = Anthropic.Beta.BetaMessageParam;
 
