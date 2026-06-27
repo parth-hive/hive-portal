@@ -481,3 +481,56 @@ export async function deleteRun(formData: FormData) {
   revalidatePath("/reconciliation");
   redirect("/reconciliation");
 }
+
+// ---------------------------------------------------------------------------
+// Bulk manual payments — record rent payments for several tenants at once from
+// the Reconciliation tab (for payments outside a bank-statement run). Reads
+// every `amount:<tenancy_id>` field; inserts a rent payment for each non-empty,
+// positive amount, all dated `paid_on`.
+// ---------------------------------------------------------------------------
+
+export type BulkPaymentState = { error?: string; success?: string } | undefined;
+
+export async function recordManualPayments(
+  _prev: BulkPaymentState,
+  formData: FormData,
+): Promise<BulkPaymentState> {
+  const paid_on = String(formData.get("paid_on") ?? "").trim();
+  if (!paid_on) return { error: "Pick a payment date." };
+
+  const rows: {
+    tenancy_id: string;
+    paid_on: string;
+    amount: number;
+    payment_type: "rent";
+    method: string;
+    notes: string;
+  }[] = [];
+  for (const [key, value] of formData.entries()) {
+    if (!key.startsWith("amount:")) continue;
+    const raw = String(value).trim();
+    if (!raw) continue;
+    const amount = Number(raw);
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    rows.push({
+      tenancy_id: key.slice("amount:".length),
+      paid_on,
+      amount,
+      payment_type: "rent",
+      method: "Manual",
+      notes: "Manual entry",
+    });
+  }
+
+  if (rows.length === 0) return { error: "Enter an amount for at least one tenant." };
+
+  const supabase = await createClient();
+  const { error } = await supabase.from("payments").insert(rows);
+  if (error) return { error: error.message };
+
+  revalidatePath("/reconciliation");
+  revalidatePath("/tenants");
+  return {
+    success: `Recorded ${rows.length} payment${rows.length === 1 ? "" : "s"}.`,
+  };
+}

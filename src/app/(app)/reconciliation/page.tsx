@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { formatDate } from "@/lib/date";
+import { formatDate, todayISO } from "@/lib/date";
+import { one } from "@/lib/relations";
 import { RunRow } from "./run-row";
+import { BulkPaymentForm, type BulkTenant } from "./bulk-payment-form";
 
 export const dynamic = "force-dynamic";
 
@@ -40,6 +42,61 @@ export default async function ReconciliationListPage() {
 
   const runs = data ?? [];
 
+  // Active tenancies for the bulk "Record payments" form, with how much rent
+  // they've already paid this month (by payment transaction date).
+  const ym = todayISO().slice(0, 7);
+  type PropRel = {
+    building_name: string | null;
+    street_address: string;
+    unit_number: string;
+  };
+  type TenancyRow = {
+    id: string;
+    monthly_rent: number;
+    tenants: { full_name: string } | { full_name: string }[] | null;
+    rooms:
+      | { room_number: string | null; properties: PropRel | PropRel[] | null }
+      | { room_number: string | null; properties: PropRel | PropRel[] | null }[]
+      | null;
+    payments: { amount: number; paid_on: string; payment_type: string }[];
+  };
+  const { data: tenancyData } = await supabase
+    .from("tenancies")
+    .select(
+      `id, monthly_rent,
+       tenants(full_name),
+       rooms(room_number, properties(building_name, street_address, unit_number)),
+       payments(amount, paid_on, payment_type)`,
+    )
+    .eq("status", "active")
+    .returns<TenancyRow[]>();
+
+  const bulkTenants: BulkTenant[] = (tenancyData ?? [])
+    .map((t) => {
+      const tenant = one(t.tenants);
+      const room = one(t.rooms);
+      const property = one(room?.properties ?? null);
+      const unit = property
+        ? `${property.building_name?.trim() || property.street_address} Apt ${property.unit_number}`
+        : "—";
+      const paid = (t.payments ?? [])
+        .filter((p) => p.payment_type === "rent" && p.paid_on.slice(0, 7) === ym)
+        .reduce((s, p) => s + Number(p.amount), 0);
+      return {
+        tenancy_id: t.id,
+        name: tenant?.full_name ?? "—",
+        unit,
+        room: room?.room_number ?? null,
+        monthly_rent: Number(t.monthly_rent),
+        paid_this_month: paid,
+      };
+    })
+    .sort(
+      (a, b) =>
+        a.unit.localeCompare(b.unit, undefined, { numeric: true }) ||
+        a.name.localeCompare(b.name),
+    );
+
   return (
     <div className="mx-auto w-full max-w-5xl">
       <header className="flex flex-wrap items-end justify-between gap-3 border-b border-stone/60 pb-6">
@@ -58,6 +115,8 @@ export default async function ReconciliationListPage() {
           New run
         </Link>
       </header>
+
+      <BulkPaymentForm tenants={bulkTenants} defaultDate={todayISO()} />
 
       {error && <p className="mt-6 text-sm text-red-700">{error.message}</p>}
 
