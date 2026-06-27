@@ -40,8 +40,8 @@ export default async function Dashboard() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  // Only admins see rent dollar figures (collected / outstanding totals and
-  // per-tenant amounts). Others still see who's unpaid, just not the numbers.
+  // Aggregate collection totals are admin-only; per-tenant outstanding amounts
+  // (pending balances) stay visible to everyone.
   const admin = isMaster(user?.email);
   const today = todayISO();
   const thisMonth = today.slice(0, 7);
@@ -366,7 +366,7 @@ export default async function Dashboard() {
               href={`/tenants/${r.tenant_id}`}
               primary={r.tenant_name}
               secondary={`${r.unit} · ${r.room}`}
-              right={admin ? fmtMoney(r.outstanding) : undefined}
+              right={fmtMoney(r.outstanding)}
               rightTone="warn"
             />
           ))}
@@ -725,7 +725,7 @@ function WorklistRow({
   href: string;
   primary: string;
   secondary?: string;
-  right?: string;
+  right: string;
   rightTone?: "muted" | "warn" | "accent";
 }) {
   const pill =
@@ -746,13 +746,11 @@ function WorklistRow({
             <p className="truncate text-xs text-muted">{secondary}</p>
           )}
         </div>
-        {right !== undefined && (
-          <span
-            className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium tabular-nums ${pill}`}
-          >
-            {right}
-          </span>
-        )}
+        <span
+          className={`shrink-0 rounded-full px-2.5 py-1 text-xs font-medium tabular-nums ${pill}`}
+        >
+          {right}
+        </span>
       </Link>
     </li>
   );

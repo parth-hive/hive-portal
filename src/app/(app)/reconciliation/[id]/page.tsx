@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { notFound, redirect } from "next/navigation";
+import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { isMaster } from "@/lib/access";
 import { formatDate } from "@/lib/date";
@@ -82,11 +82,12 @@ export default async function ReconciliationRunPage({
   const activeFilter = isFilterKey(sp.filter) ? sp.filter : null;
 
   const supabase = await createClient();
-  // Run details are financial — admins only.
+  // The Expected/Collected money totals are admin-only; the run itself, the
+  // match/mismatch/missing counts, and the per-tenant rows stay visible.
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!isMaster(user?.email)) redirect("/reconciliation");
+  const admin = isMaster(user?.email);
 
   const [{ data: run }, { data: matches }] = await Promise.all([
     supabase
@@ -186,18 +187,22 @@ export default async function ReconciliationRunPage({
       </section>
 
       <section className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-5">
-        <KpiCard
-          label="Expected"
-          value={fmtMoney(run.total_expected)}
-          href={`/reconciliation/${run.id}`}
-          active={activeFilter === null}
-        />
-        <KpiCard
-          label="Collected"
-          value={fmtMoney(run.total_actual)}
-          href={`/reconciliation/${run.id}`}
-          active={false}
-        />
+        {admin && (
+          <KpiCard
+            label="Expected"
+            value={fmtMoney(run.total_expected)}
+            href={`/reconciliation/${run.id}`}
+            active={activeFilter === null}
+          />
+        )}
+        {admin && (
+          <KpiCard
+            label="Collected"
+            value={fmtMoney(run.total_actual)}
+            href={`/reconciliation/${run.id}`}
+            active={false}
+          />
+        )}
         <KpiCard
           label="Match"
           value={run.match_count ?? 0}

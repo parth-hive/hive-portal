@@ -107,8 +107,8 @@ export default async function TenantsPage({ searchParams }: PageProps) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  // Only the admin/master operator sees dollar figures (portfolio totals and
-  // per-tenant balances). Everyone else sees paid/balance/credit status only.
+  // Only admins see the aggregate collection totals and per-tenant "paid"
+  // amounts. Everyone else still sees each tenant's rent and pending balance.
   const admin = isMaster(user?.email);
   const monthStart = startOfMonth();
   const monthEnd = endOfMonth();
@@ -284,48 +284,62 @@ export default async function TenantsPage({ searchParams }: PageProps) {
         </div>
       </header>
 
-      {admin && rows.length > 0 && (
+      {rows.length > 0 && (
         <section className="mt-6 grid items-start gap-4 sm:grid-cols-3">
+          {admin && (
+            <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-stone/30 transition hover:-translate-y-0.5 hover:shadow-md hover:ring-accent/40">
+              <p className="flex flex-wrap items-baseline gap-x-2">
+                <span className="text-xs font-medium uppercase tracking-wide text-muted">
+                  Expected this month:
+                </span>
+                <span className="text-lg font-semibold tabular-nums text-ink">
+                  {fmtMoney(expectedTotal)}
+                </span>
+              </p>
+            </div>
+          )}
+          {admin && (
+            <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-stone/30 transition hover:-translate-y-0.5 hover:shadow-md hover:ring-accent/40">
+              <p className="flex flex-wrap items-baseline gap-x-2">
+                <span className="text-xs font-medium uppercase tracking-wide text-muted">
+                  Collected:
+                </span>
+                <span className="text-lg font-semibold tabular-nums text-ink">
+                  {fmtMoney(paidTotal)}
+                </span>
+              </p>
+            </div>
+          )}
+          {/* Outstanding card: the total is admin-only, but the balance
+              reminders + last-sent stay visible to everyone. */}
           <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-stone/30 transition hover:-translate-y-0.5 hover:shadow-md hover:ring-accent/40">
-            <p className="flex flex-wrap items-baseline gap-x-2">
-              <span className="text-xs font-medium uppercase tracking-wide text-muted">
-                Expected this month:
-              </span>
-              <span className="text-lg font-semibold tabular-nums text-ink">
-                {fmtMoney(expectedTotal)}
-              </span>
-            </p>
-          </div>
-          <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-stone/30 transition hover:-translate-y-0.5 hover:shadow-md hover:ring-accent/40">
-            <p className="flex flex-wrap items-baseline gap-x-2">
-              <span className="text-xs font-medium uppercase tracking-wide text-muted">
-                Collected:
-              </span>
-              <span className="text-lg font-semibold tabular-nums text-ink">
-                {fmtMoney(paidTotal)}
-              </span>
-            </p>
-          </div>
-          <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-stone/30 transition hover:-translate-y-0.5 hover:shadow-md hover:ring-accent/40">
-            <p className="flex flex-wrap items-baseline gap-x-2">
-              <span className="text-xs font-medium uppercase tracking-wide text-muted">
-                Total outstanding:
-              </span>
-              <span className="text-lg font-semibold tabular-nums text-ink">
-                {fmtMoney(outstandingTotal)}
-              </span>
-            </p>
-            <p className="mt-1 text-xs text-muted">Running balance, all months</p>
-            {rows.length > 0 && (
-              <RentReminderButton
-                minimal
-                outstandingCount={outstandingCount}
-                lastGeneralText={null}
-                lastBalanceText={lastBalanceText}
-                lastBalanceEmailText={lastBalanceEmailText}
-                lastBalanceSmsText={lastBalanceSmsText}
-              />
+            {admin ? (
+              <>
+                <p className="flex flex-wrap items-baseline gap-x-2">
+                  <span className="text-xs font-medium uppercase tracking-wide text-muted">
+                    Total outstanding:
+                  </span>
+                  <span className="text-lg font-semibold tabular-nums text-ink">
+                    {fmtMoney(outstandingTotal)}
+                  </span>
+                </p>
+                <p className="mt-1 text-xs text-muted">
+                  Running balance, all months
+                </p>
+              </>
+            ) : (
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">
+                Balance reminders
+              </p>
             )}
+            <RentReminderButton
+              minimal
+              outstandingCount={outstandingCount}
+              lastGeneralText={null}
+              lastBalanceText={lastBalanceText}
+              lastBalanceEmailText={lastBalanceEmailText}
+              lastBalanceSmsText={lastBalanceSmsText}
+            />
           </div>
         </section>
       )}

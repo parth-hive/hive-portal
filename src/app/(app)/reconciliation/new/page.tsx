@@ -1,19 +1,9 @@
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { isMaster } from "@/lib/access";
 import { RunReconciliationForm } from "./upload-form";
 
 export const dynamic = "force-dynamic";
 
-export default async function NewReconciliationPage() {
-  // Running a reconciliation produces financial totals — admins only.
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!isMaster(user?.email)) redirect("/reconciliation");
-
+export default function NewReconciliationPage() {
   // Default to the current month.
   const now = new Date();
   const defaultMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;

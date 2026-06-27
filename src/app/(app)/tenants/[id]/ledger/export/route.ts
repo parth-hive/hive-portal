@@ -9,7 +9,6 @@ import {
   type LedgerCharge,
   type LedgerAllocation,
 } from "@/lib/rent";
-import { isMaster } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
@@ -57,15 +56,6 @@ export async function GET(
 ) {
   const { id } = await ctx.params;
   const supabase = await createClient();
-
-  // Ledger amounts are admin-only — block the download for everyone else.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!isMaster(user?.email)) {
-    return NextResponse.json({ error: "Not authorized." }, { status: 403 });
-  }
-
   const today = todayISO();
 
   const [{ data: tenant }, { data: tenancies }, { data: payments }] =

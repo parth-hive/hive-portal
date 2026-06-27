@@ -2,9 +2,9 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { one } from "@/lib/relations";
 import { formatDate } from "@/lib/date";
-import { isMaster } from "@/lib/access";
 import { SearchInput } from "@/components/search-input";
 import { processExpiredTenancies } from "../actions";
+import { isMaster } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
@@ -76,7 +76,7 @@ export default async function TenantHistoryPage({ searchParams }: PageProps) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const admin = isMaster(user?.email); // gate the "Total paid" $ column
+  const admin = isMaster(user?.email); // "Total paid" is admin-only
   const { data, error } = await supabase
     .from("tenancies")
     .select(

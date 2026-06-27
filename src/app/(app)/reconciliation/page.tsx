@@ -35,9 +35,8 @@ export default async function ReconciliationListPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  // Reconciliation stays open to everyone (for the bulk payment form), but the
-  // financial figures — run Expected/Collected, run details, "paid this month" —
-  // are admin-only.
+  // Runs stay visible to everyone; the Expected/Collected totals within them
+  // and the per-tenant "paid this month" hint are admin-only.
   const admin = isMaster(user?.email);
   const { data, error } = await supabase
     .from("reconciliation_runs")
@@ -116,14 +115,12 @@ export default async function ReconciliationListPage() {
             Monthly rent reconciliation.
           </p>
         </div>
-        {admin && (
-          <Link
-            href="/reconciliation/new"
-            className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-accent-dark"
-          >
-            New run
-          </Link>
-        )}
+        <Link
+          href="/reconciliation/new"
+          className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-accent-dark"
+        >
+          New run
+        </Link>
       </header>
 
       <BulkPaymentForm
@@ -132,25 +129,27 @@ export default async function ReconciliationListPage() {
         admin={admin}
       />
 
-      {admin && error && (
-        <p className="mt-6 text-sm text-red-700">{error.message}</p>
-      )}
+      {error && <p className="mt-6 text-sm text-red-700">{error.message}</p>}
 
-      {admin && runs.length === 0 && (
+      {runs.length === 0 && (
         <p className="mt-10 rounded-2xl bg-white px-6 py-12 text-center text-sm text-muted shadow-sm">
           No reconciliation runs yet. Click <em>New run</em> to upload a month&apos;s
           bank statement.
         </p>
       )}
 
-      {admin && runs.length > 0 && (
+      {runs.length > 0 && (
         <section className="mt-8 overflow-hidden rounded-2xl bg-white shadow-sm">
           <table className="w-full text-sm">
             <thead className="bg-warm/60 text-left text-xs uppercase tracking-wide text-muted">
               <tr>
                 <th className="px-5 py-3 font-medium">Month</th>
-                <th className="px-5 py-3 text-right font-medium">Expected</th>
-                <th className="px-5 py-3 text-right font-medium">Collected</th>
+                {admin && (
+                  <th className="px-5 py-3 text-right font-medium">Expected</th>
+                )}
+                {admin && (
+                  <th className="px-5 py-3 text-right font-medium">Collected</th>
+                )}
                 <th className="px-5 py-3 text-right font-medium">Match / Mismatch / Missing</th>
                 <th className="px-5 py-3 font-medium">Ran on</th>
                 <th />
@@ -160,12 +159,16 @@ export default async function ReconciliationListPage() {
               {runs.map((r) => (
                 <RunRow key={r.id} href={`/reconciliation/${r.id}`}>
                   <td className="px-5 py-4 text-ink">{monthLabel(r.month)}</td>
-                  <td className="px-5 py-4 text-right text-ink">
-                    {fmtMoney(r.total_expected)}
-                  </td>
-                  <td className="px-5 py-4 text-right text-ink">
-                    {fmtMoney(r.total_actual)}
-                  </td>
+                  {admin && (
+                    <td className="px-5 py-4 text-right text-ink">
+                      {fmtMoney(r.total_expected)}
+                    </td>
+                  )}
+                  {admin && (
+                    <td className="px-5 py-4 text-right text-ink">
+                      {fmtMoney(r.total_actual)}
+                    </td>
+                  )}
                   <td className="px-5 py-4 text-right">
                     <span className="text-green-700">{r.match_count ?? 0}</span>
                     <span className="text-muted"> / </span>
