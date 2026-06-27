@@ -197,7 +197,10 @@ export async function GET(req: NextRequest) {
     // above already prevents the whole row from being processed twice a month.
     const phone = tenant?.phone?.trim();
     if (phone) {
-      const smsRes = await sendSms(phone, REMINDER_TEXT);
+      const smsRes = await sendSms(phone, REMINDER_TEXT, {
+        type: "rent_reminder",
+        context: tenant?.email ?? null,
+      });
       if (smsRes.ok) texted++;
     }
   }

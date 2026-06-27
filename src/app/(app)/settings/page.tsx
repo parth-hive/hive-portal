@@ -42,6 +42,11 @@ const ADMIN_LINKS: AdminLink[] = [
     title: "Email log",
     description: "Every email the portal has sent, filterable by type and status.",
   },
+  {
+    href: "/settings/sms-log",
+    title: "Text log",
+    description: "Every text the portal has sent, filterable by type and status.",
+  },
 ];
 
 export default async function AdminSettingsPage() {

@@ -640,7 +640,11 @@ export async function sendBalanceReminders(
     // Text uses the same wording as the email. A failed text never blocks.
     const phone = tenant?.phone?.trim();
     if (doSms && phone) {
-      const smsRes = await sendSms(phone, balanceReminderText(netBalance, monthLabel));
+      const smsRes = await sendSms(
+        phone,
+        balanceReminderText(netBalance, monthLabel),
+        { type: "rent_balance", context: `${tenant?.full_name ?? "Tenant"} · ${monthLabel}` },
+      );
       if (smsRes.ok) texted++;
     }
   }

@@ -4,6 +4,44 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 
 export type CleaningFormState = { error?: string } | undefined;
+export type SaveResult = { error?: string; ok?: boolean } | undefined;
+
+// Inline edit of an upcoming cleaning date. With a record_id it updates (or
+// deletes when the date is cleared); without one it inserts a new upcoming row.
+export async function saveUpcomingDate(formData: FormData): Promise<SaveResult> {
+  const property_id = String(formData.get("property_id") ?? "").trim();
+  const record_id = String(formData.get("record_id") ?? "").trim();
+  const cleaning_date = String(formData.get("cleaning_date") ?? "").trim();
+  const assigned_to =
+    String(formData.get("assigned_to") ?? "").trim() || null;
+  if (!property_id) return { error: "Missing property." };
+
+  const supabase = await createClient();
+  if (!cleaning_date) {
+    if (record_id) {
+      const { error } = await supabase
+        .from("cleaning_records")
+        .delete()
+        .eq("id", record_id);
+      if (error) return { error: error.message };
+    }
+  } else if (record_id) {
+    const { error } = await supabase
+      .from("cleaning_records")
+      .update({ cleaning_date })
+      .eq("id", record_id);
+    if (error) return { error: error.message };
+  } else {
+    const { error } = await supabase
+      .from("cleaning_records")
+      .insert({ property_id, cleaning_date, assigned_to });
+    if (error) return { error: error.message };
+  }
+
+  revalidatePath("/cleaning");
+  revalidatePath(`/properties/${property_id}`);
+  return { ok: true };
+}
 
 type CleaningValues = {
   property_id: string;

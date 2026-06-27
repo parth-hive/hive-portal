@@ -857,7 +857,10 @@ export async function sendBalanceReminders(args: {
       } else failed++;
     }
     if (doSms && phone) {
-      const res = await sendSms(phone, balanceReminderText(netBalance, monthLabel));
+      const res = await sendSms(phone, balanceReminderText(netBalance, monthLabel), {
+        type: "rent_balance",
+        context: `${name} · ${monthLabel}`,
+      });
       if (res.ok) {
         texted++;
         delivered = true;

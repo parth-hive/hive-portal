@@ -10,6 +10,8 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { one } from "@/lib/relations";
 import { sendViaResend, type SendResult } from "./resend-quota";
+import { cleaningReminderText } from "@/lib/email";
+import { sendSms, toE164 } from "@/lib/sms";
 import { todayISO } from "@/lib/date";
 
 function resendFrom() {
@@ -345,6 +347,16 @@ async function handleAvailableFromChange(
         });
       if (!insErr) action = "scheduled";
     }
+
+    // The move-out becomes the unit's next cleaning, so the cadence re-anchors
+    // to it (the one after lands at move-out + 35). Clear any regular upcoming
+    // cleaning for the unit so it doesn't compete with the move-out date.
+    await supabase
+      .from("cleaning_records")
+      .delete()
+      .eq("property_id", property.id)
+      .gte("cleaning_date", today)
+      .or("kind.is.null,kind.neq.move_out");
   } else if (existing) {
     // toDate is null and there's an existing scheduled move-out → cancel.
 
@@ -376,17 +388,16 @@ async function handleAvailableFromChange(
    
   const { data: assignments } = await supabase
     .from("property_cleaners")
-    .select("cleaners(email, enabled)")
+    .select("cleaners(email, phone, enabled)")
     .eq("property_id", property.id);
-  type CleanerShape = { email: string | null; enabled: boolean };
+  type CleanerShape = { email: string | null; phone: string | null; enabled: boolean };
   type AssignmentRow = {
     cleaners: CleanerShape | CleanerShape[] | null;
   };
-  const recipientEmails = ((assignments ?? []) as AssignmentRow[])
+  const recipients = ((assignments ?? []) as AssignmentRow[])
     .map((a) => one(a.cleaners))
-    .filter((c): c is CleanerShape => !!c && c.enabled !== false && !!c.email)
-    .map((c) => c.email as string);
-  if (recipientEmails.length === 0) return;
+    .filter((c): c is CleanerShape => !!c && c.enabled !== false);
+  if (recipients.length === 0) return;
 
   const unitLabel = `${property.building_name?.trim() || property.street_address} Apt ${property.unit_number}`;
   const roomLabel = room.room_number ?? "Room";
@@ -438,18 +449,37 @@ async function handleAvailableFromChange(
     .filter((x): x is OccupantInfo => x !== null)
     .sort((a, b) => (a.room_number ?? "").localeCompare(b.room_number ?? ""));
 
-  for (const to of recipientEmails) {
-    await sendCleaningEmail({
-      to,
-      action,
-      unitLabel,
-      roomLabel,
-      newDate: cleaningDate,
-      oldDate: oldCleaningDate,
-      resetDate,
-      leaseholderName,
-      occupants,
-    });
+  // Plain-text version for the SMS channel (cancellations get a short note).
+  const smsBody =
+    action === "cancelled"
+      ? `Move-out cleaning for ${unitLabel} · Room ${roomLabel} on ${prettyDate(oldCleaningDate)} is cancelled.${resetDate ? ` Next cleaning: ${prettyDate(resetDate)}.` : ""}`
+      : cleaningReminderText({
+          unitLabel,
+          date: cleaningDate ?? "",
+          isMoveOut: true,
+          roomLabel,
+          leaseholderName,
+          occupants,
+        });
+
+  for (const c of recipients) {
+    if (c.email) {
+      await sendCleaningEmail({
+        to: c.email,
+        action,
+        unitLabel,
+        roomLabel,
+        newDate: cleaningDate,
+        oldDate: oldCleaningDate,
+        resetDate,
+        leaseholderName,
+        occupants,
+      });
+    }
+    const phone = toE164(c.phone);
+    if (phone) {
+      await sendSms(phone, smsBody, { type: "cleaning_reminder", context: unitLabel });
+    }
   }
 }
 

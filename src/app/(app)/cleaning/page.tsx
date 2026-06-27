@@ -1,34 +1,24 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { one } from "@/lib/relations";
-import { formatDate } from "@/lib/date";
-import {
-  CLEANING_CADENCE_DAYS,
-  cleaningScheduleFor,
-  todayISO,
-  type CleaningStatus,
-} from "@/lib/cleaning";
-import { AddCleaning, type PropertyOption } from "./add-cleaning";
-import { CleaningRow, type CleaningRowData } from "./cleaning-row";
+import { formatDate, todayISO } from "@/lib/date";
+import { CLEANING_CADENCE_DAYS } from "@/lib/cleaning";
+import { SearchInput } from "@/components/search-input";
 import { AddCleanerForm } from "./add-cleaner";
 import { toggleCleaner, deleteCleaner } from "./cleaners-actions";
+import { EditableDate } from "./editable-date";
 
 export const dynamic = "force-dynamic";
 
-type PropertyRel = {
-  id: string;
-  building_name: string | null;
-  street_address: string;
-  unit_number: string;
-};
+function addDaysISO(iso: string, days: number): string {
+  const d = new Date(iso + "T00:00:00Z");
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 
 type Row = {
   id: string;
   property_id: string;
   cleaning_date: string;
-  assigned_to: string | null;
-  notes: string | null;
-  properties: PropertyRel | PropertyRel[] | null;
 };
 
 function propertyLabel(p: {
@@ -39,34 +29,15 @@ function propertyLabel(p: {
   return `${p.building_name?.trim() || p.street_address} Apt ${p.unit_number}`;
 }
 
-const STATUS_PILL: Record<CleaningStatus, string> = {
-  never: "bg-red-100 text-red-900",
-  overdue: "bg-red-100 text-red-900",
-  due_soon: "bg-orange-100 text-orange-900",
-  scheduled: "bg-warm text-ink/70",
-};
-
-const STATUS_ORDER: Record<CleaningStatus, number> = {
-  never: 0,
-  overdue: 1,
-  due_soon: 2,
-  scheduled: 3,
-};
-
-type FilterKey = "overdue" | "due_soon";
-function isFilterKey(v: string | undefined): v is FilterKey {
-  return v === "overdue" || v === "due_soon";
-}
-
 type PageProps = {
-  searchParams: Promise<{ filter?: string; view?: string }>;
+  searchParams: Promise<{ view?: string; q?: string }>;
 };
 
 export default async function CleaningPage({ searchParams }: PageProps) {
   const params = await searchParams;
-  const activeFilter = isFilterKey(params.filter) ? params.filter : null;
   const view: "schedule" | "cleaners" =
     params.view === "cleaners" ? "cleaners" : "schedule";
+  const query = (params.q ?? "").trim().toLowerCase();
 
   const supabase = await createClient();
 
@@ -74,15 +45,12 @@ export default async function CleaningPage({ searchParams }: PageProps) {
     { data: cleanings },
     { data: properties },
     { data: cleanersData },
-    { data: assignedData },
+    { data: links },
   ] = await Promise.all([
     supabase
       .from("cleaning_records")
-      .select(
-        `id, property_id, cleaning_date, assigned_to, notes,
-         properties(id, building_name, street_address, unit_number)`,
-      )
-      .order("cleaning_date", { ascending: false })
+      .select("id, property_id, cleaning_date")
+      .order("cleaning_date", { ascending: true })
       .returns<Row[]>(),
     supabase
       .from("properties")
@@ -94,232 +62,182 @@ export default async function CleaningPage({ searchParams }: PageProps) {
       .order("enabled", { ascending: false })
       .order("created_at", { ascending: true }),
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any).from("property_cleaners").select("cleaner_id"),
+    (supabase as any)
+      .from("property_cleaners")
+      .select("property_id, cleaner_id"),
   ]);
-
-  const propertyOptions: PropertyOption[] = (properties ?? []).map((p) => ({
-    id: p.id,
-    label: propertyLabel(p),
-  }));
-
-  const cleanerNames = (cleanersData ?? [])
-    .filter((c) => c.enabled !== false)
-    .map((c) => c.name)
-    .filter((n): n is string => !!n);
-
-  const rows: CleaningRowData[] = (cleanings ?? []).map((c) => {
-    const p = one(c.properties);
-    return {
-      id: c.id,
-      property_id: c.property_id,
-      property_label: p ? propertyLabel(p) : null,
-      cleaning_date: c.cleaning_date,
-      assigned_to: c.assigned_to,
-      notes: c.notes,
-    };
-  });
 
   const today = todayISO();
 
-  // Most-recent *past* cleaning per property — future-dated move-out
-  // scheduled rows shouldn't count as "last cleaned".
+  // property_id → assigned cleaner name(s)
+  const nameById = new Map(
+    (cleanersData ?? []).map((c) => [c.id, c.name as string]),
+  );
+  const cleanersByProperty = new Map<string, string[]>();
+  for (const l of (links ?? []) as Array<{
+    property_id: string;
+    cleaner_id: string;
+  }>) {
+    const nm = nameById.get(l.cleaner_id);
+    if (!nm) continue;
+    const arr = cleanersByProperty.get(l.property_id) ?? [];
+    arr.push(nm);
+    cleanersByProperty.set(l.property_id, arr);
+  }
+
+  // Last *past* cleaning + the upcoming (today-or-future) cleanings per unit.
   const lastByProperty = new Map<string, string>();
-  for (const r of rows) {
-    if (r.cleaning_date > today) continue;
-    if (!lastByProperty.has(r.property_id)) {
+  const upByProperty = new Map<string, { id: string; date: string }[]>();
+  for (const r of cleanings ?? []) {
+    if (r.cleaning_date >= today) {
+      const arr = upByProperty.get(r.property_id) ?? [];
+      arr.push({ id: r.id, date: r.cleaning_date });
+      upByProperty.set(r.property_id, arr);
+    } else {
+      // cleanings are ascending, so the last past seen is the most recent.
       lastByProperty.set(r.property_id, r.cleaning_date);
     }
   }
 
-  const schedule = propertyOptions
-    .map((p) => ({
-      property: p,
-      ...cleaningScheduleFor(lastByProperty.get(p.id) ?? null, today),
-    }))
+  const rows = (properties ?? [])
+    .map((p) => {
+      const ups = upByProperty.get(p.id) ?? [];
+      const next = ups[0] ?? null;
+      return {
+        id: p.id,
+        label: propertyLabel(p),
+        cleaners: cleanersByProperty.get(p.id) ?? [],
+        last: lastByProperty.get(p.id) ?? null,
+        next,
+        // The cleaning after Next is always +35 (derived, read-only).
+        following: next ? addDaysISO(next.date, CLEANING_CADENCE_DAYS) : null,
+      };
+    })
     .sort((a, b) => {
-      const so = STATUS_ORDER[a.status] - STATUS_ORDER[b.status];
-      if (so !== 0) return so;
-      // within same status, earlier next-due first
-      return (a.nextDue ?? "") < (b.nextDue ?? "") ? -1 : 1;
+      // unscheduled first, then soonest upcoming date; alphabetical within ties
+      const ad = a.next?.date ?? "0000";
+      const bd = b.next?.date ?? "0000";
+      if (ad !== bd) return ad < bd ? -1 : 1;
+      return a.label.localeCompare(b.label, undefined, { numeric: true });
     });
 
-  const overdueCount = schedule.filter(
-    (s) => s.status === "overdue" || s.status === "never",
-  ).length;
-  const dueSoonCount = schedule.filter((s) => s.status === "due_soon").length;
-
-  const filteredSchedule = !activeFilter
-    ? schedule
-    : activeFilter === "overdue"
-      ? schedule.filter(
-          (s) => s.status === "overdue" || s.status === "never",
-        )
-      : schedule.filter((s) => s.status === "due_soon");
+  const filtered = query
+    ? rows.filter((r) =>
+        `${r.label} ${r.cleaners.join(" ")}`.toLowerCase().includes(query),
+      )
+    : rows;
 
   return (
     <div className="mx-auto w-full max-w-5xl">
-      <header className="flex flex-wrap items-end justify-between gap-3 border-b border-stone/60 pb-6">
-        <div>
-          <h1 className="text-3xl tracking-tight text-ink">
-            <span className="font-display text-accent-text">Cleaning</span>
-          </h1>
-          <p className="mt-1 text-sm text-muted">
-            Every unit is cleaned every {CLEANING_CADENCE_DAYS} days. Overdue
-            cleans rise to the top.
-          </p>
-        </div>
-        <div className="flex items-center gap-2">
-          <div className="inline-flex rounded-full bg-warm/60 p-0.5 text-xs">
-            <Link
-              href="/cleaning"
-              className={`rounded-full px-3 py-1.5 transition ${
-                view === "schedule"
-                  ? "bg-white text-ink shadow-sm"
-                  : "text-muted hover:text-ink"
-              }`}
-            >
-              Schedule
-            </Link>
-            <Link
-              href="/cleaning?view=cleaners"
-              className={`rounded-full px-3 py-1.5 transition ${
-                view === "cleaners"
-                  ? "bg-white text-ink shadow-sm"
-                  : "text-muted hover:text-ink"
-              }`}
-            >
-              Cleaners
-            </Link>
-          </div>
-          {view === "schedule" && (
-            <AddCleaning properties={propertyOptions} cleaners={cleanerNames} />
-          )}
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-stone/60 pb-6">
+        <h1 className="text-3xl tracking-tight text-ink">
+          <span className="font-display text-accent-text">Cleaning</span>
+        </h1>
+        <div className="inline-flex rounded-full bg-warm/60 p-0.5 text-xs">
+          <Link
+            href="/cleaning"
+            className={`rounded-full px-3 py-1.5 transition ${
+              view === "schedule"
+                ? "bg-white text-ink shadow-sm"
+                : "text-muted hover:text-ink"
+            }`}
+          >
+            Schedule
+          </Link>
+          <Link
+            href="/cleaning?view=cleaners"
+            className={`rounded-full px-3 py-1.5 transition ${
+              view === "cleaners"
+                ? "bg-white text-ink shadow-sm"
+                : "text-muted hover:text-ink"
+            }`}
+          >
+            Cleaners
+          </Link>
         </div>
       </header>
 
-      {view === "schedule" && propertyOptions.length > 0 && (
-        <section className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-3">
-          <KpiCard
-            label="Overdue"
-            value={overdueCount}
-            accent="bg-red-100 text-red-900"
-            href={
-              activeFilter === "overdue" ? "/cleaning" : "/cleaning?filter=overdue"
-            }
-            active={activeFilter === "overdue"}
-          />
-          <KpiCard
-            label="Due in ≤ 7 days"
-            value={dueSoonCount}
-            accent="bg-orange-100 text-orange-900"
-            href={
-              activeFilter === "due_soon" ? "/cleaning" : "/cleaning?filter=due_soon"
-            }
-            active={activeFilter === "due_soon"}
-          />
-          <KpiCard
-            label="Total units"
-            value={schedule.length}
-            accent="bg-warm text-ink/70"
-            href="/cleaning"
-            active={activeFilter === null}
-          />
-        </section>
-      )}
-
-      {view === "schedule" && propertyOptions.length > 0 && (
-        <section className="mt-8">
-          <h2 className="text-sm uppercase tracking-wide text-muted">
-            Cleaning schedule ({filteredSchedule.length})
-          </h2>
-          {filteredSchedule.length === 0 ? (
-            <p className="mt-3 rounded-2xl bg-white px-6 py-10 text-center text-sm text-muted shadow-sm">
-              No units match this filter.{" "}
-              <Link href="/cleaning" className="text-accent-text">
-                Clear filter
-              </Link>
-              .
-            </p>
-          ) : (
-          <ul className="mt-3 flex flex-col gap-2">
-            {filteredSchedule.map((s) => (
-              <li
-                key={s.property.id}
-                className="flex flex-wrap items-center justify-between gap-3 rounded-xl bg-white px-4 py-3 text-sm shadow-sm"
-              >
-                <div className="min-w-0 flex-1">
-                  <p className="truncate text-ink">{s.property.label}</p>
-                  <p className="text-xs text-muted">
-                    Last: {s.last ? formatDate(s.last) : "-"}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  {s.nextDue && (
-                    <span className="text-xs text-muted">
-                      Next: {formatDate(s.nextDue)}
-                    </span>
-                  )}
-                  <span
-                    className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${STATUS_PILL[s.status]}`}
-                  >
-                    {s.status === "never"
-                      ? "-"
-                      : s.status === "overdue"
-                        ? `Overdue ${Math.abs(s.daysUntil ?? 0)}d`
-                        : s.status === "due_soon"
-                          ? `Due in ${s.daysUntil}d`
-                          : `In ${s.daysUntil}d`}
-                  </span>
-                </div>
-              </li>
-            ))}
-          </ul>
-          )}
-        </section>
-      )}
-
       {view === "schedule" && (
-        <section className="mt-10">
-          <h2 className="text-sm uppercase tracking-wide text-muted">
-            All cleanings ({rows.length})
-          </h2>
-          {rows.length === 0 ? (
-            <p className="mt-4 rounded-2xl bg-white px-6 py-10 text-center text-sm text-muted shadow-sm">
-              No cleanings logged yet. Click <em>Log cleaning</em> to record one.
-            </p>
-          ) : (
-            <ul className="mt-3 flex flex-col gap-3">
-              {rows.map((r) => (
-                <CleaningRow
-                  key={r.id}
-                  record={r}
-                  properties={propertyOptions}
-                  cleaners={cleanerNames}
-                />
-              ))}
-            </ul>
-          )}
-        </section>
+        <>
+          <div className="mt-6 max-w-xs">
+            <SearchInput
+              placeholder="Search unit or cleaner…"
+              ariaLabel="Search cleaning schedule"
+            />
+          </div>
+
+          <section className="mt-4 overflow-x-auto rounded-2xl bg-white shadow-sm ring-1 ring-stone/40">
+            <table className="w-full min-w-[720px] text-sm">
+              <thead className="bg-warm/60 text-left text-xs uppercase tracking-wide text-muted">
+                <tr>
+                  <th className="px-4 py-2 font-medium">Unit</th>
+                  <th className="px-4 py-2 font-medium">Cleaner</th>
+                  <th className="px-4 py-2 font-medium">Last cleaned</th>
+                  <th className="px-4 py-2 font-medium">Next cleaning</th>
+                  <th className="px-4 py-2 font-medium">Following</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filtered.map((r, i) => (
+                  <tr
+                    key={r.id}
+                    className={`border-t border-stone/30 ${i % 2 === 1 ? "bg-cream/40" : "bg-white"}`}
+                  >
+                    <td className="px-4 py-1.5">
+                      <Link
+                        href={`/properties/${r.id}`}
+                        className="text-ink hover:text-accent-text"
+                      >
+                        {r.label}
+                      </Link>
+                    </td>
+                    <td className="px-4 py-1.5 text-muted">
+                      {r.cleaners.length ? r.cleaners.join(", ") : "—"}
+                    </td>
+                    <td className="px-4 py-1.5 tabular-nums text-muted">
+                      {r.last ? formatDate(r.last) : "—"}
+                    </td>
+                    <td className="px-4 py-1.5">
+                      <EditableDate
+                        propertyId={r.id}
+                        recordId={r.next?.id ?? null}
+                        date={r.next?.date ?? null}
+                        assignedTo={r.cleaners[0] ?? null}
+                      />
+                    </td>
+                    <td className="px-4 py-1.5 tabular-nums text-muted">
+                      {r.following ? formatDate(r.following) : "—"}
+                    </td>
+                  </tr>
+                ))}
+                {filtered.length === 0 && (
+                  <tr>
+                    <td
+                      colSpan={5}
+                      className="px-4 py-10 text-center text-sm text-muted"
+                    >
+                      {query ? "No units match." : "No properties yet."}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </section>
+        </>
       )}
 
       {view === "cleaners" && (
-        <section className="mt-8">
-          <p className="text-sm text-muted">
-            Each unit can have one or more cleaners assigned (on the property
-            page). They&apos;re emailed when the unit&apos;s cleaning schedule
-            changes, including auto-scheduled move-out cleanings.
-          </p>
-          <div className="mt-4 rounded-2xl bg-white p-4 shadow-sm">
+        <section className="mt-6">
+          <div className="rounded-2xl bg-white p-4 shadow-sm ring-1 ring-stone/40">
             <AddCleanerForm />
           </div>
-          <div className="mt-3 overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-stone/40">
+          <div className="mt-3 overflow-hidden rounded-2xl bg-white shadow-sm ring-1 ring-stone/40">
             <CleanersTable
               cleaners={(cleanersData ?? []).map((c) => ({
                 ...c,
-                properties_count:
-                  ((assignedData ?? []) as Array<{ cleaner_id: string }>).filter(
-                    (p) => p.cleaner_id === c.id,
-                  ).length,
+                properties_count: (
+                  (links ?? []) as Array<{ cleaner_id: string }>
+                ).filter((p) => p.cleaner_id === c.id).length,
               }))}
             />
           </div>
@@ -355,12 +273,8 @@ function CleanersTable({ cleaners }: { cleaners: CleanerRow[] }) {
       <tbody>
         {cleaners.length === 0 && (
           <tr>
-            <td
-              colSpan={6}
-              className="px-4 py-10 text-center text-sm text-muted"
-            >
-              No cleaners yet. Add one above, then assign them on a property
-              page.
+            <td colSpan={6} className="px-4 py-10 text-center text-sm text-muted">
+              No cleaners yet.
             </td>
           </tr>
         )}
@@ -390,11 +304,7 @@ function CleanersTable({ cleaners }: { cleaners: CleanerRow[] }) {
               <div className="flex items-center justify-end gap-2">
                 <form action={toggleCleaner}>
                   <input type="hidden" name="id" value={c.id} />
-                  <input
-                    type="hidden"
-                    name="enabled"
-                    value={String(c.enabled)}
-                  />
+                  <input type="hidden" name="enabled" value={String(c.enabled)} />
                   <button
                     type="submit"
                     className="rounded-full border border-stone bg-white px-2.5 py-0.5 text-xs uppercase tracking-wide text-ink hover:bg-warm"
@@ -417,46 +327,5 @@ function CleanersTable({ cleaners }: { cleaners: CleanerRow[] }) {
         ))}
       </tbody>
     </table>
-  );
-}
-
-function KpiCard({
-  label,
-  value,
-  accent,
-  href,
-  active,
-}: {
-  label: string;
-  value: number;
-  accent: string;
-  href: string;
-  active: boolean;
-}) {
-  return (
-    <Link
-      href={href}
-      className={`rounded-2xl p-4 shadow-sm transition ${
-        active
-          ? "bg-ink text-white ring-2 ring-ink"
-          : "bg-white hover:shadow"
-      }`}
-    >
-      <div className="flex items-center justify-between gap-2">
-        <p
-          className={`text-xs uppercase tracking-wide ${active ? "text-white/70" : "text-muted"}`}
-        >
-          {label}
-        </p>
-        {!active && (
-          <span className={`h-2 w-2 rounded-full ${accent.split(" ")[0]}`} />
-        )}
-      </div>
-      <p
-        className={`mt-2 text-3xl font-light ${active ? "text-white" : "text-ink"}`}
-      >
-        {value}
-      </p>
-    </Link>
   );
 }

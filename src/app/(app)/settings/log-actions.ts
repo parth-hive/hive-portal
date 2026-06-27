@@ -26,7 +26,9 @@ async function requireMaster(): Promise<string | null> {
 
 /** Wipe every row from a log table. These tables are read-only under RLS, so
  *  the delete runs with the service role after a master check. */
-async function clearTable(table: "email_log" | "audit_log"): Promise<Result> {
+async function clearTable(
+  table: "email_log" | "sms_log" | "audit_log",
+): Promise<Result> {
   const denied = await requireMaster();
   if (denied) return { error: denied };
 
@@ -42,6 +44,12 @@ async function clearTable(table: "email_log" | "audit_log"): Promise<Result> {
 export async function clearEmailLog(): Promise<Result> {
   const res = await clearTable("email_log");
   if ("ok" in res) revalidatePath("/settings/email-log");
+  return res;
+}
+
+export async function clearSmsLog(): Promise<Result> {
+  const res = await clearTable("sms_log");
+  if ("ok" in res) revalidatePath("/settings/sms-log");
   return res;
 }
 
