@@ -157,7 +157,8 @@ export default async function CleanerSchedulePage({ params }: PageProps) {
           Hi {firstName},
         </h1>
         <p className="mt-1 text-muted">
-          Your cleaning schedule for {formatDate(today)} – {formatDate(end)}.
+          Your cleaning schedule for {weekdayName(today)} {formatDate(today)} –{" "}
+          {weekdayName(end)} {formatDate(end)}.
         </p>
 
         {cleanings.length === 0 ? (
