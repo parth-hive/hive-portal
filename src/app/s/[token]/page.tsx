@@ -22,6 +22,14 @@ function admin() {
   });
 }
 
+/** Full weekday name (Monday, Tuesday…) for a date-only ISO string. */
+function weekdayName(iso: string): string {
+  return new Date(iso + "T00:00:00Z").toLocaleDateString("en-US", {
+    weekday: "long",
+    timeZone: "UTC",
+  });
+}
+
 type PageProps = { params: Promise<{ token: string }> };
 
 function ContactRow({ c }: { c: CleaningUnitContext["occupants"][number] }) {
@@ -69,16 +77,19 @@ function CleaningCard({
     <details className="group rounded-xl bg-white shadow-sm ring-1 ring-stone/30">
       <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3">
         <div className="min-w-0">
-          <p className="text-ink">
+          <p className="flex flex-wrap items-baseline gap-x-2">
+            <span className="text-2xl font-semibold text-ink">
+              {formatDate(c.date)}
+            </span>
+            <span className="text-lg text-muted">{weekdayName(c.date)}</span>
+          </p>
+          <p className="mt-1 text-ink">
             {c.unitLabel}
             {c.isMoveOut ? (
               <span className="ml-2 rounded-full bg-accent/15 px-2 py-0.5 text-xs font-medium uppercase tracking-wide text-accent-text">
                 Move-out{c.roomLabel ? ` · ${c.roomLabel}` : ""}
               </span>
             ) : null}
-          </p>
-          <p className="text-xs uppercase tracking-wide text-muted">
-            {formatDate(c.date)}
           </p>
         </div>
         <span className="shrink-0 text-xs uppercase tracking-wide text-accent-text group-open:hidden">
