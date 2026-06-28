@@ -58,7 +58,7 @@ export default async function CredentialsPage({ searchParams }: PageProps) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  // Only admins receive plaintext passwords and the reveal/copy controls.
+  // Anyone can Copy a password; only admins can Reveal it on screen.
   const admin = isMaster(user?.email);
 
   const [{ data: credentials }, { data: properties }] = await Promise.all([
@@ -92,7 +92,7 @@ export default async function CredentialsPage({ searchParams }: PageProps) {
       property_id: c.property_id,
       property_label: p ? propertyLabel(p) : null,
       username: c.username,
-      password: admin ? c.password : null,
+      password: c.password,
       hasPassword: !!c.password,
       login_url: c.login_url,
       account_number: c.account_number,

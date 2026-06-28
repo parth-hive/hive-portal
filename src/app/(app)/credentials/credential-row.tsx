@@ -20,8 +20,9 @@ export type CredentialRowData = {
   property_id: string | null;
   property_label: string | null;
   username: string | null;
-  // Plaintext password — only populated for admins. For everyone else it's null
-  // (never sent to the client); `hasPassword` still tells the UI to show dots.
+  // Plaintext password — sent to all so anyone can Copy it. Only admins can
+  // Reveal it on screen (a display-only gate). `hasPassword` tells the UI
+  // whether to render the dots + Copy control at all.
   password: string | null;
   hasPassword: boolean;
   login_url: string | null;
@@ -173,8 +174,9 @@ export function CredentialRow({
                 ? credential.password
                 : PASSWORD_MASK}
             </span>
-            {canReveal && (
-              <div className="flex shrink-0 items-center gap-1.5">
+            <div className="flex shrink-0 items-center gap-1.5">
+              {/* Reveal (on-screen display) is admin-only; Copy is for everyone. */}
+              {canReveal && (
                 <button
                   type="button"
                   onClick={toggleReveal}
@@ -182,12 +184,12 @@ export function CredentialRow({
                 >
                   {revealed ? "Hide" : "Reveal"}
                 </button>
-                <CopyChip
-                  onClick={() => copy("password", credential.password)}
-                  copied={copied === "password"}
-                />
-              </div>
-            )}
+              )}
+              <CopyChip
+                onClick={() => copy("password", credential.password)}
+                copied={copied === "password"}
+              />
+            </div>
           </div>
         ) : (
           <span className="text-muted">—</span>
@@ -216,24 +218,27 @@ export function CredentialRow({
             href={credential.login_url}
             target="_blank"
             rel="noopener noreferrer"
-            className="rounded-full border border-stone bg-white px-2 py-0.5 text-xs uppercase tracking-wide text-ink hover:bg-warm"
+            className="text-xs text-purple-700 underline hover:text-purple-900"
           >
-            Open ↗
+            Open
           </a>
         ) : (
           <span className="text-muted">—</span>
         )}
       </td>
       <td className="px-3 py-2 text-right">
-        <div className="flex items-center justify-end gap-2">
+        <div className="flex items-center justify-end gap-2.5 text-xs uppercase tracking-wide leading-none">
           <button
             type="button"
             onClick={() => setEditing(true)}
-            className="text-xs uppercase tracking-wide text-muted hover:text-accent-text"
+            className="text-muted transition hover:text-accent-text"
           >
             Edit
           </button>
-          <form action={deleteCredential}>
+          <span className="text-stone" aria-hidden="true">
+            |
+          </span>
+          <form action={deleteCredential} className="inline-flex">
             <input type="hidden" name="id" value={credential.id} />
             <button
               type="submit"
@@ -246,7 +251,7 @@ export function CredentialRow({
                   e.preventDefault();
                 }
               }}
-              className="text-xs uppercase tracking-wide text-muted hover:text-red-700"
+              className="text-muted transition hover:text-red-700"
             >
               Delete
             </button>

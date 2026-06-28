@@ -32,7 +32,7 @@ export default async function PropertyDetailPage({ params }: PageProps) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  // Only admins receive plaintext passwords and the reveal/copy controls.
+  // Anyone can Copy a password; only admins can Reveal it on screen.
   const admin = isMaster(user?.email);
 
   const [
@@ -139,7 +139,7 @@ export default async function PropertyDetailPage({ params }: PageProps) {
     property_id: c.property_id,
     property_label: propertyLabel,
     username: c.username,
-    password: admin ? c.password : null,
+    password: c.password,
     hasPassword: !!c.password,
     login_url: c.login_url,
     account_number: c.account_number,
