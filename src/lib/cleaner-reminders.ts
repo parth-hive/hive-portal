@@ -3,9 +3,7 @@ import { currentWeek, addDaysISO } from "@/lib/date";
 import { one } from "@/lib/relations";
 import { getCleanerWeekSchedule, scheduleUrl } from "@/lib/cleaner-schedule";
 import {
-  sendCleanerWeeklyDigest,
   sendCleanerScheduleUpdate,
-  cleanerWeeklyText,
   cleanerUpdateText,
   type CleanerDigest,
 } from "@/lib/email";
@@ -62,43 +60,6 @@ export async function enqueueCleanerScheduleChange(
   await supabase.from("cleaner_schedule_change_queue").insert(
     cleaners.map((c) => ({ cleaner_id: c.id, week_start: start, reason })),
   );
-}
-
-/**
- * Sunday weekly digest. Email + text every enabled cleaner who has at least one
- * cleaning this week, with a link to their live schedule page.
- */
-export async function sendWeeklyCleanerSchedules(supabase: SupabaseClient) {
-  const { start, end } = currentWeek();
-  const { data } = await supabase
-    .from("cleaners")
-    .select(CLEANER_SELECT)
-    .eq("enabled", true)
-    .returns<CleanerRow[]>();
-  const cleaners = data ?? [];
-
-  let recipients = 0;
-  let emailed = 0;
-  let texted = 0;
-  for (const c of cleaners) {
-    const cleanings = await getCleanerWeekSchedule(supabase, c.id, start, end);
-    if (cleanings.length === 0) continue; // only cleaners with cleanings
-    recipients++;
-    const digest = digestFor(c, start, cleanings);
-    if (c.email) {
-      const r = await sendCleanerWeeklyDigest(c.email, digest);
-      if (r.ok) emailed++;
-    }
-    const phone = toE164(c.phone);
-    if (phone) {
-      const r = await sendSms(phone, cleanerWeeklyText(digest), {
-        type: "cleaner_weekly",
-        context: c.name ?? undefined,
-      });
-      if (r.ok) texted++;
-    }
-  }
-  return { week: start, recipients, emailed, texted };
 }
 
 /**

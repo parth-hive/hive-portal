@@ -24,33 +24,6 @@ function weekRange(weekStart: string, weekEnd: string): string {
   return `${formatDate(weekStart)} – ${formatDate(weekEnd)}`;
 }
 
-function digestLineText(c: CleanerCleaning): string {
-  const tag = c.isMoveOut
-    ? ` (MOVE-OUT${c.roomLabel ? ` · Room ${c.roomLabel}` : ""})`
-    : "";
-  return `• ${formatDate(c.date)} — ${c.unitLabel}${tag}`;
-}
-
-/** Plain-text weekly digest (used verbatim by the SMS channel). */
-export function cleanerWeeklyText(d: CleanerDigest): string {
-  const hi = d.cleanerName ? `Hi ${d.cleanerName.split(/\s+/)[0]},` : "Hi,";
-  const body =
-    d.cleanings.length === 0
-      ? "No cleanings scheduled for the rest of this week."
-      : d.cleanings.map(digestLineText).join("\n");
-  return [
-    hi,
-    "",
-    `Your cleaning schedule for ${weekRange(d.weekStart, d.weekEnd)}:`,
-    "",
-    body,
-    "",
-    `Full schedule + unit contacts: ${d.url}`,
-    "",
-    "Thanks",
-  ].join("\n");
-}
-
 /** Plain-text "schedule updated" notice (used verbatim by the SMS channel). */
 export function cleanerUpdateText(d: CleanerDigest): string {
   const hi = d.cleanerName ? `Hi ${d.cleanerName.split(/\s+/)[0]},` : "Hi,";
@@ -65,53 +38,8 @@ export function cleanerUpdateText(d: CleanerDigest): string {
   ].join("\n");
 }
 
-function digestLinesHtml(cleanings: CleanerCleaning[]): string {
-  if (cleanings.length === 0) {
-    return `<p style="margin:0; font-size:15px; color:#8a8378;">No cleanings scheduled for the rest of this week.</p>`;
-  }
-  return cleanings
-    .map((c) => {
-      const badge = c.isMoveOut
-        ? ` <span style="display:inline-block; background:#fbeccc; color:#9a6f08; font-size:11px; font-weight:600; padding:1px 8px; border-radius:999px;">Move-out${c.roomLabel ? ` · ${c.roomLabel}` : ""}</span>`
-        : "";
-      return `<div style="padding:10px 0; border-bottom:1px solid #e8e3db;">
-        <div style="font-size:13px; text-transform:uppercase; letter-spacing:0.05em; color:#8a8378;">${formatDate(c.date)}</div>
-        <div style="font-size:16px; font-weight:600; color:#1a1a18;">${c.unitLabel}${badge}</div>
-      </div>`;
-    })
-    .join("");
-}
-
 function ctaButton(url: string, label: string): string {
   return `<a href="${url}" style="display:inline-block; background:#d4920b; color:#fefdfb; text-decoration:none; font-weight:600; font-size:15px; padding:12px 22px; border-radius:999px;">${label}</a>`;
-}
-
-/** Sunday weekly digest: the week's cleanings + a link to the live page. */
-export async function sendCleanerWeeklyDigest(
-  to: string,
-  d: CleanerDigest,
-): Promise<SendResult> {
-  const subject = `Your cleaning schedule — week of ${formatDate(d.weekStart)}`;
-  const text = cleanerWeeklyText(d);
-  const html = `<div style="margin:0; padding:20px 12px; background:#f5f2ed; font-family:'DM Sans',Arial,Helvetica,sans-serif;">
-  <div style="max-width:480px; margin:0 auto; background:#fefdfb; border:1px solid #e8e3db; border-radius:16px; overflow:hidden;">
-    <div style="height:6px; background:#d4920b;"></div>
-    <div style="padding:24px 20px;">
-      <h1 style="margin:0 0 4px; font-size:22px; line-height:1.25; color:#1a1a18; font-weight:600;">Your cleaning schedule</h1>
-      <p style="margin:0 0 18px; font-size:15px; color:#8a8378;">${weekRange(d.weekStart, d.weekEnd)}</p>
-      ${digestLinesHtml(d.cleanings)}
-      <div style="margin-top:22px;">${ctaButton(d.url, "View schedule & unit contacts")}</div>
-      <p style="margin:14px 0 0; font-size:13px; color:#8a8378;">Open the link any time for the latest schedule. Tap a cleaning to see the unit's tenants, leaseholder, and move-out details.</p>
-    </div>
-    <div style="padding:14px 20px; background:#f5f2ed; border-top:1px solid #e8e3db;">
-      <p style="margin:0; font-size:12px; color:#8a8378;">Hive Portal · weekly cleaning schedule.</p>
-    </div>
-  </div>
-</div>`;
-  return sendViaResend(
-    { to, from: resendFrom(), replyTo: process.env.RESEND_REPLY_TO, subject, text, html },
-    { type: "cleaner_weekly", context: d.cleanerName ?? to },
-  );
 }
 
 /** Debounced "your schedule changed" notice — points to the live page. */
