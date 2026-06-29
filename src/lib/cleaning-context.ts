@@ -6,7 +6,9 @@ export type CleaningOccupant = {
   full_name: string;
   email: string | null;
   phone: string | null;
-  vacated: boolean;
+  // current = active tenant, vacated = moved out (ended), upcoming = assigned
+  // but not yet moved in.
+  status: "current" | "vacated" | "upcoming";
 };
 
 export type CleaningUnitContext = {
@@ -60,32 +62,49 @@ export async function gatherCleaningContext(
     .order("start_date", { ascending: false })
     .returns<TenantRow[]>();
 
-  // One contact per room: rows are newest-first, so the first seen per room is
-  // the latest tenancy; only override it when a later row is the active one.
-  const chosenByRoom = new Map<string, TenantRow>();
+  // Per room, surface everyone relevant to a cleaner: the current (active)
+  // tenant, or — if the room is empty — the one who just moved out (ended),
+  // plus any upcoming tenant who's been assigned but hasn't moved in yet.
+  const byRoom = new Map<string, TenantRow[]>();
   for (const r of tenancyRows ?? []) {
     if (!one(r.tenants)) continue;
-    const cur = chosenByRoom.get(r.room_id);
-    if (!cur || (cur.status !== "active" && r.status === "active")) {
-      chosenByRoom.set(r.room_id, r);
-    }
+    const arr = byRoom.get(r.room_id) ?? [];
+    arr.push(r);
+    byRoom.set(r.room_id, arr);
   }
 
-  const occupants: CleaningOccupant[] = [...chosenByRoom.values()]
-    .map((r) => {
-      const room = one(r.rooms);
-      const tenant = one(r.tenants);
-      if (!tenant) return null;
-      return {
+  const occupants: CleaningOccupant[] = [];
+  for (const rows of byRoom.values()) {
+    const actives = rows.filter((r) => r.status === "active");
+    const upcomings = rows
+      .filter((r) => r.status === "upcoming")
+      .sort((a, b) => a.start_date.localeCompare(b.start_date));
+    const endeds = rows
+      .filter((r) => r.status === "ended")
+      .sort((a, b) => b.start_date.localeCompare(a.start_date));
+
+    const chosen: { row: TenantRow; status: CleaningOccupant["status"] }[] = [];
+    if (actives.length > 0) {
+      for (const r of actives) chosen.push({ row: r, status: "current" });
+    } else if (endeds.length > 0) {
+      chosen.push({ row: endeds[0], status: "vacated" });
+    }
+    for (const r of upcomings) chosen.push({ row: r, status: "upcoming" });
+
+    for (const { row, status } of chosen) {
+      const room = one(row.rooms);
+      const tenant = one(row.tenants);
+      if (!tenant) continue;
+      occupants.push({
         room_number: room?.room_number ?? null,
         full_name: tenant.full_name,
         email: tenant.email,
         phone: tenant.phone,
-        vacated: r.status !== "active",
-      };
-    })
-    .filter((x): x is CleaningOccupant => x !== null)
-    .sort((a, b) => (a.room_number ?? "").localeCompare(b.room_number ?? ""));
+        status,
+      });
+    }
+  }
+  occupants.sort((a, b) => (a.room_number ?? "").localeCompare(b.room_number ?? ""));
 
   return { unitLabel, leaseholderName, occupants };
 }
