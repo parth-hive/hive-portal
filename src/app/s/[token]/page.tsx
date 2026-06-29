@@ -3,7 +3,8 @@ import { createClient } from "@supabase/supabase-js";
 import { todayISO, addDaysISO } from "@/lib/date";
 import { getCleanerWeekSchedule } from "@/lib/cleaner-schedule";
 import { gatherCleaningContext } from "@/lib/cleaning-context";
-import { CleanerCalendar, type CalCleaning } from "./cleaner-calendar";
+import { type CalCleaning } from "./cleaner-calendar";
+import { CleanerScheduleView } from "./cleaner-schedule-view";
 
 export const dynamic = "force-dynamic";
 // Token in the URL is the only credential; keep these pages out of search.
@@ -67,7 +68,7 @@ export default async function CleanerSchedulePage({ params }: PageProps) {
   });
 
   return (
-    <CleanerCalendar
+    <CleanerScheduleView
       cleanerName={cleaner.name}
       today={today}
       cleanings={items}

@@ -40,8 +40,8 @@ const addMonths = (iso: string, n: number) => {
   return toISO(d);
 };
 const fmtDate = (iso: string) => {
-  const [y, m, d] = iso.split("-");
-  return `${m}/${d}/${y.slice(2)}`;
+  const [, m, d] = iso.split("-");
+  return `${m}/${d}`;
 };
 const dowName = (iso: string, f: "long" | "short" | "narrow") =>
   parse(iso).toLocaleDateString("en-US", { weekday: f, timeZone: "UTC" });
@@ -56,10 +56,12 @@ export function CleanerCalendar({
   cleanerName,
   today,
   cleanings,
+  onBack,
 }: {
   cleanerName: string | null;
   today: string;
   cleanings: CalCleaning[];
+  onBack?: () => void;
 }) {
   const [view, setView] = useState<View>("week");
   const [anchor, setAnchor] = useState(today); // focal date for day/week/month
@@ -92,7 +94,17 @@ export function CleanerCalendar({
   return (
     <main className="min-h-screen bg-cream px-4 py-8">
       <div className="mx-auto w-full max-w-xl">
-        <div className="h-1.5 w-12 rounded-full bg-accent" />
+        {onBack ? (
+          <button
+            type="button"
+            onClick={onBack}
+            className="text-xs uppercase tracking-wide text-accent-text hover:text-accent-dark"
+          >
+            ‹ Back to week
+          </button>
+        ) : (
+          <div className="h-1.5 w-12 rounded-full bg-accent" />
+        )}
         <h1 className="mt-4 text-2xl tracking-tight text-ink">Hi {firstName},</h1>
         <p className="mt-1 text-sm text-muted">Your cleaning schedule.</p>
 
@@ -129,9 +141,6 @@ export function CleanerCalendar({
             <WeekView
               anchor={anchor}
               setAnchor={setAnchor}
-              selected={selected}
-              setSelected={setSelected}
-              count={count}
               list={list}
               today={today}
               open={open}
@@ -375,13 +384,10 @@ function DayView({
   );
 }
 
-// ---- Week ----
+// ---- Week (day-by-day agenda: building names listed under each date) ----
 function WeekView({
   anchor,
   setAnchor,
-  selected,
-  setSelected,
-  count,
   list,
   today,
   open,
@@ -389,9 +395,6 @@ function WeekView({
 }: {
   anchor: string;
   setAnchor: (s: string) => void;
-  selected: string;
-  setSelected: (s: string) => void;
-  count: (s: string) => number;
   list: (s: string) => CalCleaning[];
   today: string;
   open: Set<string>;
@@ -400,57 +403,40 @@ function WeekView({
   const ws = weekStart(anchor);
   const days = Array.from({ length: 7 }, (_, i) => addDays(ws, i));
   const we = days[6];
-  // keep selected within the visible week
-  const sel = days.includes(selected) ? selected : days.includes(today) ? today : ws;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-5">
       <NavBar
         label={`${fmtDate(ws)} – ${fmtDate(we)}`}
         onPrev={() => setAnchor(addDays(ws, -7))}
         onNext={() => setAnchor(addDays(ws, 7))}
       />
-      <div className="grid grid-cols-7 gap-1">
-        {days.map((d) => {
-          const active = d === sel;
-          const n = count(d);
-          return (
-            <button
-              key={d}
-              type="button"
-              onClick={() => setSelected(d)}
-              className={`flex flex-col items-center gap-1 rounded-xl py-2 transition ${
-                active ? "bg-ink text-white" : "bg-white text-ink hover:bg-warm"
-              } ${d === today && !active ? "ring-1 ring-accent" : ""}`}
-            >
-              <span className="text-[11px] uppercase tracking-wide opacity-80">
-                {dowName(d, "narrow")}
-              </span>
-              <span className="text-base font-semibold leading-none">
-                {Number(d.slice(8, 10))}
-              </span>
-              <span
-                className={`inline-flex h-5 min-w-[1.25rem] items-center justify-center rounded-full px-1 text-xs font-semibold ${
-                  n === 0
-                    ? "text-transparent"
-                    : active
-                      ? "bg-white/20 text-white"
-                      : "bg-accent text-white"
-                }`}
-              >
-                {n === 0 ? "0" : n}
-              </span>
-            </button>
-          );
-        })}
-      </div>
-      <div>
-        <p className="mb-2 text-sm text-muted">
-          {dowName(sel, "long")} {fmtDate(sel)} · {count(sel)} cleaning
-          {count(sel) === 1 ? "" : "s"}
-        </p>
-        <CardList items={list(sel)} open={open} setOpen={setOpen} empty="No cleanings this day." />
-      </div>
+      {days.map((d) => {
+        const items = list(d);
+        const isToday = d === today;
+        return (
+          <div key={d}>
+            <div className="mb-2 flex items-center justify-between border-b border-stone/40 pb-1">
+              <p className="text-sm font-semibold">
+                <span className={isToday ? "text-accent-text" : "text-ink"}>
+                  {dowName(d, "long")}
+                </span>{" "}
+                <span className="font-normal text-muted">{fmtDate(d)}</span>
+              </p>
+              <CountPill n={items.length} />
+            </div>
+            {items.length === 0 ? (
+              <p className="text-sm text-muted">No cleanings.</p>
+            ) : (
+              <div className="flex flex-col gap-3">
+                {items.map((c) => (
+                  <CleaningCard key={c.id} c={c} open={open} setOpen={setOpen} />
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
     </div>
   );
 }
