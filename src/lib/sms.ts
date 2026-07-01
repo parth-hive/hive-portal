@@ -24,7 +24,9 @@ import { logSms, type SmsType } from "./sms-log";
 const ZOOM_TOKEN_URL = "https://zoom.us/oauth/token";
 const ZOOM_SMS_URL = "https://api.zoom.us/v2/phone/sms/messages";
 
-export type SmsResult = { ok: true } | { ok: false; error: string };
+export type SmsResult =
+  | { ok: true }
+  | { ok: false; skipped?: boolean; error: string };
 
 /** Optional metadata so the send is recorded in sms_log under the right type. */
 export type SmsMeta = { type?: SmsType; context?: string | null };
@@ -115,7 +117,7 @@ export async function sendSms(
 ): Promise<SmsResult> {
   const type: SmsType = meta?.type ?? "manual";
   const context = meta?.context ?? null;
-  const log = (status: "sent" | "failed", error?: string) =>
+  const log = (status: "sent" | "failed" | "skipped", error?: string) =>
     logSms({ type, recipient: to, body, status, error: error ?? null, context });
 
   const cfg = config();
@@ -127,9 +129,11 @@ export async function sendSms(
 
   const toNumber = toE164(to);
   if (!toNumber) {
-    const error = `Unusable phone number: ${to}`;
-    await log("failed", error);
-    return { ok: false, error };
+    // Not a US/Canada (+1) number — Zoom Phone SMS only reaches +1, so we
+    // intentionally skip it (recorded as 'skipped', not a failure).
+    const error = `Skipped — not a US/Canada number: ${to}`;
+    await log("skipped", error);
+    return { ok: false, skipped: true, error };
   }
   // Zoom wants both numbers in E.164; normalize the configured sender too.
   const fromNumber = toE164(cfg.from) ?? cfg.from;

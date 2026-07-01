@@ -12,7 +12,7 @@ type LogRow = {
   type: string;
   recipient: string;
   body: string | null;
-  status: "sent" | "failed";
+  status: "sent" | "failed" | "skipped";
   error: string | null;
   context: string | null;
   created_at: string;
@@ -50,7 +50,9 @@ export default async function SmsLogPage({ searchParams }: PageProps) {
   const sp = await searchParams;
   const typeFilter = isType(sp.type) ? sp.type : null;
   const statusFilter =
-    sp.status === "sent" || sp.status === "failed" ? sp.status : null;
+    sp.status === "sent" || sp.status === "failed" || sp.status === "skipped"
+      ? sp.status
+      : null;
 
   // sms_log is new; types.ts isn't regenerated, so cast through any.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -124,6 +126,9 @@ export default async function SmsLogPage({ searchParams }: PageProps) {
           <Link href={hrefWith({ status: "failed" })} className={chip(statusFilter === "failed")}>
             Failed
           </Link>
+          <Link href={hrefWith({ status: "skipped" })} className={chip(statusFilter === "skipped")}>
+            Skipped
+          </Link>
         </div>
       </div>
 
@@ -174,6 +179,13 @@ export default async function SmsLogPage({ searchParams }: PageProps) {
                     {r.status === "sent" ? (
                       <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-green-900">
                         Sent
+                      </span>
+                    ) : r.status === "skipped" ? (
+                      <span
+                        title={r.error ?? undefined}
+                        className="rounded-full bg-warm px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-muted"
+                      >
+                        Skipped
                       </span>
                     ) : (
                       <span

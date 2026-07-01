@@ -27,7 +27,7 @@ export async function logSms(entry: {
   type: SmsType;
   recipient: string;
   body: string;
-  status: "sent" | "failed";
+  status: "sent" | "failed" | "skipped";
   error?: string | null;
   context?: string | null;
 }): Promise<void> {
