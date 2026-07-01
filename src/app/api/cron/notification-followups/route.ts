@@ -87,7 +87,10 @@ export async function GET(req: NextRequest) {
     .from("room_change_events")
     .select("id, room_id, field, from_value, to_value, changed_at")
     .is("followup_sent_at", null)
-    .lte("changed_at", cutoff);
+    .lte("changed_at", cutoff)
+    // Inventory (listing_action) changes get only the immediate email — no 24h
+    // "did you act on it yet?" follow-up. Occupancy (status) changes still do.
+    .neq("field", "listing_action");
 
   if (error) {
     return NextResponse.json({ error: error.message, lease, cleaningSchedule, flush }, { status: 500 });
