@@ -221,20 +221,25 @@ export default async function InventoryPage({ searchParams }: PageProps) {
 
   // Ads-posted tally per person. Each ad's `posted_by` is a snapshot of whoever
   // saved it (display name, else email), and every ad counts — two ads by the
-  // same person (even on one room) count twice. We count across all rooms (not
-  // just the currently-listed inventory) so the numbers reflect total ads each
-  // person has posted. The list is seeded with everyone on the
-  // notification-recipients list (so configured people show even with zero ads)
-  // and then unioned with anyone who has posted an ad but isn't on that list —
-  // matching a recipient to their posts by either their label or email.
+  // same person (even on one room) count twice. We count only ads on rooms
+  // currently in inventory (the same filter the table uses), so ads left behind
+  // on a since-filled/unlisted room stop counting once that room drops out of
+  // the listing. The list is seeded with everyone on the notification-recipients
+  // list (so configured people show even with zero ads) and then unioned with
+  // anyone who has posted an ad but isn't on that list — matching a recipient to
+  // their posts by either their label or email.
   const { data: recipientData } = await supabase
     .from("notification_recipients")
     .select("id, email, label")
     .returns<{ id: string; email: string; label: string | null }[]>();
 
+  // Only rooms currently listed count toward the tally.
+  const inventoryRoomIds = new Set(rooms.map((r) => r.id));
+
   // key (lowercased poster string) -> { display name, count }
   const adCountByPoster = new Map<string, { name: string; count: number }>();
   for (const a of allAds) {
+    if (!inventoryRoomIds.has(a.room_id)) continue;
     const raw = a.posted_by?.trim();
     if (!raw) continue;
     const key = raw.toLowerCase();
