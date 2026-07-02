@@ -11,6 +11,9 @@ import {
 } from "@/lib/inventory-filter";
 
 export const dynamic = "force-dynamic";
+// Building the workbook scales with room/ad count; lift the ceiling off
+// Vercel's default so a large export can't get hard-killed mid-write.
+export const maxDuration = 60;
 
 type PropertyRel = {
   building_name: string | null;

@@ -17,6 +17,12 @@ import { todayISO, currentRentCycle } from "@/lib/date";
 import { isMaster } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
+// sendBalanceReminders (see actions.ts) sends an email + SMS per owing tenant,
+// strictly serial (~2s each), so a full roster can outrun Vercel's default
+// timeout and get hard-killed mid-send. Match the rent-reminder cron's 60s
+// ceiling so the whole book can go out in one invocation. Per the Next docs,
+// maxDuration set at the page level covers all Server Actions used on it.
+export const maxDuration = 60;
 
 type TenantRel = {
   id: string;

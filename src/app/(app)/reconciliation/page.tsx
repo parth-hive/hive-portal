@@ -7,6 +7,11 @@ import { BulkPaymentForm, type BulkTenant } from "./bulk-payment-form";
 import { isMaster } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
+// runReconciliation (spreadsheet parse + two storage uploads) and postPayments
+// (one DB upsert per matched deposit) both scale with statement size. Give
+// their Server Actions the same 60s ceiling the crons use so a large bank
+// file can't outrun Vercel's default timeout.
+export const maxDuration = 60;
 
 type Run = {
   id: string;

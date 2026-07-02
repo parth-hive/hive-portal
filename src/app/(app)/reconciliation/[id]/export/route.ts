@@ -3,6 +3,9 @@ import ExcelJS from "exceljs";
 import { createClient } from "@/lib/supabase/server";
 
 export const dynamic = "force-dynamic";
+// Building the workbook scales with match count; lift the ceiling off Vercel's
+// default so a large export can't get hard-killed mid-write.
+export const maxDuration = 60;
 
 type RouteContext = { params: Promise<{ id: string }> };
 

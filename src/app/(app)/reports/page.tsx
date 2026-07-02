@@ -10,6 +10,10 @@ import {
 } from "@/lib/analytics/collections";
 
 export const dynamic = "force-dynamic";
+// The collection analytics pull every tenancy + payment and aggregate them in
+// memory; this render grows with payment history, so lift the timeout ceiling
+// off Vercel's default to the 60s the rest of the portal's heavy work uses.
+export const maxDuration = 60;
 
 function fmtMoney(n: number) {
   return `$${Math.round(n).toLocaleString()}`;

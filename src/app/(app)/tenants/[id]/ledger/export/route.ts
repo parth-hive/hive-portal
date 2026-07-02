@@ -11,6 +11,9 @@ import {
 } from "@/lib/rent";
 
 export const dynamic = "force-dynamic";
+// Building the workbook scales with ledger-entry count; lift the ceiling off
+// Vercel's default so a large export can't get hard-killed mid-write.
+export const maxDuration = 60;
 
 type PropertyRel = {
   building_name: string | null;
