@@ -24,6 +24,9 @@ export const MONTHLY_CAP = Number(process.env.RESEND_MONTHLY_CAP) || 3000;
 
 export type ResendPayload = {
   to: string | string[];
+  /** Hidden recipients. Used by the bulk rent-reminder blast, which sets `to`
+   *  to the from-address and puts every tenant here so they can't see each other. */
+  bcc?: string | string[];
   from: string;
   replyTo?: string;
   subject: string;
@@ -99,7 +102,10 @@ function hasHeadroom(u: ResendUsage): boolean {
 }
 
 function recipientOf(payload: ResendPayload): string {
-  return Array.isArray(payload.to) ? payload.to.join(", ") : payload.to;
+  // For a BCC blast the visible `to` is just the from-address, so log the bcc
+  // list instead — that's who actually received it.
+  const audience = payload.bcc ?? payload.to;
+  return Array.isArray(audience) ? audience.join(", ") : audience;
 }
 
 /** Actually hit the Resend API and log the outcome to email_log. */
@@ -125,6 +131,7 @@ async function dispatch(
   const { data, error } = await resend.emails.send({
     from: payload.from,
     to: payload.to,
+    bcc: payload.bcc,
     replyTo: payload.replyTo,
     subject: payload.subject,
     text: payload.text,
@@ -156,11 +163,18 @@ async function enqueue(
   meta: ResendLogMeta,
 ): Promise<void> {
   const to = Array.isArray(payload.to) ? payload.to : [payload.to];
+  const bcc =
+    payload.bcc == null
+      ? null
+      : Array.isArray(payload.bcc)
+        ? payload.bcc
+        : [payload.bcc];
   // email_queue post-dates the generated Supabase types.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (sb as any).from("email_queue").insert({
     type: meta.type,
     to_addrs: to,
+    bcc_addrs: bcc,
     from_addr: payload.from,
     reply_to: payload.replyTo ?? null,
     subject: payload.subject,
@@ -197,6 +211,7 @@ type QueueRow = {
   id: string;
   type: string;
   to_addrs: string[];
+  bcc_addrs: string[] | null;
   from_addr: string;
   reply_to: string | null;
   subject: string;
@@ -235,7 +250,7 @@ export async function flushEmailQueue(sb: SupabaseClient): Promise<FlushResult> 
     const { data: rows } = await (sb as any)
       .from("email_queue")
       .select(
-        "id, type, to_addrs, from_addr, reply_to, subject, text_body, html_body, context, attempts",
+        "id, type, to_addrs, bcc_addrs, from_addr, reply_to, subject, text_body, html_body, context, attempts",
       )
       .eq("status", "pending")
       .order("created_at", { ascending: true })
@@ -245,6 +260,7 @@ export async function flushEmailQueue(sb: SupabaseClient): Promise<FlushResult> 
       const result = await dispatch(
         {
           to: row.to_addrs,
+          bcc: row.bcc_addrs ?? undefined,
           from: row.from_addr,
           replyTo: row.reply_to ?? undefined,
           subject: row.subject,

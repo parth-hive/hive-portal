@@ -20,6 +20,9 @@ function fromHeader(user: string): string {
 
 export type DraftInput = {
   to: string;
+  /** Hidden recipients. Used by the bulk NY rent-reminder blast: `to` is the
+   *  account itself and every tenant goes here so they can't see each other. */
+  bcc?: string | string[];
   subject: string;
   /** Optional HTML body. When omitted, a plain text-only message is sent. */
   html?: string;
@@ -120,6 +123,7 @@ export async function sendGmailMessage(input: DraftInput): Promise<SendResult> {
     const info = await makeTransport(cfg).sendMail({
       from: fromHeader(cfg.user),
       to: input.to,
+      bcc: input.bcc,
       subject: input.subject,
       text: input.text,
       html: input.html,

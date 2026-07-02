@@ -374,6 +374,7 @@ export type Database = {
       email_queue: {
         Row: {
           attempts: number
+          bcc_addrs: string[] | null
           context: string | null
           created_at: string
           from_addr: string
@@ -390,6 +391,7 @@ export type Database = {
         }
         Insert: {
           attempts?: number
+          bcc_addrs?: string[] | null
           context?: string | null
           created_at?: string
           from_addr: string
@@ -406,6 +408,7 @@ export type Database = {
         }
         Update: {
           attempts?: number
+          bcc_addrs?: string[] | null
           context?: string | null
           created_at?: string
           from_addr?: string
@@ -971,6 +974,7 @@ export type Database = {
           period_month: string
           resend_id: string | null
           sent_at: string | null
+          sms_sent_at: string | null
           tenancy_id: string
           tenant_id: string
         }
@@ -982,6 +986,7 @@ export type Database = {
           period_month: string
           resend_id?: string | null
           sent_at?: string | null
+          sms_sent_at?: string | null
           tenancy_id: string
           tenant_id: string
         }
@@ -993,6 +998,7 @@ export type Database = {
           period_month?: string
           resend_id?: string | null
           sent_at?: string | null
+          sms_sent_at?: string | null
           tenancy_id?: string
           tenant_id?: string
         }

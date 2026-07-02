@@ -1,22 +1,28 @@
 /**
  * Monthly rent-reminder cron — fires on the LAST DAY of each month at 11:00 AM
- * Eastern. We email AND text every active tenant a generic reminder.
+ * Eastern. Every active tenant (no move-out scheduled) gets a generic reminder.
+ *
+ * Email goes out as TWO bulk BCC blasts, not one email per tenant: one Resend
+ * email for non-NY tenants, one unbranded Gmail for NY, everyone in BCC so they
+ * can't see each other. SMS can't be BCC'd, so texts stay one-per-tenant and
+ * time-budgeted (see the SMS phase). The rent_reminder_emails unique
+ * (tenancy_id, period_month) row is the idempotency record for both channels
+ * (sms_sent_at tracks the text separately).
  *
  * Vercel cron schedules are UTC and can't express "last day of month" or follow
  * DST, so the route is scheduled daily at both 15:00 and 16:00 UTC (the two UTC
  * times that map to 11 AM ET across EDT/EST) and this handler gates on the
  * actual Eastern wall-clock: it only sends when it's 11 AM ET on the month's
- * last day. The rent_reminder_emails unique (tenancy_id, period_month)
- * constraint still guards against any double-send. Pass ?force=1 to bypass the
- * date/time gate for manual testing.
+ * last day. Pass ?force=1 to bypass the date/time gate for manual testing.
  */
 
 import { NextResponse, type NextRequest, after } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import {
-  sendRentReminder,
-  sendRentReminderGmail,
+  sendRentReminderBulk,
+  sendRentReminderGmailBulk,
   REMINDER_TEXT,
+  type BulkSendResult,
 } from "@/lib/email";
 import { sendSms } from "@/lib/sms";
 import { todayISO } from "@/lib/date";
@@ -106,10 +112,8 @@ export async function GET(req: NextRequest) {
     force && periodParam && /^\d{4}-\d{2}$/.test(periodParam)
       ? periodParam
       : todayMonth();
-  const today = todayISO();
-
-  // Active tenancies whose tenant has an email and whose move_out_date (if set)
-  // is after today.
+  // Active tenancies whose tenant has an email and who have no move-out set
+  // (a scheduled move-out, past or future, is filtered out per-row below).
   const { data: tenancies, error } = await supabase
     .from("tenancies")
     .select(
@@ -123,15 +127,20 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 
-  // Everyone already handled for this period — skip them up front so each
-  // (possibly continued) invocation spends its whole budget on fresh sends
-  // instead of re-colliding with the unique constraint one row at a time.
+  // Rows already written for this period tell us who's been emailed (email
+  // idempotency, per tenancy) and who's been texted (sms_sent_at). A continued
+  // invocation uses these to avoid re-sending either channel.
   const { data: existingRows } = await supabase
     .from("rent_reminder_emails")
-    .select("tenancy_id")
+    .select("tenancy_id, sms_sent_at")
     .eq("period_month", period);
-  const alreadyDone = new Set(
+  const alreadyEmailed = new Set(
     (existingRows ?? []).map((r: { tenancy_id: string }) => r.tenancy_id),
+  );
+  const alreadyTexted = new Set(
+    (existingRows ?? [])
+      .filter((r: { sms_sent_at: string | null }) => r.sms_sent_at != null)
+      .map((r: { tenancy_id: string }) => r.tenancy_id),
   );
 
   type PropertyRel = { is_new_york: boolean };
@@ -155,99 +164,138 @@ export async function GET(req: NextRequest) {
     return property?.is_new_york ?? false;
   };
 
-  const rows = (tenancies ?? []) as Row[];
+  // Eligible = active tenant with an email and no move-out scheduled. A set
+  // move_out_date (past or future) drops them from the general reminder; balance
+  // reminders, gated on an actual balance, still go out separately.
+  type Eligible = {
+    tenancyId: string;
+    tenantId: string;
+    email: string;
+    phone: string | null;
+    isNY: boolean;
+  };
+  let skipped = 0;
+  const eligible: Eligible[] = [];
+  for (const row of (tenancies ?? []) as Row[]) {
+    const tenant = Array.isArray(row.tenants) ? row.tenants[0] : row.tenants;
+    const email = tenant?.email?.trim();
+    if (!email || row.move_out_date) {
+      skipped++;
+      continue;
+    }
+    eligible.push({
+      tenancyId: row.id,
+      tenantId: row.tenant_id,
+      email,
+      phone: tenant?.phone?.trim() || null,
+      isNY: isNewYork(row),
+    });
+  }
+
   let sent = 0;
   let queued = 0;
-  let skipped = 0;
   let failed = 0;
   let texted = 0;
   let remaining = 0;
   const errors: Array<{ tenancy_id: string; error: string }> = [];
 
+  // --- Email phase: two bulk BCC blasts, sent once per period ----------------
+  // Reserve a per-(tenancy, period) row for everyone not yet emailed. Upsert
+  // with ignoreDuplicates so a concurrent/continued invocation that already
+  // reserved a tenant gets that row back as *not* inserted — we only blast the
+  // rows WE inserted, so the email can never go out twice.
+  const toReserve = eligible.filter((e) => !alreadyEmailed.has(e.tenancyId));
+  let reserved: Eligible[] = [];
+  if (toReserve.length) {
+    const { data: inserted, error: reserveErr } = await supabase
+      .from("rent_reminder_emails")
+      .upsert(
+        toReserve.map((e) => ({
+          tenancy_id: e.tenancyId,
+          tenant_id: e.tenantId,
+          period_month: period,
+          email_to: e.email,
+        })),
+        { onConflict: "tenancy_id,period_month", ignoreDuplicates: true },
+      )
+      .select("tenancy_id");
+    if (reserveErr) {
+      return NextResponse.json({ error: reserveErr.message }, { status: 500 });
+    }
+    const insertedIds = new Set(
+      (inserted ?? []).map((r: { tenancy_id: string }) => r.tenancy_id),
+    );
+    reserved = toReserve.filter((e) => insertedIds.has(e.tenancyId));
+  }
+
+  // Stamp the reserved rows with the blast's outcome. At current roster size a
+  // channel is a single chunk, so the batch result maps 1:1 onto these rows: all
+  // delivered → sent_at now; wholly failed → error_text; wholly queued → left
+  // pending (sent_at null) for the daily queue flush to deliver.
+  const markRows = async (group: Eligible[], r: BulkSendResult) => {
+    if (!group.length) return;
+    const patch =
+      r.attempted > 0 && r.failed === r.attempted
+        ? { error_text: r.errors[0] ?? "send failed" }
+        : r.sent > 0
+          ? { sent_at: new Date().toISOString() }
+          : null; // fully queued → stays pending until the flush
+    if (!patch) return;
+    await supabase
+      .from("rent_reminder_emails")
+      .update(patch)
+      .in(
+        "tenancy_id",
+        group.map((e) => e.tenancyId),
+      )
+      .eq("period_month", period);
+  };
+
+  const tally = (r: BulkSendResult, label: string) => {
+    sent += r.sent;
+    queued += r.queued;
+    failed += r.failed;
+    if (r.errors.length) {
+      errors.push({ tenancy_id: label, error: r.errors.join("; ") });
+    }
+  };
+
+  // Non-NY → one Resend BCC blast; NY → one unbranded Gmail BCC blast.
+  const reservedNonNY = reserved.filter((e) => !e.isNY);
+  if (reservedNonNY.length) {
+    const r = await sendRentReminderBulk(reservedNonNY.map((e) => e.email));
+    tally(r, "resend_bulk");
+    await markRows(reservedNonNY, r);
+  }
+  const reservedNY = reserved.filter((e) => e.isNY);
+  if (reservedNY.length) {
+    const r = await sendRentReminderGmailBulk(reservedNY.map((e) => e.email));
+    tally(r, "gmail_bulk");
+    await markRows(reservedNY, r);
+  }
+
+  // --- SMS phase: still one text per tenant, resumable across invocations ----
+  // A text can't be BCC'd, so this stays serial and time-budgeted. Each success
+  // sets sms_sent_at so a continuation never re-texts the same tenant; whoever's
+  // left when the budget runs out is handed to a fresh invocation below.
   const startedAt = Date.now();
-
-  for (const row of rows) {
-    const tenant = Array.isArray(row.tenants) ? row.tenants[0] : row.tenants;
-    const email = tenant?.email?.trim();
-    if (!email) {
-      skipped++;
-      continue;
-    }
-    if (row.move_out_date && row.move_out_date <= today) {
-      skipped++;
-      continue;
-    }
-    // Handled on an earlier (possibly timed-out) pass — nothing to do.
-    if (alreadyDone.has(row.id)) {
-      skipped++;
-      continue;
-    }
-
-    // Out of time for this invocation: stop between tenants and let a fresh
-    // invocation pick up whoever's left (counted here so we know to continue).
+  for (const e of eligible) {
+    if (!e.phone || alreadyTexted.has(e.tenancyId)) continue;
     if (Date.now() - startedAt > BUDGET_MS) {
       remaining++;
       continue;
     }
-
-    // Reserve the slot first — relies on the unique (tenancy_id, period_month)
-    // constraint to prevent double-sends from concurrent runs.
-    const { error: lockErr } = await supabase
-      .from("rent_reminder_emails")
-      .insert({
-        tenancy_id: row.id,
-        tenant_id: row.tenant_id,
-        period_month: period,
-        email_to: email,
-      });
-    if (lockErr) {
-      // 23505 = unique_violation → already sent this month, skip silently.
-      if ((lockErr as { code?: string }).code === "23505") {
-        skipped++;
-        continue;
-      }
-      failed++;
-      errors.push({ tenancy_id: row.id, error: lockErr.message });
-      continue;
-    }
-
-    // New York tenants get a plain, unbranded reminder from Vineet's personal
-    // Gmail; everyone else goes through the default Resend sender.
-    const result = isNewYork(row)
-      ? await sendRentReminderGmail(email)
-      : await sendRentReminder(email);
-
-    // A deferred (queued) send has no resend_id yet and will go out via the
-    // daily queue flush; leave sent_at null so it reads as still-pending.
-    const delivered = result.ok && !("queued" in result) ? result : null;
-    await supabase
-      .from("rent_reminder_emails")
-      .update({
-        sent_at: delivered ? new Date().toISOString() : null,
-        resend_id: delivered ? delivered.id : null,
-        error_text: result.ok ? null : result.error,
-      })
-      .eq("tenancy_id", row.id)
-      .eq("period_month", period);
-
-    if (result.ok) {
-      if ("queued" in result) queued++;
-      else sent++;
-    } else {
-      failed++;
-      errors.push({ tenancy_id: row.id, error: result.error });
-    }
-
-    // Also text the tenant the same reminder when a phone is on file and SMS is
-    // configured. SMS isn't gated by the email idempotency lock, but the lock
-    // above already prevents the whole row from being processed twice a month.
-    const phone = tenant?.phone?.trim();
-    if (phone) {
-      const smsRes = await sendSms(phone, REMINDER_TEXT, {
-        type: "rent_reminder",
-        context: tenant?.email ?? null,
-      });
-      if (smsRes.ok) texted++;
+    const smsRes = await sendSms(e.phone, REMINDER_TEXT, {
+      type: "rent_reminder",
+      context: e.email,
+    });
+    if (smsRes.ok) {
+      texted++;
+      await supabase
+        .from("rent_reminder_emails")
+        .update({ sms_sent_at: new Date().toISOString() })
+        .eq("tenancy_id", e.tenancyId)
+        .eq("period_month", period);
     }
   }
 
@@ -278,7 +326,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     period,
-    total: rows.length,
+    total: eligible.length,
     sent,
     queued,
     skipped,

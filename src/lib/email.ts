@@ -166,18 +166,69 @@ Vineet`;
   return { subject, text };
 }
 
-export async function sendRentReminder(to: string): Promise<SendResult> {
-  return sendViaResend(
-    {
-      to,
-      from: resendFrom(),
-      replyTo: process.env.RESEND_REPLY_TO,
-      subject: REMINDER_SUBJECT,
-      text: REMINDER_TEXT,
-      html: REMINDER_HTML,
-    },
-    { type: "rent_reminder" },
-  );
+// ----------------------------------------------------------------------------
+// Bulk BCC rent reminders. The general monthly reminder carries no per-tenant
+// detail (no name, no amount), so instead of one email per tenant we send a
+// single BCC blast per channel — one Resend email for non-NY tenants, one Gmail
+// email for NY. Recipients go in BCC so they never see each other. Providers
+// cap recipients per message, so the lists are chunked; at current roster size
+// each channel is a single send.
+// ----------------------------------------------------------------------------
+
+/** Aggregate outcome of a bulk send, counted by recipient. */
+export type BulkSendResult = {
+  attempted: number;
+  sent: number; // recipients whose chunk went out immediately
+  queued: number; // recipients whose chunk was parked over the Resend cap
+  failed: number; // recipients whose chunk errored
+  errors: string[];
+};
+
+// Resend caps a single send at 50 recipients (to+cc+bcc); Gmail SMTP tolerates
+// ~100 per message. Stay comfortably under both.
+const RESEND_BCC_CHUNK = 50;
+const GMAIL_BCC_CHUNK = 90;
+
+function chunk<T>(items: T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
+  return out;
+}
+
+/** One Resend email per ≤50-recipient chunk, tenants in BCC (non-NY roster). */
+export async function sendRentReminderBulk(
+  recipients: string[],
+): Promise<BulkSendResult> {
+  const res: BulkSendResult = {
+    attempted: recipients.length,
+    sent: 0,
+    queued: 0,
+    failed: 0,
+    errors: [],
+  };
+  for (const group of chunk(recipients, RESEND_BCC_CHUNK)) {
+    const r = await sendViaResend(
+      {
+        to: resendFrom(), // visible recipient is us; tenants are hidden in bcc
+        bcc: group,
+        from: resendFrom(),
+        replyTo: process.env.RESEND_REPLY_TO,
+        subject: REMINDER_SUBJECT,
+        text: REMINDER_TEXT,
+        html: REMINDER_HTML,
+      },
+      { type: "rent_reminder" },
+    );
+    if (!r.ok) {
+      res.failed += group.length;
+      res.errors.push(r.error);
+    } else if ("queued" in r) {
+      res.queued += group.length;
+    } else {
+      res.sent += group.length;
+    }
+  }
+  return res;
 }
 
 // ----- New York variants -----
@@ -186,23 +237,43 @@ export async function sendRentReminder(to: string): Promise<SendResult> {
 // The reminder copy below is intentionally identical to the Resend versions,
 // which already carry no branding; only the channel and format differ.
 
-export async function sendRentReminderGmail(to: string): Promise<SendResult> {
-  const result = await sendGmailMessage({
-    to,
-    subject: REMINDER_SUBJECT,
-    text: REMINDER_TEXT,
-  });
-  await logEmail({
-    type: "rent_reminder",
-    recipient: to,
-    subject: REMINDER_SUBJECT,
-    context: "new_york_gmail",
-    channel: "gmail",
-    status: result.ok ? "sent" : "failed",
-    error: result.ok ? null : result.error,
-    resend_id: result.ok ? result.id || null : null,
-  });
-  return result;
+/** One Gmail email per ≤90-recipient chunk, NY tenants in BCC. Unbranded, from
+ *  "Vineet", `to` the account itself. Each chunk logs one email_log row. */
+export async function sendRentReminderGmailBulk(
+  recipients: string[],
+): Promise<BulkSendResult> {
+  const res: BulkSendResult = {
+    attempted: recipients.length,
+    sent: 0,
+    queued: 0,
+    failed: 0,
+    errors: [],
+  };
+  for (const group of chunk(recipients, GMAIL_BCC_CHUNK)) {
+    const result = await sendGmailMessage({
+      to: process.env.GMAIL_USER ?? "",
+      bcc: group,
+      subject: REMINDER_SUBJECT,
+      text: REMINDER_TEXT,
+    });
+    await logEmail({
+      type: "rent_reminder",
+      recipient: group.join(", "),
+      subject: REMINDER_SUBJECT,
+      context: "new_york_gmail",
+      channel: "gmail",
+      status: result.ok ? "sent" : "failed",
+      error: result.ok ? null : result.error,
+      resend_id: result.ok ? result.id || null : null,
+    });
+    if (!result.ok) {
+      res.failed += group.length;
+      res.errors.push(result.error);
+    } else {
+      res.sent += group.length;
+    }
+  }
+  return res;
 }
 
 export async function sendBalanceReminderGmail(
