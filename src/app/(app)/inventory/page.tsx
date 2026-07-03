@@ -39,14 +39,8 @@ type PropertyRel = {
   street_address: string;
   unit_number: string;
   neighborhood: string | null;
-  has_gym: boolean;
-  has_elevator: boolean;
-  has_parking: boolean;
-  has_doorman: boolean;
-  has_rooftop: boolean;
-  has_lounge: boolean;
-  laundry_in_building: boolean;
-  in_unit_laundry: boolean;
+  unit_amenities: string[];
+  building_amenities: string[];
 };
 
 type TenantRel = { id: string; full_name: string };
@@ -68,7 +62,6 @@ type Row = {
   status: "occupied" | "available" | "reserved" | "maintenance";
   marketing_description: string | null;
   photos_url: string | null;
-  has_ac: boolean;
   has_private_bathroom: boolean;
   listing_action: Action;
   // Every ad posted for this room (see room_ads); attached after the query.
@@ -122,11 +115,10 @@ export default async function InventoryPage({ searchParams }: PageProps) {
     .from("rooms")
     .select(
       `id, room_number, base_rent, bundle_fee, total_rent, available_from, status,
-       marketing_description, photos_url, has_ac, has_private_bathroom,
+       marketing_description, photos_url, has_private_bathroom,
        listing_action,
        properties(id, building_name, street_address, unit_number, neighborhood,
-                  has_gym, has_elevator, has_parking, has_doorman, has_rooftop, has_lounge,
-                  laundry_in_building, in_unit_laundry),
+                  unit_amenities, building_amenities),
        tenancies(id, status, start_date, move_out_date, tenants(id, full_name))`,
     )
     .or(
@@ -605,14 +597,8 @@ function InventoryRow({
           propertyId={p?.id ?? null}
           values={{
             has_private_bathroom: room.has_private_bathroom,
-            has_gym: p?.has_gym ?? false,
-            has_elevator: p?.has_elevator ?? false,
-            has_parking: p?.has_parking ?? false,
-            has_doorman: p?.has_doorman ?? false,
-            has_rooftop: p?.has_rooftop ?? false,
-            has_lounge: p?.has_lounge ?? false,
-            laundry_in_building: p?.laundry_in_building ?? false,
-            in_unit_laundry: p?.in_unit_laundry ?? false,
+            unit_amenities: p?.unit_amenities ?? [],
+            building_amenities: p?.building_amenities ?? [],
           }}
         >
           <Amenities room={room} property={p} />
@@ -691,14 +677,8 @@ function Amenities({
 }) {
   const tags: string[] = [];
   if (room.has_private_bathroom) tags.push("Private bath");
-  if (property?.has_gym) tags.push("Gym");
-  if (property?.has_elevator) tags.push("Elevator");
-  if (property?.has_doorman) tags.push("Doorman");
-  if (property?.has_parking) tags.push("Parking");
-  if (property?.has_rooftop) tags.push("Rooftop");
-  if (property?.has_lounge) tags.push("Lounge");
-  if (property?.in_unit_laundry) tags.push("In-unit laundry");
-  else if (property?.laundry_in_building) tags.push("Laundry");
+  tags.push(...(property?.unit_amenities ?? []));
+  tags.push(...(property?.building_amenities ?? []));
 
   if (tags.length === 0) {
     return <span className="text-xs text-muted">—</span>;

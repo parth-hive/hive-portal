@@ -4,6 +4,10 @@ import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import type { Database } from "@/lib/supabase/types";
 import { updateRoomsWithNotification } from "@/lib/notifications";
+import {
+  normalizeUnitAmenities,
+  normalizeBuildingAmenities,
+} from "@/lib/amenities";
 
 // Accept only http(s) web links for ad / photo URLs: a scheme, a host with a
 // dot (or localhost), and no spaces. Guards against pasted plain text or
@@ -169,20 +173,15 @@ export async function setRoomPhotosUrl(
 export type AmenityValues = {
   // Room-level (rooms table)
   has_private_bathroom: boolean;
-  // Building-level (properties table — applies to every room in the unit)
-  has_gym: boolean;
-  has_elevator: boolean;
-  has_parking: boolean;
-  has_doorman: boolean;
-  has_rooftop: boolean;
-  has_lounge: boolean;
-  laundry_in_building: boolean;
-  in_unit_laundry: boolean;
+  // Unit + building amenities (properties table — apply to every room in the unit)
+  unit_amenities: string[];
+  building_amenities: string[];
 };
 
 /**
- * Edit a room's amenities inline. Room-level flags save to the room; building
- * amenities save to the parent property (and thus apply to all of its rooms).
+ * Edit a room's amenities inline. The private-bath flag saves to the room;
+ * unit/building amenities save to the parent property (and thus apply to all
+ * of its rooms).
  */
 export async function setRoomAmenities(
   roomId: string,
@@ -203,14 +202,8 @@ export async function setRoomAmenities(
     const { error: propErr } = await supabase
       .from("properties")
       .update({
-        has_gym: a.has_gym,
-        has_elevator: a.has_elevator,
-        has_parking: a.has_parking,
-        has_doorman: a.has_doorman,
-        has_rooftop: a.has_rooftop,
-        has_lounge: a.has_lounge,
-        laundry_in_building: a.laundry_in_building,
-        in_unit_laundry: a.in_unit_laundry,
+        unit_amenities: normalizeUnitAmenities(a.unit_amenities),
+        building_amenities: normalizeBuildingAmenities(a.building_amenities),
       })
       .eq("id", propertyId);
     if (propErr) return { error: propErr.message };

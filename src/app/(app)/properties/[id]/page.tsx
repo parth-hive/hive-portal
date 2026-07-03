@@ -15,6 +15,7 @@ import {
   type CredentialRowData,
 } from "../../credentials/credential-row";
 import { CATEGORY_ORDER } from "../../credentials/constants";
+import { UNIT_AMENITIES, BUILDING_AMENITIES } from "@/lib/amenities";
 import type { Database } from "@/lib/supabase/types";
 
 type CredentialCategory =
@@ -48,8 +49,7 @@ export default async function PropertyDetailPage({ params }: PageProps) {
       .select(
         `id, building_name, street_address, unit_number, cross_street,
          neighborhood, bedrooms, bathrooms,
-         has_gym, has_elevator, has_parking, has_doorman, has_rooftop, has_lounge,
-         laundry_in_building, in_unit_laundry,
+         unit_amenities, building_amenities,
          amenities_notes, notes,
          leaseholders(id, name)`,
       )
@@ -58,7 +58,7 @@ export default async function PropertyDetailPage({ params }: PageProps) {
     supabase
       .from("rooms")
       .select(
-        "id, room_number, base_rent, bundle_fee, total_rent, status, available_from, has_ac, has_private_bathroom, notes, marketing_description, photos_url",
+        "id, room_number, base_rent, bundle_fee, total_rent, status, available_from, has_private_bathroom, notes, marketing_description, photos_url",
       )
       .eq("property_id", id)
       .order("room_number", { ascending: true }),
@@ -109,16 +109,14 @@ export default async function PropertyDetailPage({ params }: PageProps) {
   const title = property.building_name?.trim() || property.street_address;
   const leaseholder = one(property.leaseholders);
 
-  const amenities: { label: string; on: boolean }[] = [
-    { label: "Gym", on: property.has_gym },
-    { label: "Elevator", on: property.has_elevator },
-    { label: "Parking", on: property.has_parking },
-    { label: "Doorman", on: property.has_doorman },
-    { label: "Rooftop", on: property.has_rooftop },
-    { label: "Lounge", on: property.has_lounge },
-    { label: "Laundry in building", on: property.laundry_in_building },
-    { label: "In-unit laundry", on: property.in_unit_laundry },
-  ];
+  const unitAmenities = UNIT_AMENITIES.map((label) => ({
+    label,
+    on: (property.unit_amenities ?? []).includes(label),
+  }));
+  const buildingAmenities = BUILDING_AMENITIES.map((label) => ({
+    label,
+    on: (property.building_amenities ?? []).includes(label),
+  }));
 
   const propertyLabel = `${title} Apt ${property.unit_number}`;
   const propertyOptions = [{ id: property.id, label: propertyLabel }];
@@ -202,8 +200,24 @@ export default async function PropertyDetailPage({ params }: PageProps) {
           <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
             Amenities
           </h2>
-          <ul className="mt-4 grid grid-cols-2 gap-y-2 text-sm">
-            {amenities.map((a) => (
+          <p className="mt-4 text-xs font-medium uppercase tracking-wide text-muted">
+            Unit
+          </p>
+          <ul className="mt-2 grid grid-cols-2 gap-y-2 text-sm">
+            {unitAmenities.map((a) => (
+              <li
+                key={a.label}
+                className={a.on ? "text-ink" : "text-muted line-through"}
+              >
+                {a.label}
+              </li>
+            ))}
+          </ul>
+          <p className="mt-4 text-xs font-medium uppercase tracking-wide text-muted">
+            Building
+          </p>
+          <ul className="mt-2 grid grid-cols-2 gap-y-2 text-sm">
+            {buildingAmenities.map((a) => (
               <li
                 key={a.label}
                 className={a.on ? "text-ink" : "text-muted line-through"}

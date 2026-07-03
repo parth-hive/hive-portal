@@ -12,31 +12,6 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
-  graphql_public: {
-    Tables: {
-      [_ in never]: never
-    }
-    Views: {
-      [_ in never]: never
-    }
-    Functions: {
-      graphql: {
-        Args: {
-          extensions?: Json
-          operationName?: string
-          query?: string
-          variables?: Json
-        }
-        Returns: Json
-      }
-    }
-    Enums: {
-      [_ in never]: never
-    }
-    CompositeTypes: {
-      [_ in never]: never
-    }
-  }
   public: {
     Tables: {
       audit_log: {
@@ -617,23 +592,17 @@ export type Database = {
           amenities_notes: string | null
           bathrooms: number | null
           bedrooms: number | null
+          building_amenities: string[]
           building_name: string | null
           created_at: string
           cross_street: string | null
-          has_doorman: boolean
-          has_elevator: boolean
-          has_gym: boolean
-          has_lounge: boolean
-          has_parking: boolean
-          has_rooftop: boolean
           id: string
-          in_unit_laundry: boolean
           is_new_york: boolean
-          laundry_in_building: boolean
           leaseholder_id: string | null
           neighborhood: string | null
           notes: string | null
           street_address: string
+          unit_amenities: string[]
           unit_number: string
           updated_at: string
         }
@@ -641,23 +610,17 @@ export type Database = {
           amenities_notes?: string | null
           bathrooms?: number | null
           bedrooms?: number | null
+          building_amenities?: string[]
           building_name?: string | null
           created_at?: string
           cross_street?: string | null
-          has_doorman?: boolean
-          has_elevator?: boolean
-          has_gym?: boolean
-          has_lounge?: boolean
-          has_parking?: boolean
-          has_rooftop?: boolean
           id?: string
-          in_unit_laundry?: boolean
           is_new_york?: boolean
-          laundry_in_building?: boolean
           leaseholder_id?: string | null
           neighborhood?: string | null
           notes?: string | null
           street_address: string
+          unit_amenities?: string[]
           unit_number: string
           updated_at?: string
         }
@@ -665,23 +628,17 @@ export type Database = {
           amenities_notes?: string | null
           bathrooms?: number | null
           bedrooms?: number | null
+          building_amenities?: string[]
           building_name?: string | null
           created_at?: string
           cross_street?: string | null
-          has_doorman?: boolean
-          has_elevator?: boolean
-          has_gym?: boolean
-          has_lounge?: boolean
-          has_parking?: boolean
-          has_rooftop?: boolean
           id?: string
-          in_unit_laundry?: boolean
           is_new_york?: boolean
-          laundry_in_building?: boolean
           leaseholder_id?: string | null
           neighborhood?: string | null
           notes?: string | null
           street_address?: string
+          unit_amenities?: string[]
           unit_number?: string
           updated_at?: string
         }
@@ -1135,7 +1092,6 @@ export type Database = {
           base_rent: number | null
           bundle_fee: number | null
           created_at: string
-          has_ac: boolean
           has_private_bathroom: boolean
           id: string
           listing_action: Database["public"]["Enums"]["listing_action"]
@@ -1157,7 +1113,6 @@ export type Database = {
           base_rent?: number | null
           bundle_fee?: number | null
           created_at?: string
-          has_ac?: boolean
           has_private_bathroom?: boolean
           id?: string
           listing_action?: Database["public"]["Enums"]["listing_action"]
@@ -1179,7 +1134,6 @@ export type Database = {
           base_rent?: number | null
           bundle_fee?: number | null
           created_at?: string
-          has_ac?: boolean
           has_private_bathroom?: boolean
           id?: string
           listing_action?: Database["public"]["Enums"]["listing_action"]
@@ -1533,7 +1487,6 @@ export type Database = {
         Row: {
           available_from: string | null
           building_name: string | null
-          has_ac: boolean | null
           has_private_bathroom: boolean | null
           move_out_date: string | null
           neighborhood: string | null
@@ -1738,9 +1691,6 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
-  graphql_public: {
-    Enums: {},
-  },
   public: {
     Enums: {
       credential_category: [

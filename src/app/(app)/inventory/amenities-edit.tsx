@@ -4,21 +4,7 @@ import { useLayoutEffect, useRef, useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { setRoomAmenities, type AmenityValues } from "./actions";
-
-const ROOM_FIELDS: { key: keyof AmenityValues; label: string }[] = [
-  { key: "has_private_bathroom", label: "Private bath" },
-];
-
-const BUILDING_FIELDS: { key: keyof AmenityValues; label: string }[] = [
-  { key: "has_gym", label: "Gym" },
-  { key: "has_elevator", label: "Elevator" },
-  { key: "has_doorman", label: "Doorman" },
-  { key: "has_parking", label: "Parking" },
-  { key: "has_rooftop", label: "Rooftop" },
-  { key: "has_lounge", label: "Lounge" },
-  { key: "laundry_in_building", label: "Laundry in building" },
-  { key: "in_unit_laundry", label: "In-unit laundry" },
-];
+import { UNIT_AMENITIES, BUILDING_AMENITIES } from "@/lib/amenities";
 
 export function InlineAmenitiesEdit({
   roomId,
@@ -63,8 +49,16 @@ export function InlineAmenitiesEdit({
     setOpen(true);
   }
 
-  function toggle(key: keyof AmenityValues) {
-    setDraft((d) => ({ ...d, [key]: !d[key] }));
+  function toggleList(
+    key: "unit_amenities" | "building_amenities",
+    value: string,
+  ) {
+    setDraft((d) => ({
+      ...d,
+      [key]: d[key].includes(value)
+        ? d[key].filter((v) => v !== value)
+        : [...d[key], value],
+    }));
   }
 
   function save() {
@@ -75,15 +69,15 @@ export function InlineAmenitiesEdit({
     });
   }
 
-  const row = (key: keyof AmenityValues, label: string) => (
+  const row = (checked: boolean, label: string, onToggle: () => void) => (
     <label
-      key={key}
+      key={label}
       className="flex cursor-pointer items-center gap-2 rounded px-1.5 py-1 text-sm text-ink hover:bg-warm/60"
     >
       <input
         type="checkbox"
-        checked={draft[key]}
-        onChange={() => toggle(key)}
+        checked={checked}
+        onChange={onToggle}
         className="accent-accent"
       />
       {label}
@@ -118,14 +112,32 @@ export function InlineAmenitiesEdit({
               <p className="px-1.5 text-xs font-medium uppercase tracking-wide text-muted">
                 Room
               </p>
-              {ROOM_FIELDS.map((f) => row(f.key, f.label))}
+              {row(draft.has_private_bathroom, "Private bath", () =>
+                setDraft((d) => ({
+                  ...d,
+                  has_private_bathroom: !d.has_private_bathroom,
+                })),
+              )}
 
               <p className="mt-2 px-1.5 text-xs font-medium uppercase tracking-wide text-muted">
-                Building
+                Unit amenities
               </p>
-              {BUILDING_FIELDS.map((f) => row(f.key, f.label))}
+              {UNIT_AMENITIES.map((a) =>
+                row(draft.unit_amenities.includes(a), a, () =>
+                  toggleList("unit_amenities", a),
+                ),
+              )}
+
+              <p className="mt-2 px-1.5 text-xs font-medium uppercase tracking-wide text-muted">
+                Building amenities
+              </p>
+              {BUILDING_AMENITIES.map((a) =>
+                row(draft.building_amenities.includes(a), a, () =>
+                  toggleList("building_amenities", a),
+                ),
+              )}
               <p className="mt-1 px-1.5 text-xs leading-tight text-muted">
-                Building amenities apply to every room in this unit.
+                Unit &amp; building amenities apply to every room in this unit.
               </p>
 
               <div className="sticky bottom-0 mt-3 flex items-center justify-end gap-2 border-t border-stone/40 bg-white pt-2">

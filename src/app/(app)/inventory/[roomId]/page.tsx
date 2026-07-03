@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { one } from "@/lib/relations";
 import { formatDate, todayISO } from "@/lib/date";
+import { UNIT_AMENITIES, BUILDING_AMENITIES } from "@/lib/amenities";
 import { CopyListing } from "../copy-listing";
 import { ListingActionSelector } from "../listing-action";
 import {
@@ -25,12 +26,8 @@ type PropertyRel = {
   unit_number: string;
   cross_street: string | null;
   neighborhood: string | null;
-  has_gym: boolean;
-  has_elevator: boolean;
-  has_parking: boolean;
-  has_doorman: boolean;
-  laundry_in_building: boolean;
-  in_unit_laundry: boolean;
+  unit_amenities: string[];
+  building_amenities: string[];
 };
 
 type Room = {
@@ -41,7 +38,6 @@ type Room = {
   bundle_fee: number | null;
   total_rent: number | null;
   available_from: string | null;
-  has_ac: boolean;
   has_private_bathroom: boolean;
   marketing_description: string | null;
   photos_url: string | null;
@@ -74,12 +70,11 @@ export default async function VacancyDetailPage({ params }: PageProps) {
         .from("rooms")
         .select(
           `id, room_number, status, base_rent, bundle_fee, total_rent,
-         available_from, has_ac, has_private_bathroom,
+         available_from, has_private_bathroom,
          marketing_description, photos_url, listing_action,
          properties(id, building_name, street_address, unit_number,
                     cross_street, neighborhood,
-                    has_gym, has_elevator, has_parking, has_doorman,
-                    laundry_in_building, in_unit_laundry)`,
+                    unit_amenities, building_amenities)`,
         )
         .eq("id", roomId)
         .maybeSingle<Room>(),
@@ -115,12 +110,14 @@ export default async function VacancyDetailPage({ params }: PageProps) {
 
   const amenities = p
     ? [
-        { label: "Gym", on: p.has_gym },
-        { label: "Elevator", on: p.has_elevator },
-        { label: "Parking", on: p.has_parking },
-        { label: "Doorman", on: p.has_doorman },
-        { label: "Laundry in building", on: p.laundry_in_building },
-        { label: "In-unit laundry", on: p.in_unit_laundry },
+        ...UNIT_AMENITIES.map((label) => ({
+          label,
+          on: (p.unit_amenities ?? []).includes(label),
+        })),
+        ...BUILDING_AMENITIES.map((label) => ({
+          label,
+          on: (p.building_amenities ?? []).includes(label),
+        })),
         { label: "Private bathroom", on: room.has_private_bathroom },
       ]
     : [];

@@ -17,7 +17,6 @@ type Room = {
   total_rent: number | null;
   status: "occupied" | "available" | "reserved" | "maintenance";
   available_from: string | null;
-  has_ac: boolean;
   has_private_bathroom: boolean;
   notes: string | null;
   marketing_description: string | null;

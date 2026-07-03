@@ -3,6 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import {
+  normalizeUnitAmenities,
+  normalizeBuildingAmenities,
+} from "@/lib/amenities";
 
 export type PropertyFormState = { error?: string } | undefined;
 
@@ -15,14 +19,8 @@ type ParsedForm = {
   is_new_york: boolean;
   bedrooms: number | null;
   bathrooms: number | null;
-  has_gym: boolean;
-  has_elevator: boolean;
-  has_parking: boolean;
-  has_doorman: boolean;
-  has_rooftop: boolean;
-  has_lounge: boolean;
-  laundry_in_building: boolean;
-  in_unit_laundry: boolean;
+  unit_amenities: string[];
+  building_amenities: string[];
   amenities_notes: string | null;
   leaseholder_name: string | null;
   cleaner_ids: string[];
@@ -56,14 +54,12 @@ function parseForm(formData: FormData): ParsedForm | { error: string } {
     is_new_york: formData.get("is_new_york") === "on",
     bedrooms: numOrNull("bedrooms"),
     bathrooms: numOrNull("bathrooms"),
-    has_gym: formData.get("has_gym") === "on",
-    has_elevator: formData.get("has_elevator") === "on",
-    has_parking: formData.get("has_parking") === "on",
-    has_doorman: formData.get("has_doorman") === "on",
-    has_rooftop: formData.get("has_rooftop") === "on",
-    has_lounge: formData.get("has_lounge") === "on",
-    laundry_in_building: formData.get("laundry_in_building") === "on",
-    in_unit_laundry: formData.get("in_unit_laundry") === "on",
+    unit_amenities: normalizeUnitAmenities(
+      formData.getAll("unit_amenities").map((v) => String(v)),
+    ),
+    building_amenities: normalizeBuildingAmenities(
+      formData.getAll("building_amenities").map((v) => String(v)),
+    ),
     amenities_notes: strOrNull("amenities_notes"),
     leaseholder_name: strOrNull("leaseholder_name"),
     cleaner_ids: formData

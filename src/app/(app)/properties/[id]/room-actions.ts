@@ -20,7 +20,6 @@ type RoomValues = {
   bundle_fee: number | null;
   status: RoomStatus;
   available_from: string | null;
-  has_ac: boolean;
   has_private_bathroom: boolean;
   notes: string | null;
   marketing_description: string | null;
@@ -46,7 +45,6 @@ function parseRoom(formData: FormData): RoomValues | { error: string } {
     bundle_fee: numOrNull("bundle_fee"),
     status,
     available_from,
-    has_ac: formData.get("has_ac") === "on",
     has_private_bathroom: formData.get("has_private_bathroom") === "on",
     notes: String(formData.get("notes") ?? "").trim() || null,
     marketing_description:

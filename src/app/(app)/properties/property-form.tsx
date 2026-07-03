@@ -2,6 +2,7 @@
 
 import { useActionState } from "react";
 import type { PropertyFormState } from "./actions";
+import { UNIT_AMENITIES, BUILDING_AMENITIES } from "@/lib/amenities";
 
 type InitialValues = {
   building_name: string | null;
@@ -12,14 +13,8 @@ type InitialValues = {
   is_new_york: boolean;
   bedrooms: number | null;
   bathrooms: number | null;
-  has_gym: boolean;
-  has_elevator: boolean;
-  has_parking: boolean;
-  has_doorman: boolean;
-  has_rooftop: boolean;
-  has_lounge: boolean;
-  laundry_in_building: boolean;
-  in_unit_laundry: boolean;
+  unit_amenities: string[];
+  building_amenities: string[];
   amenities_notes: string | null;
   leaseholder_name: string | null;
   cleaner_ids: string[];
@@ -186,79 +181,40 @@ export function PropertyForm({
           </label>
         </div>
 
-        <div className="mt-4 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-          <label className={checkboxLabel}>
-            <input
-              type="checkbox"
-              name="has_gym"
-              defaultChecked={v.has_gym ?? false}
-              className="accent-accent"
-            />
-            Gym
-          </label>
-          <label className={checkboxLabel}>
-            <input
-              type="checkbox"
-              name="has_elevator"
-              defaultChecked={v.has_elevator ?? false}
-              className="accent-accent"
-            />
-            Elevator
-          </label>
-          <label className={checkboxLabel}>
-            <input
-              type="checkbox"
-              name="has_parking"
-              defaultChecked={v.has_parking ?? false}
-              className="accent-accent"
-            />
-            Parking
-          </label>
-          <label className={checkboxLabel}>
-            <input
-              type="checkbox"
-              name="has_doorman"
-              defaultChecked={v.has_doorman ?? false}
-              className="accent-accent"
-            />
-            Doorman
-          </label>
-          <label className={checkboxLabel}>
-            <input
-              type="checkbox"
-              name="has_rooftop"
-              defaultChecked={v.has_rooftop ?? false}
-              className="accent-accent"
-            />
-            Rooftop
-          </label>
-          <label className={checkboxLabel}>
-            <input
-              type="checkbox"
-              name="has_lounge"
-              defaultChecked={v.has_lounge ?? false}
-              className="accent-accent"
-            />
-            Lounge
-          </label>
-          <label className={checkboxLabel}>
-            <input
-              type="checkbox"
-              name="laundry_in_building"
-              defaultChecked={v.laundry_in_building ?? false}
-              className="accent-accent"
-            />
-            Laundry in building
-          </label>
-          <label className={checkboxLabel}>
-            <input
-              type="checkbox"
-              name="in_unit_laundry"
-              defaultChecked={v.in_unit_laundry ?? false}
-              className="accent-accent"
-            />
-            In-unit laundry
-          </label>
+        <p className="mt-6 text-xs font-medium uppercase tracking-wide text-muted">
+          Unit amenities
+        </p>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {UNIT_AMENITIES.map((a) => (
+            <label key={a} className={checkboxLabel}>
+              <input
+                type="checkbox"
+                name="unit_amenities"
+                value={a}
+                defaultChecked={(v.unit_amenities ?? []).includes(a)}
+                className="accent-accent"
+              />
+              {a}
+            </label>
+          ))}
+        </div>
+
+        <p className="mt-6 text-xs font-medium uppercase tracking-wide text-muted">
+          Building amenities
+        </p>
+        <div className="mt-2 grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+          {BUILDING_AMENITIES.map((a) => (
+            <label key={a} className={checkboxLabel}>
+              <input
+                type="checkbox"
+                name="building_amenities"
+                value={a}
+                defaultChecked={(v.building_amenities ?? []).includes(a)}
+                className="accent-accent"
+              />
+              {a}
+            </label>
+          ))}
         </div>
 
         <label className="mt-4 flex flex-col gap-1.5">

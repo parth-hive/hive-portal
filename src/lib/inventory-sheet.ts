@@ -24,14 +24,8 @@ type PropertyRel = {
   building_name: string | null;
   street_address: string;
   unit_number: string;
-  has_gym: boolean;
-  has_elevator: boolean;
-  has_parking: boolean;
-  has_doorman: boolean;
-  has_rooftop: boolean;
-  has_lounge: boolean;
-  laundry_in_building: boolean;
-  in_unit_laundry: boolean;
+  unit_amenities: string[];
+  building_amenities: string[];
 };
 
 type Row = {
@@ -42,7 +36,6 @@ type Row = {
   bundle_fee: number | null;
   total_rent: number | null;
   photos_url: string | null;
-  has_ac: boolean;
   has_private_bathroom: boolean;
   // Carried only for filter parity with the inventory table (poster filter) —
   // not displayed in the shareable sheet.
@@ -64,14 +57,8 @@ function prettyDate(iso: string | null): string {
 function amenitiesFor(room: Row, p: PropertyRel | null): string {
   const tags: string[] = [];
   if (room.has_private_bathroom) tags.push("Private bath");
-  if (p?.has_gym) tags.push("Gym");
-  if (p?.has_elevator) tags.push("Elevator");
-  if (p?.has_doorman) tags.push("Doorman");
-  if (p?.has_parking) tags.push("Parking");
-  if (p?.has_rooftop) tags.push("Rooftop");
-  if (p?.has_lounge) tags.push("Lounge");
-  if (p?.in_unit_laundry) tags.push("In-unit laundry");
-  else if (p?.laundry_in_building) tags.push("Laundry");
+  tags.push(...(p?.unit_amenities ?? []));
+  tags.push(...(p?.building_amenities ?? []));
   return tags.join(", ");
 }
 
@@ -95,11 +82,10 @@ export async function buildInventorySheet(
     .from("rooms")
     .select(
       `id, status, available_from, base_rent, bundle_fee, total_rent,
-       photos_url, has_ac, has_private_bathroom,
+       photos_url, has_private_bathroom,
        properties(cross_street, neighborhood, bedrooms, bathrooms,
                   building_name, street_address, unit_number,
-                  has_gym, has_elevator, has_parking, has_doorman, has_rooftop,
-                  has_lounge, laundry_in_building, in_unit_laundry)`,
+                  unit_amenities, building_amenities)`,
     )
     .or(
       `status.eq.available,and(status.eq.occupied,available_from.gte.${today})`,

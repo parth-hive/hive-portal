@@ -5,7 +5,6 @@ type Initial = {
   bundle_fee?: number | null;
   status?: "occupied" | "available" | "reserved" | "maintenance";
   available_from?: string | null;
-  has_ac?: boolean | null;
   has_private_bathroom?: boolean | null;
   notes?: string | null;
   marketing_description?: string | null;

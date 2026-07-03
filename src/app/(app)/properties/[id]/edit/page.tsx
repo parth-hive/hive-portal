@@ -22,14 +22,8 @@ type PropertyRecord = {
   is_new_york: boolean;
   bedrooms: number | null;
   bathrooms: number | null;
-  has_gym: boolean;
-  has_elevator: boolean;
-  has_parking: boolean;
-  has_doorman: boolean;
-  has_rooftop: boolean;
-  has_lounge: boolean;
-  laundry_in_building: boolean;
-  in_unit_laundry: boolean;
+  unit_amenities: string[];
+  building_amenities: string[];
   amenities_notes: string | null;
   notes: string | null;
   leaseholders: LeaseholderRel | LeaseholderRel[] | null;
@@ -50,8 +44,7 @@ export default async function EditPropertyPage({ params }: PageProps) {
       .select(
         `id, building_name, street_address, unit_number, cross_street,
            neighborhood, is_new_york, bedrooms, bathrooms,
-           has_gym, has_elevator, has_parking, has_doorman, has_rooftop, has_lounge,
-           laundry_in_building, in_unit_laundry,
+           unit_amenities, building_amenities,
            amenities_notes, notes,
            leaseholders(name)`,
       )
@@ -122,14 +115,8 @@ export default async function EditPropertyPage({ params }: PageProps) {
             is_new_york: property.is_new_york,
             bedrooms: property.bedrooms,
             bathrooms: property.bathrooms,
-            has_gym: property.has_gym,
-            has_elevator: property.has_elevator,
-            has_parking: property.has_parking,
-            has_doorman: property.has_doorman,
-            has_rooftop: property.has_rooftop,
-            has_lounge: property.has_lounge,
-            laundry_in_building: property.laundry_in_building,
-            in_unit_laundry: property.in_unit_laundry,
+            unit_amenities: property.unit_amenities,
+            building_amenities: property.building_amenities,
             amenities_notes: property.amenities_notes,
             cleaner_ids: cleanerIds,
             notes: property.notes,

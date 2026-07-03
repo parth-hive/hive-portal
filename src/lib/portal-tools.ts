@@ -115,8 +115,7 @@ export async function getProperty(id: string) {
     .select(
       `id, building_name, street_address, unit_number, cross_street,
        neighborhood, bedrooms, bathrooms,
-       has_gym, has_elevator, has_parking, has_doorman,
-       laundry_in_building, in_unit_laundry, amenities_notes, notes,
+       unit_amenities, building_amenities, amenities_notes, notes,
        leaseholders(name)`,
     )
     .eq("id", id)
@@ -127,7 +126,7 @@ export async function getProperty(id: string) {
   const { data: rooms, error: rErr } = await supabase
     .from("rooms")
     .select(
-      `id, room_number, has_ac, has_private_bathroom, base_rent, bundle_fee,
+      `id, room_number, has_private_bathroom, base_rent, bundle_fee,
        total_rent, status, available_from, listing_action,
        tenancies!left(id, status, monthly_rent, start_date, move_out_date,
                       tenants(id, full_name, email, phone))`,
@@ -146,12 +145,8 @@ export async function getProperty(id: string) {
     bathrooms: property.bathrooms,
     leaseholder: one(property.leaseholders)?.name ?? null,
     amenities: {
-      gym: property.has_gym,
-      elevator: property.has_elevator,
-      parking: property.has_parking,
-      doorman: property.has_doorman,
-      laundry_in_building: property.laundry_in_building,
-      in_unit_laundry: property.in_unit_laundry,
+      unit: property.unit_amenities,
+      building: property.building_amenities,
       notes: property.amenities_notes,
     },
     notes: property.notes,
@@ -166,7 +161,6 @@ export async function getProperty(id: string) {
         status: r.status,
         listing_action: r.listing_action,
         rent: { base: r.base_rent, bundle: r.bundle_fee, total: r.total_rent },
-        has_ac: r.has_ac,
         has_private_bathroom: r.has_private_bathroom,
         available_from: r.available_from,
         current_tenant: active && tenant
@@ -192,7 +186,7 @@ export async function listInventory() {
     .from("rooms")
     .select(
       `id, room_number, total_rent, available_from, status, listing_action,
-       has_ac, has_private_bathroom,
+       has_private_bathroom,
        marketing_description, photos_url,
        properties(id, building_name, street_address, unit_number, neighborhood)`,
     )
@@ -230,7 +224,6 @@ export async function listInventory() {
       status: r.status,
       listing_action: r.listing_action,
       ads: adsByRoom.get(r.id) ?? [],
-      has_ac: r.has_ac,
       has_private_bathroom: r.has_private_bathroom,
       description: r.marketing_description,
       photos_url: r.photos_url,
