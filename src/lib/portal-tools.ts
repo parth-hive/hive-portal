@@ -23,6 +23,7 @@ import {
   sendBalanceReminderGmail,
   balanceReminderText,
 } from "@/lib/email";
+import { logEmail } from "@/lib/email-log";
 import { sendSms } from "@/lib/sms";
 import { computeLedger } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
@@ -40,6 +41,12 @@ type ToolContext = {
   turnId?: string;
   telegramUserId?: number;
   username?: string;
+  /**
+   * Mutated by instrumentTool: name + ok of every tool called during this
+   * turn. The webhook reads it after the agent loop to verify that a reply
+   * claiming an email was sent is backed by a real send-tool call.
+   */
+  calledTools?: { name: string; ok: boolean }[];
 };
 const toolContext = new AsyncLocalStorage<ToolContext>();
 
@@ -645,6 +652,24 @@ export async function addTenant(args: {
   };
 }
 
+// One address only — no commas/semicolons, so a tool-supplied list can never
+// fan an agreement out to multiple recipients.
+const SINGLE_EMAIL_RE = /^[^\s@,;]+@[^\s@,;]+\.[^\s@,;]{2,}$/;
+const ISO_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+
+function parseIsoDate(value: string): Date | null {
+  if (!ISO_DATE_RE.test(value)) return null;
+  const d = new Date(`${value}T00:00:00`);
+  return Number.isNaN(d.getTime()) ? null : d;
+}
+
+/** "$2,050" / "2050.00" → "2050"/"2050.00"; null when not a positive amount. */
+function normalizeMoney(value: string): string | null {
+  const cleaned = value.replace(/[$,\s]/g, "");
+  if (!/^\d+(\.\d{1,2})?$/.test(cleaned) || Number(cleaned) <= 0) return null;
+  return cleaned;
+}
+
 // Generate a sublease agreement PDF and send it from the right mailbox. New York
 // → no letterhead, sent from personal Gmail (From "Vineet", unbranded). Otherwise
 // → with letterhead, sent from the M365 (Outlook) work account. Sends straight
@@ -661,18 +686,95 @@ export async function sendAgreement(args: {
   sublessor_name?: string;
   pro_rate_rent?: string;
   agreement_date?: string;
+  confirm_mailbox_mismatch?: boolean;
 }) {
+  // Validate everything up front: a lease PDF with a malformed date or amount,
+  // or sent to a mistyped address, is worse than an error the operator can fix.
+  const recipient = args.recipient_email.trim();
+  if (!SINGLE_EMAIL_RE.test(recipient)) {
+    return {
+      ok: false,
+      error: `"${args.recipient_email}" is not a valid single email address — double-check it with the operator.`,
+    };
+  }
+  const rent = normalizeMoney(args.rent);
+  if (!rent) {
+    return { ok: false, error: `Rent "${args.rent}" is not a valid amount.` };
+  }
+  const deposit = normalizeMoney(args.security_deposit);
+  if (!deposit) {
+    return {
+      ok: false,
+      error: `Security deposit "${args.security_deposit}" is not a valid amount.`,
+    };
+  }
+  const proRate = args.pro_rate_rent?.trim()
+    ? normalizeMoney(args.pro_rate_rent)
+    : undefined;
+  if (args.pro_rate_rent?.trim() && !proRate) {
+    return {
+      ok: false,
+      error: `Prorated rent "${args.pro_rate_rent}" is not a valid amount.`,
+    };
+  }
+  const start = parseIsoDate(args.lease_start_date);
+  const end = parseIsoDate(args.lease_end_date);
+  if (!start || !end) {
+    return {
+      ok: false,
+      error: 'Lease dates must be real dates in "YYYY-MM-DD" format.',
+    };
+  }
+  if (end <= start) {
+    return {
+      ok: false,
+      error: `Lease end (${args.lease_end_date}) must be after lease start (${args.lease_start_date}).`,
+    };
+  }
+  if (args.agreement_date && !parseIsoDate(args.agreement_date)) {
+    return {
+      ok: false,
+      error: 'agreement_date must be a real date in "YYYY-MM-DD" format.',
+    };
+  }
+  // in_new_york picks the mailbox, branding, and letterhead. If the address
+  // ends in a two-letter state that contradicts the flag, stop and ask rather
+  // than silently send a mis-branded agreement from the wrong account. The
+  // operator's word wins: a retry with confirm_mailbox_mismatch=true (set only
+  // after they explicitly insist) sends exactly as instructed.
+  const stateMatch = args.property_address.match(
+    /,\s*([A-Za-z]{2})\.?(?:\s+\d{5}(?:-\d{4})?)?\s*$/,
+  );
+  const state = stateMatch?.[1]?.toUpperCase();
+  if (
+    state &&
+    (state === "NY") !== args.in_new_york &&
+    !args.confirm_mailbox_mismatch
+  ) {
+    return {
+      ok: false,
+      error:
+        `The address ends in "${state}" but in_new_york=${args.in_new_york} — ` +
+        "that combination would send from the " +
+        (args.in_new_york
+          ? "personal Gmail without letterhead"
+          : "Outlook work account with letterhead") +
+        ". Double-check with the operator; if they confirm this is intended, " +
+        "call send_agreement again with confirm_mailbox_mismatch=true.",
+    };
+  }
+
   const pdf = await generateAgreementPdf({
     tenantName: args.tenant_name,
     sublessorName: args.sublessor_name?.trim() || "Vineet Dutta",
     propertyAddress: args.property_address,
-    rent: args.rent,
-    securityDeposit: args.security_deposit,
+    rent,
+    securityDeposit: deposit,
     leaseStartDate: args.lease_start_date,
     leaseEndDate: args.lease_end_date,
     agreementDate: args.agreement_date || todayISO(),
     includeLetterhead: !args.in_new_york,
-    proRateRent: args.pro_rate_rent,
+    proRateRent: proRate ?? undefined,
   });
 
   const attachment = {
@@ -684,28 +786,46 @@ export async function sendAgreement(args: {
   const mailbox = args.in_new_york ? "gmail" : "outlook";
 
   let result;
+  let subject: string;
   if (args.in_new_york) {
     // New York: plain, unbranded email from Vineet's personal Gmail (no Hive, no HTML).
-    const { subject, text } = gmailAgreementBody({ tenantName: args.tenant_name });
+    const body = gmailAgreementBody({ tenantName: args.tenant_name });
+    subject = body.subject;
     result = await sendGmailMessage({
-      to: args.recipient_email,
-      subject,
-      text,
+      to: recipient,
+      subject: body.subject,
+      text: body.text,
       attachment,
+      // Agreements are one-off and high-stakes: require the message to show
+      // up in the Gmail Sent folder before reporting success.
+      verifySent: true,
     });
   } else {
     // Non-NY: branded email sent from the Outlook work account.
-    const { subject, text, html } = agreementEmailTemplate({
-      tenantName: args.tenant_name,
-    });
+    const body = agreementEmailTemplate({ tenantName: args.tenant_name });
+    subject = body.subject;
     result = await sendOutlookMessage({
-      to: args.recipient_email,
-      subject,
-      text,
-      html,
+      to: recipient,
+      subject: body.subject,
+      text: body.text,
+      html: body.html,
       attachment,
     });
   }
+
+  // Durable audit row for every attempt — the Telegram activity log is
+  // diagnostic, but email_log is where "was this tenant actually emailed?"
+  // gets answered.
+  await logEmail({
+    type: "agreement",
+    recipient,
+    subject,
+    context: `${args.tenant_name} · ${args.property_address}`,
+    channel: mailbox,
+    status: result.ok ? "sent" : "failed",
+    error: result.ok ? null : result.error,
+    resend_id: result.ok ? result.id || null : null,
+  });
 
   if (!result.ok) {
     return { ok: false, mailbox, error: result.error, diag: result.diag };
@@ -715,7 +835,7 @@ export async function sendAgreement(args: {
     mailbox,
     letterhead: !args.in_new_york,
     sent: true,
-    recipient: args.recipient_email,
+    recipient,
     diag: result.diag,
   };
 }
@@ -1121,6 +1241,14 @@ const rawTools = [
         .string()
         .optional()
         .describe('Agreement date "YYYY-MM-DD"; defaults to today'),
+      confirm_mailbox_mismatch: z
+        .boolean()
+        .optional()
+        .describe(
+          "Set true ONLY after the operator explicitly insists on sending even " +
+            "though the property address's state contradicts in_new_york. " +
+            "Never set it on the first attempt.",
+        ),
     }),
     run: async (args) => JSON.stringify(await sendAgreement(args)),
   }),
@@ -1280,14 +1408,17 @@ function instrumentTool<
     const startedAt = Date.now();
     try {
       const result = await original(...args);
+      const ok = okFromResult(result) ?? true;
+      ctx?.calledTools?.push({ name: tool.name, ok });
       void logTelegramEvent({
         ...base,
-        ok: okFromResult(result) ?? true,
+        ok,
         latencyMs: Date.now() - startedAt,
         detail: { input: args[0], result: normalizeToolResult(result) },
       });
       return result;
     } catch (e) {
+      ctx?.calledTools?.push({ name: tool.name, ok: false });
       void logTelegramEvent({
         ...base,
         ok: false,

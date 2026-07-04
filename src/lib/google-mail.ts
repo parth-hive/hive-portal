@@ -11,6 +11,7 @@
  */
 
 import nodemailer from "nodemailer";
+import { ImapFlow } from "imapflow";
 
 // All New York correspondence goes out under this personal identity — display
 // name "Vineet", no Hive branding.
@@ -29,19 +30,19 @@ export type DraftInput = {
   text: string;
   /** Optional attachment (PDF, xlsx, …). Omit for a body-only message. */
   attachment?: { filename: string; base64: string; mimeType?: string };
+  /** After a successful SMTP handoff, confirm the message is visible in the
+   *  account's Sent folder (IMAP, same app password) before reporting success —
+   *  parity with the Outlook path. Adds a few seconds per send: enable for
+   *  one-off, high-stakes sends (agreements), skip for bulk blasts. */
+  verifySent?: boolean;
 };
 
-// DraftResult is retained for the Outlook draft flow (graph-mail.ts) which still
-// imports it; Gmail no longer creates drafts.
-export type DraftResult =
-  | { ok: true; draftUrl: string }
-  | { ok: false; error: string };
-
 /**
- * Diagnostic breadcrumbs from an Outlook (Graph) send, surfaced so the Telegram
+ * Diagnostic breadcrumbs from a verified send, surfaced so the Telegram
  * activity log can capture WHY a send failed or how it was verified — e.g.
- * whether the draft carried an internetMessageId, and how the Sent-Items match
- * resolved. Populated only by sendOutlookMessage; the Gmail path leaves it unset.
+ * whether the draft carried an internetMessageId, and how the Sent-folder
+ * match resolved. Populated by sendOutlookMessage always, and by
+ * sendGmailMessage when verifySent is requested.
  */
 export type SendDiag = {
   createStatus?: number;
@@ -49,8 +50,12 @@ export type SendDiag = {
   internetMessageIdOnCreate?: string | null;
   sendStatus?: number;
   /** How delivery was confirmed. */
-  verifyMethod?: "subject+recipient+sentDateTime";
+  verifyMethod?:
+    | "immutable-id"
+    | "subject+recipient+sentDateTime"
+    | "imap-message-id";
   verifyAttempts?: number;
+  /** Message located in the provider's Sent folder (Sent Items / Sent Mail). */
   matchedInSentItems?: boolean;
   /** How many recent Sent-Items messages matched the subject+time filter. */
   sentItemsCandidates?: number;
@@ -80,6 +85,11 @@ function makeTransport(cfg: { user: string; pass: string }) {
     port: 465,
     secure: true,
     auth: { user: cfg.user, pass: cfg.pass },
+    // Fail fast instead of hanging into the serverless time budget (nodemailer
+    // defaults allow up to 2 minutes just to connect).
+    connectionTimeout: 10_000,
+    greetingTimeout: 10_000,
+    socketTimeout: 30_000,
   });
 }
 
@@ -106,10 +116,84 @@ export async function checkGmailAuth(): Promise<{
   }
 }
 
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Poll the account's Sent folder over IMAP (same app password as SMTP) for the
+ * Message-ID we just handed to Gmail. Gmail appends SMTP submissions to Sent
+ * Mail, usually instantly, so a miss after ~9s of polling is a red flag worth
+ * failing on. Distinguishes "verification ran and the message is missing"
+ * (ran: true, found: false) from "verification couldn't run at all" — e.g.
+ * IMAP disabled on the account — which must not fail an otherwise-good send.
+ */
+async function findInGmailSent(
+  cfg: { user: string; pass: string },
+  messageId: string,
+): Promise<{ ran: boolean; found: boolean; attempts: number; note?: string }> {
+  // IMAP HEADER search matches substrings; the angle brackets around the id
+  // can defeat it on some servers, so search on the bare id.
+  const needle = messageId.replace(/^</, "").replace(/>$/, "").trim();
+  if (!needle) {
+    return { ran: false, found: false, attempts: 0, note: "no Message-ID to verify" };
+  }
+  const client = new ImapFlow({
+    host: "imap.gmail.com",
+    port: 993,
+    secure: true,
+    auth: { user: cfg.user, pass: cfg.pass },
+    logger: false,
+    socketTimeout: 20_000,
+  });
+  try {
+    await client.connect();
+  } catch (e) {
+    return {
+      ran: false,
+      found: false,
+      attempts: 0,
+      note: `IMAP unavailable: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
+  try {
+    // Locate the Sent folder by its special-use flag — the display name is
+    // per-account localized ("[Gmail]/Sent Mail" only on English accounts).
+    const folders = await client.list();
+    const sentPath =
+      folders.find((f) => f.specialUse === "\\Sent")?.path ?? "[Gmail]/Sent Mail";
+    const delays = [0, 1500, 2000, 2500, 3000]; // ~9s budget
+    for (let attempt = 0; attempt < delays.length; attempt++) {
+      if (delays[attempt] > 0) await sleep(delays[attempt]);
+      const lock = await client.getMailboxLock(sentPath);
+      try {
+        const uids = await client.search(
+          { header: { "message-id": needle } },
+          { uid: true },
+        );
+        if (Array.isArray(uids) && uids.length > 0) {
+          return { ran: true, found: true, attempts: attempt + 1 };
+        }
+      } finally {
+        lock.release();
+      }
+    }
+    return { ran: true, found: false, attempts: delays.length };
+  } catch (e) {
+    return {
+      ran: false,
+      found: false,
+      attempts: 0,
+      note: `IMAP verify error: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  } finally {
+    await client.logout().catch(() => client.close());
+  }
+}
+
 /**
  * Send a message immediately as the personal account (From "Vineet"). Used for
  * New York agreements and reminders. Plain text by default; multipart with the
- * HTML alternative and/or an attachment when provided.
+ * HTML alternative and/or an attachment when provided. With verifySent, success
+ * additionally requires the message to show up in the Sent folder over IMAP.
  */
 export async function sendGmailMessage(input: DraftInput): Promise<SendResult> {
   const cfg = config();
@@ -137,7 +221,42 @@ export async function sendGmailMessage(input: DraftInput): Promise<SendResult> {
           ]
         : undefined,
     });
-    return { ok: true, id: info.messageId || "" };
+    // SMTP can accept the envelope while refusing individual recipients
+    // (mainly on BCC blasts) — surface that instead of reporting a full send.
+    const rejected = (info.rejected ?? []).map((r) =>
+      typeof r === "string" ? r : r.address,
+    );
+    if (rejected.length > 0) {
+      return {
+        ok: false,
+        error: `Gmail refused recipient(s): ${rejected.join(", ")}`,
+      };
+    }
+    const messageId = info.messageId || "";
+    if (!input.verifySent) {
+      return { ok: true, id: messageId };
+    }
+
+    const verify = await findInGmailSent(cfg, messageId);
+    const diag: SendDiag = {
+      verifyMethod: "imap-message-id",
+      verifyAttempts: verify.attempts,
+      matchedInSentItems: verify.found,
+      ...(verify.note ? { note: verify.note } : {}),
+    };
+    if (!verify.ran || verify.found) {
+      // Found in Sent Mail, or verification infrastructure was unavailable —
+      // in the latter case the SMTP 250 stands and the diag says why.
+      return { ok: true, id: messageId, diag };
+    }
+    return {
+      ok: false,
+      error:
+        "Gmail accepted the message but it did not appear in the Sent folder " +
+        "within ~9s — check the Sent folder before retrying so the recipient " +
+        "isn't emailed twice.",
+      diag,
+    };
   } catch (e) {
     return {
       ok: false,

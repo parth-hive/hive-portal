@@ -43,6 +43,13 @@ Style:
 - If a user asks for something that requires destructive action but is ambiguous,
   briefly summarize what you're about to do and ask for confirmation before
   calling the write tool.
+- NEVER say an email, agreement, or reminder was sent unless the sending tool
+  (send_agreement, email_inventory_sheet, or send_balance_reminders) ran in THIS
+  turn and returned ok: true. If you haven't called the tool, nothing was sent —
+  when the operator confirms ("send it", "yes"), you must actually call the tool
+  before replying. Take the recipient and mailbox in your confirmation from the
+  tool result, not from memory. If asked about an email from an earlier request,
+  refer to it as a past send rather than confirming it as new.
 - If you can't find what the operator's asking about, say so directly rather
   than guessing.
 
@@ -67,6 +74,10 @@ Agreements:
   confirmation to send, then call send_agreement.
 - New York → no letterhead, sent from the personal Gmail account (From "Vineet",
   unbranded). Not New York → with letterhead, sent from the Outlook work account.
+- If send_agreement refuses because the address's state contradicts the New York
+  answer, relay the mismatch and ask the operator which is right. If they insist
+  on sending as-is, call send_agreement again with the same details plus
+  confirm_mailbox_mismatch=true — the operator's instruction wins.
 - After it succeeds, confirm to the operator that the agreement was sent, to whom,
   and from which mailbox (Gmail vs Outlook). If the tool returns an error (e.g. a
   mailbox isn't configured or lacks send permission), relay it plainly.
@@ -103,6 +114,39 @@ Balance reminders:
   anyone owing who had no email/phone for the chosen channel.`;
 
 type ConvoMessage = Anthropic.Beta.BetaMessageParam;
+
+/**
+ * Guard against the model claiming an email went out without calling a send
+ * tool (observed 7/3/26: replied "Sent to …@gmail.com from Gmail ✅" to a
+ * "send it" confirmation without ever invoking send_agreement). The reply is
+ * only trusted if one of these tools actually ran — and reported ok — during
+ * this turn; otherwise the claim is replaced with a correction.
+ */
+const EMAIL_SEND_TOOLS = new Set([
+  "send_agreement",
+  "email_inventory_sheet",
+  "send_balance_reminders",
+]);
+
+// A hallucinated confirmation reads like "Sent to x@y.com from Gmail ✅" — a
+// completed-send word alongside a recipient address or mailbox name. Plain
+// mentions in read-backs and questions ("resend it?", "Send it?") carry
+// neither, so they don't trip this.
+function claimsEmailSent(text: string): boolean {
+  return (
+    /\b(sent|resent|emailed)\b/i.test(text) &&
+    /(\S+@\S+|\bgmail\b|\boutlook\b)/i.test(text)
+  );
+}
+
+function falseSendCorrection(original: string): string {
+  return (
+    "⚠️ Correction: my reply below claimed an email was sent, but no " +
+    "email-sending tool actually ran in this turn — nothing was sent just now. " +
+    "If you wanted an email sent, please ask again.\n\n" +
+    `Original reply:\n${original}`
+  );
+}
 
 function admin() {
   const url = process.env.NEXT_PUBLIC_SUPABASE_URL!;
@@ -151,6 +195,7 @@ export async function POST(req: Request) {
   }
 
   let update: {
+    update_id?: number;
     message?: {
       message_id: number;
       from?: { id: number; username?: string };
@@ -167,6 +212,20 @@ export async function POST(req: Request) {
   const msg = update.message;
   if (!msg || !msg.text || !msg.from) {
     return NextResponse.json({ ok: true });
+  }
+
+  // Telegram re-delivers an update until it gets a 200 — e.g. when a long
+  // agent turn overruns the function budget. Claim the update_id before doing
+  // any work; a duplicate delivery hits the primary key and is dropped, so one
+  // operator message can never run the agent (or send an email) twice. Any
+  // other insert error is ignored — dedup must not take the bot down.
+  if (typeof update.update_id === "number") {
+    const { error: dupError } = await admin()
+      .from("telegram_updates")
+      .insert({ update_id: update.update_id, chat_id: msg.chat.id });
+    if (dupError?.code === "23505") {
+      return NextResponse.json({ ok: true });
+    }
   }
 
   const allowed = allowedUserIds();
@@ -274,6 +333,9 @@ export async function POST(req: Request) {
   await logTelegramEvent({ ...actor, kind: "user_message", text: userText });
 
   const turnStartedAt = Date.now();
+  // Filled in by instrumentTool as the agent loop runs — one entry per tool
+  // call this turn. Read afterwards to verify any "sent" claim in the reply.
+  const calledTools: { name: string; ok: boolean }[] = [];
   let finalMessage: Anthropic.Beta.BetaMessage;
   try {
     // Run inside the chat context so tools that deliver files (e.g.
@@ -287,6 +349,7 @@ export async function POST(req: Request) {
         turnId,
         telegramUserId: msg.from.id,
         username: msg.from.username,
+        calledTools,
       },
       async () =>
         await client.beta.messages.toolRunner({
@@ -322,10 +385,33 @@ export async function POST(req: Request) {
     .join("\n\n")
     .trim();
 
+  // If the reply claims an email was sent but no send tool succeeded this
+  // turn, the claim is fabricated — replace it (in the reply AND in the
+  // persisted history, so future turns don't inherit the false belief).
+  const sendToolSucceeded = calledTools.some(
+    (t) => EMAIL_SEND_TOOLS.has(t.name) && t.ok,
+  );
+  const falseSendClaim = !sendToolSucceeded && claimsEmailSent(text);
+  const replyText = falseSendClaim ? falseSendCorrection(text) : text;
+  const assistantContent: ConvoMessage["content"] = falseSendClaim
+    ? [{ type: "text", text: replyText }]
+    : finalMessage.content;
+
+  if (falseSendClaim) {
+    await logTelegramEvent({
+      ...actor,
+      kind: "agent_error",
+      ok: false,
+      error: "reply claimed an email was sent but no send tool ran this turn",
+      text,
+      detail: { calledTools },
+    });
+  }
+
   // Persist this turn (user input + full final assistant content, so future
   // turns have the tool-use chain in context if needed).
   await appendHistory(msg.chat.id, "user", newUserMessage.content);
-  await appendHistory(msg.chat.id, "assistant", finalMessage.content);
+  await appendHistory(msg.chat.id, "assistant", assistantContent);
 
   // Diagnostic record of the reply the operator actually saw, plus the token
   // usage and stop reason for the whole turn.
@@ -333,18 +419,22 @@ export async function POST(req: Request) {
     ...actor,
     kind: "assistant_reply",
     latencyMs: Date.now() - turnStartedAt,
-    text: text.length > 0 ? text : "(no text — final message had no reply)",
+    text:
+      replyText.length > 0 ? replyText : "(no text — final message had no reply)",
     detail: {
       stop_reason: finalMessage.stop_reason,
       usage: finalMessage.usage,
       content: finalMessage.content,
+      ...(falseSendClaim ? { false_send_claim: true } : {}),
     },
   });
 
-  if (text.length === 0) {
+  if (replyText.length === 0) {
     await sendMessage(msg.chat.id, "(Done — no message to add.)");
   } else {
-    await sendMessage(msg.chat.id, text, { reply_to_message_id: msg.message_id });
+    await sendMessage(msg.chat.id, replyText, {
+      reply_to_message_id: msg.message_id,
+    });
   }
 
   return NextResponse.json({ ok: true });

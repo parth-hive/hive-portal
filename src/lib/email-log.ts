@@ -8,7 +8,8 @@ export type EmailType =
   | "cleaning_reminder"
   | "cleaner_weekly"
   | "cleaner_update"
-  | "lease_end";
+  | "lease_end"
+  | "agreement";
 
 export const EMAIL_TYPE_LABELS: Record<EmailType, string> = {
   rent_reminder: "Rent reminder (monthly)",
@@ -19,6 +20,7 @@ export const EMAIL_TYPE_LABELS: Record<EmailType, string> = {
   cleaner_weekly: "Cleaner weekly schedule",
   cleaner_update: "Cleaner schedule update",
   lease_end: "Lease ending (45-day heads-up)",
+  agreement: "Sublease agreement",
 };
 
 /**
@@ -32,8 +34,8 @@ export async function logEmail(entry: {
   recipient: string;
   subject: string;
   status: "sent" | "failed";
-  /** Which provider sent it. Gmail sends don't count against the Resend cap. */
-  channel?: "resend" | "gmail";
+  /** Which provider sent it. Only Resend sends count against the Resend cap. */
+  channel?: "resend" | "gmail" | "outlook";
   error?: string | null;
   context?: string | null;
   resend_id?: string | null;

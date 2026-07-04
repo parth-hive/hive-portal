@@ -114,7 +114,17 @@ export function gmailAgreementBody(opts: { tenantName: string }): {
   };
 }
 
-// Branded cover message for the Outlook (non-NY, with-letterhead) draft. The PDF
+// Operator-entered names land inside HTML bodies; neutralize markup so a
+// stray "<" (or a pasted rich-text fragment) can't break or script the email.
+function escapeHtml(s: string): string {
+  return s
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+// Branded cover message for the Outlook (non-NY, with-letterhead) send. The PDF
 // is attached separately; this is just the cover message.
 export function agreementEmailTemplate(opts: { tenantName: string }): {
   subject: string;
@@ -136,7 +146,7 @@ Hive`;
   <div style="max-width:480px; margin:0 auto; background:#fefdfb; border:1px solid #e8e3db; border-radius:16px; overflow:hidden;">
     <div style="height:6px; background:#d4920b;"></div>
     <div style="padding:24px 20px; color:#1a1a18; line-height:1.55; font-size:15px;">
-      <p style="margin:0 0 14px;">Hi ${firstName},</p>
+      <p style="margin:0 0 14px;">Hi ${escapeHtml(firstName)},</p>
       <p style="margin:0 0 14px;">Welcome to Hive! Please find your agreement attached. Review it, sign it and send it back. Reply to this email if you have any questions.</p>
       <p style="margin:0 0 14px;">Looking forward to having you with us.</p>
       <p style="margin:18px 0 0;">Best,<br/>Vineet<br/><span style="color:#8a8378;">Hive</span></p>
