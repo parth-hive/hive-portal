@@ -47,6 +47,10 @@ export type ReminderState = { error?: string; success?: string } | undefined;
 // amenities. A room's total_rent (generated) = base_rent + bundle_fee.
 const BUNDLE_FEE = 125;
 
+// Keep in sync with the client-side check in new/add-tenant-form.tsx and the
+// serverActions.bodySizeLimit in next.config.ts (25mb, with encoding headroom).
+const MAX_LEASE_PDF_BYTES = 20 * 1024 * 1024;
+
 // ----- Create tenant + first tenancy -----
 
 export async function createTenant(
@@ -78,6 +82,11 @@ export async function createTenant(
   if (room_id) {
     if (!monthly_rent_str)
       return { error: "Monthly rent is required when assigning a room." };
+    // Guard against a $0 monthly rent (e.g. the prorated amount typed into
+    // the wrong field) — it would post $0 for every month after the first.
+    const monthly = Number(monthly_rent_str);
+    if (!Number.isFinite(monthly) || monthly <= 0)
+      return { error: "Monthly rent must be a number greater than 0." };
     if (!start_date)
       return { error: "Start date is required when assigning a room." };
   }
@@ -95,6 +104,9 @@ export async function createTenant(
     leaseFile.type !== "application/pdf"
   ) {
     return { error: "Lease file must be a PDF." };
+  }
+  if (leaseFile instanceof File && leaseFile.size > MAX_LEASE_PDF_BYTES) {
+    return { error: "Lease PDF must be 20 MB or smaller." };
   }
 
   const supabase = await createClient();
@@ -269,6 +281,40 @@ export async function setTenancyStartDate(
   const { error } = await supabase
     .from("tenancies")
     .update({ start_date: value })
+    .eq("id", tenancyId);
+  if (error) return { error: error.message };
+  revalidatePath("/tenants");
+  if (tenantId) revalidatePath(`/tenants/${tenantId}`);
+  return { ok: true };
+}
+
+// Inline edits for the tenancy's rent amounts. The ledger recomputes from
+// these on every render, so changing them immediately reprices the auto
+// monthly charges (first_month_rent applies only to the starting month).
+export async function setTenancyRentAmount(
+  tenancyId: string,
+  tenantId: string,
+  field: "monthly_rent" | "first_month_rent",
+  value: string | null,
+): Promise<{ ok: true } | { error: string }> {
+  const raw = value?.trim() ?? "";
+  let amount: number | null = null;
+  if (raw !== "") {
+    amount = Number(raw);
+    if (!Number.isFinite(amount) || amount < 0)
+      return { error: "Amount must be a non-negative number." };
+  }
+  if (field === "monthly_rent" && (amount === null || amount <= 0))
+    return { error: "Monthly rent must be a number greater than 0." };
+  const patch =
+    field === "monthly_rent"
+      ? { monthly_rent: amount as number }
+      : { first_month_rent: amount };
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("tenancies")
+    .update(patch)
     .eq("id", tenancyId);
   if (error) return { error: error.message };
   revalidatePath("/tenants");

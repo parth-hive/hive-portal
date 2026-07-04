@@ -15,6 +15,7 @@ import {
 } from "./tenant-actions";
 import { LeaseDownload } from "./lease-download";
 import { LeaseDateEdit } from "./lease-end-edit";
+import { RentAmountEdit } from "./rent-edit";
 import { TenantBackLink } from "./tenant-back-link";
 import { computeLedger, buildLedgerEntries } from "@/lib/rent";
 import { todayISO } from "@/lib/date";
@@ -246,7 +247,25 @@ export default async function TenantDetailPage({
                 </dd>
                 <dt className="text-muted">Monthly</dt>
                 <dd className="col-span-2 text-ink">
-                  {fmtMoney(active.monthly_rent)}
+                  <RentAmountEdit
+                    field="monthly_rent"
+                    tenancyId={active.id}
+                    tenantId={tenant.id}
+                    value={Number(active.monthly_rent)}
+                  />
+                </dd>
+                <dt className="text-muted">First month (prorated)</dt>
+                <dd className="col-span-2 text-ink">
+                  <RentAmountEdit
+                    field="first_month_rent"
+                    tenancyId={active.id}
+                    tenantId={tenant.id}
+                    value={
+                      active.first_month_rent !== null
+                        ? Number(active.first_month_rent)
+                        : null
+                    }
+                  />
                 </dd>
                 <dt className="text-muted">Deposit</dt>
                 <dd className="col-span-2 text-ink">

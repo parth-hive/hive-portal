@@ -3,12 +3,16 @@
 import { useActionState } from "react";
 import { createTenant, type TenantFormState } from "../actions";
 import { useFormToast } from "@/components/use-form-toast";
+import { RoomCombobox } from "./room-combobox";
 
 type RoomOption = {
   id: string;
   label: string;
   total_rent: number | null;
 };
+
+// Keep in sync with MAX_LEASE_PDF_BYTES in ../actions.ts.
+const MAX_LEASE_PDF_BYTES = 20 * 1024 * 1024;
 
 const fieldLabel = "text-xs font-medium uppercase tracking-wide text-muted";
 const fieldInput =
@@ -84,19 +88,7 @@ export function AddTenantForm({
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <label className="flex flex-col gap-1.5 sm:col-span-2">
             <span className={fieldLabel}>Room</span>
-            <select
-              name="room_id"
-              defaultValue={defaultRoomId}
-              className={fieldInput}
-            >
-              <option value="">— none —</option>
-              {rooms.map((r) => (
-                <option key={r.id} value={r.id}>
-                  {r.label}
-                  {r.total_rent ? ` — $${r.total_rent.toLocaleString()}` : ""}
-                </option>
-              ))}
-            </select>
+            <RoomCombobox rooms={rooms} defaultRoomId={defaultRoomId} />
             {rooms.length === 0 && (
               <span className="text-xs text-muted">
                 No available rooms. Add a property + room first, or set a room&apos;s
@@ -154,6 +146,14 @@ export function AddTenantForm({
               type="file"
               name="lease_pdf"
               accept="application/pdf"
+              onChange={(e) => {
+                const file = e.currentTarget.files?.[0];
+                e.currentTarget.setCustomValidity(
+                  file && file.size > MAX_LEASE_PDF_BYTES
+                    ? "Lease PDF must be 20 MB or smaller."
+                    : "",
+                );
+              }}
               className="rounded-lg border border-stone bg-white px-3 py-2 text-sm text-ink file:mr-3 file:rounded-full file:border-0 file:bg-ink file:px-3 file:py-1 file:text-xs file:font-medium file:text-white hover:file:bg-accent-dark"
             />
             <span className="text-xs text-muted">
