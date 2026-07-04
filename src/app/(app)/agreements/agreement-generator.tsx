@@ -1,0 +1,363 @@
+"use client";
+
+import { useMemo, useState } from "react";
+import { toast } from "sonner";
+import {
+  buildAgreementPdf,
+  agreementFilename,
+} from "@/lib/agreement-pdf";
+
+export type TenancyPrefill = {
+  id: string;
+  label: string;
+  tenantName: string;
+  propertyAddress: string;
+  rent: string;
+  securityDeposit: string;
+  leaseStartDate: string;
+  leaseEndDate: string;
+  isNewYork: boolean;
+};
+
+const fieldLabel = "text-xs font-medium uppercase tracking-wide text-muted";
+const fieldInput =
+  "rounded-lg border border-stone bg-white px-3 py-2 text-sm text-ink focus:border-accent focus:outline-none";
+
+type FormState = {
+  tenantName: string;
+  sublessorName: string;
+  propertyAddress: string;
+  rent: string;
+  proRateRent: string;
+  securityDeposit: string;
+  leaseStartDate: string;
+  leaseEndDate: string;
+  agreementDate: string;
+};
+
+function daysInMonthOf(dateStr: string): number | null {
+  const m = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!m) return null;
+  return new Date(Number(m[1]), Number(m[2]), 0).getDate();
+}
+
+function dayOf(dateStr: string): number | null {
+  const m = dateStr.match(/^\d{4}-\d{2}-(\d{2})$/);
+  return m ? Number(m[1]) : null;
+}
+
+export function AgreementGenerator({
+  prefills,
+  defaultAgreementDate,
+}: {
+  prefills: TenancyPrefill[];
+  defaultAgreementDate: string;
+}) {
+  const [form, setForm] = useState<FormState>({
+    tenantName: "",
+    sublessorName: "Vineet Dutta",
+    propertyAddress: "",
+    rent: "",
+    proRateRent: "",
+    securityDeposit: "",
+    leaseStartDate: "",
+    leaseEndDate: "",
+    agreementDate: defaultAgreementDate,
+  });
+  const [selectedPrefill, setSelectedPrefill] = useState("");
+  const [showCalculator, setShowCalculator] = useState(false);
+
+  const set = (field: keyof FormState) => (value: string) =>
+    setForm((prev) => ({ ...prev, [field]: value }));
+
+  const selected = prefills.find((p) => p.id === selectedPrefill);
+
+  const applyPrefill = (id: string) => {
+    setSelectedPrefill(id);
+    const p = prefills.find((x) => x.id === id);
+    if (!p) return;
+    setForm((prev) => ({
+      ...prev,
+      tenantName: p.tenantName,
+      propertyAddress: p.propertyAddress,
+      rent: p.rent,
+      securityDeposit: p.securityDeposit,
+      leaseStartDate: p.leaseStartDate,
+      leaseEndDate: p.leaseEndDate,
+    }));
+  };
+
+  const proration = useMemo(() => {
+    const rent = parseFloat(form.rent);
+    const daysInMonth = daysInMonthOf(form.leaseStartDate);
+    const moveDay = dayOf(form.leaseStartDate);
+    if (!rent || rent <= 0 || !daysInMonth || !moveDay) return null;
+    const daysOccupied = daysInMonth - moveDay + 1;
+    const dailyRate = rent / daysInMonth;
+    return {
+      daysOccupied,
+      daysInMonth,
+      dailyRate,
+      prorated: Math.round(dailyRate * daysOccupied * 100) / 100,
+    };
+  }, [form.rent, form.leaseStartDate]);
+
+  const missing = () => {
+    if (!form.tenantName.trim()) return "tenant name";
+    if (!form.sublessorName.trim()) return "sublessor name";
+    if (!form.propertyAddress.trim()) return "property address";
+    if (!form.rent.trim()) return "monthly rent";
+    if (!form.securityDeposit.trim()) return "security deposit";
+    if (!form.leaseStartDate) return "lease start date";
+    if (!form.leaseEndDate) return "lease end date";
+    if (!form.agreementDate) return "agreement date";
+    return null;
+  };
+
+  const generate = (includeLetterhead: boolean) => {
+    const gap = missing();
+    if (gap) {
+      toast.error(`Fill in the ${gap} first.`);
+      return;
+    }
+    if (form.leaseEndDate <= form.leaseStartDate) {
+      toast.error("Lease end date must be after the start date.");
+      return;
+    }
+    try {
+      const pdf = buildAgreementPdf({
+        tenantName: form.tenantName.trim(),
+        sublessorName: form.sublessorName.trim(),
+        propertyAddress: form.propertyAddress.trim(),
+        rent: form.rent.trim(),
+        securityDeposit: form.securityDeposit.trim(),
+        leaseStartDate: form.leaseStartDate,
+        leaseEndDate: form.leaseEndDate,
+        agreementDate: form.agreementDate,
+        includeLetterhead,
+        proRateRent: form.proRateRent.trim() || undefined,
+      });
+      pdf.save(agreementFilename(form.tenantName.trim()));
+      toast.success(
+        `${includeLetterhead ? "Letterhead" : "Plain"} agreement downloaded.`,
+      );
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Failed to generate the PDF.");
+    }
+  };
+
+  return (
+    <div className="flex flex-col gap-8">
+      <section className="rounded-2xl bg-white p-6 shadow-sm">
+        <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
+          Start from a tenant
+        </h2>
+        <p className="mt-1 text-xs text-muted">
+          Optional — pick an active tenancy to prefill the form. Everything
+          stays editable below.
+        </p>
+        <select
+          value={selectedPrefill}
+          onChange={(e) => applyPrefill(e.target.value)}
+          className={`mt-4 w-full max-w-xl ${fieldInput}`}
+        >
+          <option value="">Blank agreement</option>
+          {prefills.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.label}
+            </option>
+          ))}
+        </select>
+        {selected && (
+          <p className="mt-2 text-xs text-muted">
+            {selected.isNewYork ? (
+              <>
+                This unit is in <strong className="text-ink">New York</strong>{" "}
+                — use the plain PDF (no letterhead).
+              </>
+            ) : (
+              <>This unit is outside New York — use the letterhead PDF.</>
+            )}
+          </p>
+        )}
+      </section>
+
+      <section className="rounded-2xl bg-white p-6 shadow-sm">
+        <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
+          Agreement details
+        </h2>
+        <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <label className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>Tenant name (sublessee) *</span>
+            <input
+              type="text"
+              value={form.tenantName}
+              onChange={(e) => set("tenantName")(e.target.value)}
+              placeholder="e.g. Praveen Kumar Anwla"
+              className={fieldInput}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>Sublessor name *</span>
+            <input
+              type="text"
+              value={form.sublessorName}
+              onChange={(e) => set("sublessorName")(e.target.value)}
+              className={fieldInput}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5 sm:col-span-2">
+            <span className={fieldLabel}>Property address *</span>
+            <input
+              type="text"
+              value={form.propertyAddress}
+              onChange={(e) => set("propertyAddress")(e.target.value)}
+              placeholder="e.g. 161 Van Wagenen Ave, Jersey City, NJ 07306"
+              className={fieldInput}
+            />
+          </label>
+        </div>
+
+        <div className="mt-4 grid gap-4 sm:grid-cols-3">
+          <label className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>Monthly rent ($) *</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.rent}
+              onChange={(e) => set("rent")(e.target.value)}
+              placeholder="e.g. 1650"
+              className={fieldInput}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className="flex items-center justify-between">
+              <span className={fieldLabel}>Prorated rent ($)</span>
+              <button
+                type="button"
+                onClick={() => setShowCalculator((v) => !v)}
+                className="text-[10px] font-semibold uppercase tracking-wider text-accent-text hover:text-accent-dark"
+              >
+                {showCalculator ? "Hide calculator" : "Calculate"}
+              </button>
+            </span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.proRateRent}
+              onChange={(e) => set("proRateRent")(e.target.value)}
+              placeholder="Optional"
+              className={fieldInput}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>Security deposit ($) *</span>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={form.securityDeposit}
+              onChange={(e) => set("securityDeposit")(e.target.value)}
+              placeholder="e.g. 1650"
+              className={fieldInput}
+            />
+          </label>
+        </div>
+
+        {showCalculator && (
+          <div className="mt-4 rounded-xl bg-warm/60 p-4">
+            <h3 className="text-xs font-medium uppercase tracking-wide text-muted">
+              Prorated rent calculator
+            </h3>
+            {proration ? (
+              <div className="mt-3 flex flex-wrap items-center gap-x-8 gap-y-2 text-sm text-ink">
+                <span>
+                  Days occupied{" "}
+                  <strong>
+                    {proration.daysOccupied} / {proration.daysInMonth}
+                  </strong>
+                </span>
+                <span>
+                  Daily rate <strong>${proration.dailyRate.toFixed(2)}</strong>
+                </span>
+                <span>
+                  Prorated rent{" "}
+                  <strong className="text-accent-text">
+                    ${proration.prorated.toFixed(2)}
+                  </strong>
+                </span>
+                <button
+                  type="button"
+                  onClick={() => set("proRateRent")(proration.prorated.toFixed(2))}
+                  className="rounded-full bg-accent px-4 py-1.5 text-xs font-medium uppercase tracking-wide text-white transition hover:bg-accent-dark"
+                >
+                  Apply
+                </button>
+              </div>
+            ) : (
+              <p className="mt-2 text-xs text-muted">
+                Enter the monthly rent and lease start date — the move-in month
+                is prorated from that day through month end.
+              </p>
+            )}
+          </div>
+        )}
+
+        <div className="mt-4 grid gap-4 sm:grid-cols-3">
+          <label className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>Lease start *</span>
+            <input
+              type="date"
+              value={form.leaseStartDate}
+              onChange={(e) => set("leaseStartDate")(e.target.value)}
+              className={fieldInput}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>Lease end *</span>
+            <input
+              type="date"
+              value={form.leaseEndDate}
+              onChange={(e) => set("leaseEndDate")(e.target.value)}
+              className={fieldInput}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>Agreement date *</span>
+            <input
+              type="date"
+              value={form.agreementDate}
+              onChange={(e) => set("agreementDate")(e.target.value)}
+              className={fieldInput}
+            />
+          </label>
+        </div>
+
+        <div className="mt-6 border-t border-stone/50 pt-6">
+          <div className="grid gap-3 sm:grid-cols-2">
+            <button
+              type="button"
+              onClick={() => generate(true)}
+              className="rounded-full bg-accent px-6 py-3 text-sm font-medium uppercase tracking-wide text-white transition hover:bg-accent-dark"
+            >
+              Download with letterhead
+            </button>
+            <button
+              type="button"
+              onClick={() => generate(false)}
+              className="rounded-full border border-ink px-6 py-3 text-sm font-medium uppercase tracking-wide text-ink transition hover:bg-warm"
+            >
+              Download plain (New York)
+            </button>
+          </div>
+          <p className="mt-3 text-center text-xs text-muted">
+            The PDF is generated in your browser and downloads immediately —
+            nothing leaves the portal.
+          </p>
+        </div>
+      </section>
+    </div>
+  );
+}
