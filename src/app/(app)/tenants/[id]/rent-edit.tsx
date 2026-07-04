@@ -68,7 +68,7 @@ export function RentAmountEdit({
     <button
       type="button"
       onClick={() => setEditing(true)}
-      className={`rounded px-1.5 py-0.5 text-left text-ink hover:bg-warm/60 focus:outline-none focus:ring-1 focus:ring-accent ${
+      className={`-mx-1.5 -my-0.5 rounded px-1.5 py-0.5 text-left text-ink hover:bg-warm/60 focus:outline-none focus:ring-1 focus:ring-accent ${
         pending ? "opacity-60" : ""
       }`}
     >
