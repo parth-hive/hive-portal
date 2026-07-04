@@ -11,6 +11,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { updateRoomsWithNotification } from "@/lib/notifications";
+import { enqueueCleanerScheduleChange } from "@/lib/cleaner-reminders";
 import { todayISO, currentRentCycle, rentCycleForMonth } from "@/lib/date";
 import { generateAgreementPdf } from "@/lib/agreements";
 import { sendGmailMessage } from "@/lib/google-mail";
@@ -443,6 +444,14 @@ export async function logCleaning(args: {
     notes: args.notes ?? null,
   });
   if (error) throw new Error(error.message);
+  // Same side effect as the portal's addCleaning: let assigned cleaners know
+  // when this week's schedule changed.
+  await enqueueCleanerScheduleChange(
+    supabase,
+    args.property_id,
+    [args.cleaning_date],
+    "telegram",
+  );
   return { ok: true };
 }
 
@@ -520,6 +529,349 @@ export async function endTenancy(args: {
     room_status: isPastOrToday ? "available" : "occupied",
     listing_action_reset: true,
   };
+}
+
+// Undo a scheduled (or accidental) move-out: tenancy back to active with no
+// move-out date, room back to plain occupied. Mirrors reactivateTenancy().
+export async function cancelMoveOut(args: { tenancy_id: string }) {
+  const supabase = admin();
+  const { data: tenancy, error } = await supabase
+    .from("tenancies")
+    .select("room_id, move_out_date")
+    .eq("id", args.tenancy_id)
+    .single();
+  if (error || !tenancy) throw new Error(error?.message ?? "Tenancy not found.");
+  if (!tenancy.move_out_date) {
+    return { ok: true, note: "No move-out was scheduled on this tenancy." };
+  }
+
+  await supabase
+    .from("tenancies")
+    .update({ move_out_date: null, status: "active" })
+    .eq("id", args.tenancy_id);
+
+  if (tenancy.room_id) {
+    await updateRoomsWithNotification(supabase, tenancy.room_id, {
+      status: "occupied",
+      available_from: null,
+    });
+  }
+  return { ok: true, cancelled_move_out: tenancy.move_out_date };
+}
+
+// Patch tenant profile fields. Only the fields provided change; pass null to
+// clear a clearable field.
+export async function updateTenant(args: {
+  tenant_id: string;
+  full_name?: string;
+  email?: string | null;
+  phone?: string | null;
+  pays_as?: string | null;
+  profession?: string | null;
+  age?: number | null;
+  notes?: string | null;
+}) {
+  const patch: Record<string, unknown> = {};
+  for (const key of [
+    "full_name",
+    "email",
+    "phone",
+    "pays_as",
+    "profession",
+    "age",
+    "notes",
+  ] as const) {
+    if (args[key] !== undefined) patch[key] = args[key];
+  }
+  if (typeof patch.full_name === "string" && !patch.full_name.trim()) {
+    throw new Error("full_name cannot be blank.");
+  }
+  if (Object.keys(patch).length === 0) throw new Error("Nothing to update.");
+
+  const supabase = admin();
+  const { error } = await supabase
+    .from("tenants")
+    .update(patch)
+    .eq("id", args.tenant_id);
+  if (error) throw new Error(error.message);
+  return { ok: true, updated_fields: Object.keys(patch) };
+}
+
+// Patch tenancy money/date fields. The rent ledger recomputes from these on
+// every read, so changing monthly_rent or first_month_rent immediately
+// reprices the auto rent charges (first_month_rent only affects the calendar
+// month the tenancy starts in).
+export async function updateTenancy(args: {
+  tenancy_id: string;
+  monthly_rent?: number;
+  first_month_rent?: number | null;
+  security_deposit?: number | null;
+  start_date?: string;
+  lease_end_date?: string | null;
+}) {
+  const patch: Record<string, unknown> = {};
+  if (args.monthly_rent !== undefined) {
+    if (!(args.monthly_rent > 0))
+      throw new Error("monthly_rent must be greater than 0.");
+    patch.monthly_rent = args.monthly_rent;
+  }
+  if (args.first_month_rent !== undefined) {
+    if (args.first_month_rent !== null && !(args.first_month_rent >= 0))
+      throw new Error("first_month_rent must be a non-negative number or null.");
+    patch.first_month_rent = args.first_month_rent;
+  }
+  if (args.security_deposit !== undefined) {
+    if (args.security_deposit !== null && !(args.security_deposit >= 0))
+      throw new Error("security_deposit must be a non-negative number or null.");
+    patch.security_deposit = args.security_deposit;
+  }
+  if (args.start_date !== undefined) {
+    if (!args.start_date) throw new Error("start_date cannot be blank.");
+    patch.start_date = args.start_date;
+  }
+  if (args.lease_end_date !== undefined) {
+    patch.lease_end_date = args.lease_end_date;
+    // Changing the lease end re-arms the lease-ending reminder crons.
+    patch.lease_end_reminded_at = null;
+    patch.lease_end_reminded_30_at = null;
+  }
+  if (Object.keys(patch).length === 0) throw new Error("Nothing to update.");
+
+  const supabase = admin();
+  const { error } = await supabase
+    .from("tenancies")
+    .update(patch)
+    .eq("id", args.tenancy_id);
+  if (error) throw new Error(error.message);
+  return { ok: true, updated_fields: Object.keys(patch) };
+}
+
+// Post an ad-hoc charge to the ledger (owed side). Distinct from
+// record_payment, which records money received.
+export async function addTenancyCharge(args: {
+  tenancy_id: string;
+  kind: "security_deposit" | "late_fee" | "other";
+  amount: number;
+  note?: string;
+  charged_on?: string;
+}) {
+  if (!(args.amount > 0)) throw new Error("Amount must be a positive number.");
+  if (args.kind === "other" && !args.note?.trim())
+    throw new Error("An 'other' charge needs a note describing it.");
+
+  const supabase = admin();
+  const { error } = await supabase.from("tenancy_charges").insert({
+    tenancy_id: args.tenancy_id,
+    kind: args.kind,
+    amount: args.amount,
+    charged_on: args.charged_on ?? todayISO(),
+    note: args.note?.trim() || null,
+  });
+  if (error) throw new Error(error.message);
+  return { ok: true };
+}
+
+// Short-lived signed download link for the lease PDF on file.
+export async function getLeaseUrl(args: { tenancy_id: string }) {
+  const supabase = admin();
+  const { data: tenancy, error } = await supabase
+    .from("tenancies")
+    .select("lease_pdf_path")
+    .eq("id", args.tenancy_id)
+    .maybeSingle();
+  if (error) throw new Error(error.message);
+  if (!tenancy?.lease_pdf_path)
+    throw new Error("No lease PDF on file for this tenancy.");
+
+  const { data, error: signErr } = await supabase.storage
+    .from("leases")
+    .createSignedUrl(tenancy.lease_pdf_path, 600);
+  if (signErr) throw new Error(signErr.message);
+  return { url: data.signedUrl, expires_in_minutes: 10 };
+}
+
+// ----- Cleaning management -----
+
+export async function listCleaners() {
+  const supabase = admin();
+  const [{ data: cleaners, error }, { data: links }, { data: props }] =
+    await Promise.all([
+      supabase
+        .from("cleaners")
+        .select("id, name, email, phone, enabled")
+        .order("name"),
+      supabase.from("property_cleaners").select("property_id, cleaner_id"),
+      supabase
+        .from("properties")
+        .select("id, building_name, street_address, unit_number"),
+    ]);
+  if (error) throw new Error(error.message);
+
+  const labelById = new Map(
+    (props ?? []).map((p) => [p.id, propertyLabel(p)]),
+  );
+  return (cleaners ?? []).map((c) => ({
+    ...c,
+    properties: (links ?? [])
+      .filter((l) => l.cleaner_id === c.id)
+      .map((l) => ({
+        property_id: l.property_id,
+        label: labelById.get(l.property_id) ?? l.property_id,
+      })),
+  }));
+}
+
+// Recent cleaning records (with ids) so a wrong log can be fixed or deleted.
+export async function listCleanings(args: {
+  property_id?: string;
+  limit?: number;
+}) {
+  const supabase = admin();
+  let q = supabase
+    .from("cleaning_records")
+    .select(
+      `id, cleaning_date, assigned_to, notes,
+       properties(id, building_name, street_address, unit_number)`,
+    )
+    .order("cleaning_date", { ascending: false })
+    .limit(Math.min(args.limit ?? 20, 100));
+  if (args.property_id) q = q.eq("property_id", args.property_id);
+  const { data, error } = await q;
+  if (error) throw new Error(error.message);
+
+  return (data ?? []).map((c) => {
+    const p = one(c.properties);
+    return {
+      record_id: c.id,
+      property: p ? propertyLabel(p) : null,
+      property_id: p?.id ?? null,
+      cleaning_date: c.cleaning_date,
+      assigned_to: c.assigned_to,
+      notes: c.notes,
+    };
+  });
+}
+
+export async function addCleaner(args: {
+  name: string;
+  email: string;
+  phone?: string;
+}) {
+  const name = args.name.trim();
+  const email = args.email.trim();
+  if (!name) throw new Error("Cleaner name is required.");
+  if (!email.includes("@")) throw new Error("A valid email is required.");
+
+  const supabase = admin();
+  const { data, error } = await supabase
+    .from("cleaners")
+    .insert({ name, email, phone: args.phone?.trim() || null, enabled: true })
+    .select("id")
+    .single();
+  if (error) throw new Error(error.message);
+  return { ok: true, cleaner_id: data.id };
+}
+
+export async function setCleanerEnabled(args: {
+  cleaner_id: string;
+  enabled: boolean;
+}) {
+  const supabase = admin();
+  const { error } = await supabase
+    .from("cleaners")
+    .update({ enabled: args.enabled })
+    .eq("id", args.cleaner_id);
+  if (error) throw new Error(error.message);
+  return { ok: true };
+}
+
+export async function assignCleaner(args: {
+  property_id: string;
+  cleaner_id: string;
+  assigned: boolean;
+}) {
+  const supabase = admin();
+  if (args.assigned) {
+    const { error } = await supabase
+      .from("property_cleaners")
+      .upsert(
+        { property_id: args.property_id, cleaner_id: args.cleaner_id },
+        { onConflict: "property_id,cleaner_id" },
+      );
+    if (error) throw new Error(error.message);
+  } else {
+    const { error } = await supabase
+      .from("property_cleaners")
+      .delete()
+      .eq("property_id", args.property_id)
+      .eq("cleaner_id", args.cleaner_id);
+    if (error) throw new Error(error.message);
+  }
+  return { ok: true };
+}
+
+export async function updateCleaningRecord(args: {
+  record_id: string;
+  cleaning_date?: string;
+  assigned_to?: string | null;
+  notes?: string | null;
+}) {
+  const patch: Record<string, unknown> = {};
+  if (args.cleaning_date !== undefined) {
+    if (!args.cleaning_date) throw new Error("cleaning_date cannot be blank.");
+    patch.cleaning_date = args.cleaning_date;
+  }
+  if (args.assigned_to !== undefined) patch.assigned_to = args.assigned_to;
+  if (args.notes !== undefined) patch.notes = args.notes;
+  if (Object.keys(patch).length === 0) throw new Error("Nothing to update.");
+
+  const supabase = admin();
+  const { data: old, error: lookupErr } = await supabase
+    .from("cleaning_records")
+    .select("property_id, cleaning_date")
+    .eq("id", args.record_id)
+    .single();
+  if (lookupErr || !old)
+    throw new Error(lookupErr?.message ?? "Cleaning record not found.");
+
+  const { error } = await supabase
+    .from("cleaning_records")
+    .update(patch)
+    .eq("id", args.record_id);
+  if (error) throw new Error(error.message);
+
+  await enqueueCleanerScheduleChange(
+    supabase,
+    old.property_id,
+    [old.cleaning_date, args.cleaning_date],
+    "telegram",
+  );
+  return { ok: true };
+}
+
+export async function deleteCleaningRecord(args: { record_id: string }) {
+  const supabase = admin();
+  const { data: old, error: lookupErr } = await supabase
+    .from("cleaning_records")
+    .select("property_id, cleaning_date")
+    .eq("id", args.record_id)
+    .single();
+  if (lookupErr || !old)
+    throw new Error(lookupErr?.message ?? "Cleaning record not found.");
+
+  const { error } = await supabase
+    .from("cleaning_records")
+    .delete()
+    .eq("id", args.record_id);
+  if (error) throw new Error(error.message);
+
+  await enqueueCleanerScheduleChange(
+    supabase,
+    old.property_id,
+    [old.cleaning_date],
+    "telegram",
+  );
+  return { ok: true };
 }
 
 export async function setRoomStatus(args: {
@@ -1375,6 +1727,158 @@ const rawTools = [
       );
       return JSON.stringify(await getPropertyCollections(args.from, args.to));
     },
+  }),
+  betaZodTool({
+    name: "update_tenant",
+    description:
+      "Update a tenant's profile fields (name, email, phone, pays_as, " +
+      "profession, age, notes). Only the fields provided change; pass null " +
+      "to clear a field. Does not touch the tenancy or ledger.",
+    inputSchema: z.object({
+      tenant_id: z.string(),
+      full_name: z.string().optional(),
+      email: z.string().nullable().optional(),
+      phone: z.string().nullable().optional(),
+      pays_as: z
+        .string()
+        .nullable()
+        .optional()
+        .describe("Name on Zelle deposits, used by reconciliation matching"),
+      profession: z.string().nullable().optional(),
+      age: z.number().int().min(0).max(150).nullable().optional(),
+      notes: z.string().nullable().optional(),
+    }),
+    run: async (args) => JSON.stringify(await updateTenant(args)),
+  }),
+  betaZodTool({
+    name: "update_tenancy",
+    description:
+      "Update a tenancy's rent amounts and lease dates: monthly_rent, " +
+      "first_month_rent (prorated amount charged only for the calendar month " +
+      "the tenancy starts in; null = full monthly rent), security_deposit " +
+      "(informational), start_date, lease_end_date. The ledger recomputes " +
+      "from these, so rent changes reprice the auto monthly charges " +
+      "immediately. Use end_tenancy / cancel_move_out for move-outs.",
+    inputSchema: z.object({
+      tenancy_id: z.string(),
+      monthly_rent: z.number().positive().optional(),
+      first_month_rent: z.number().min(0).nullable().optional(),
+      security_deposit: z.number().min(0).nullable().optional(),
+      start_date: z.string().optional().describe('"YYYY-MM-DD"'),
+      lease_end_date: z
+        .string()
+        .nullable()
+        .optional()
+        .describe('"YYYY-MM-DD"; changing it re-arms lease-ending reminders'),
+    }),
+    run: async (args) => JSON.stringify(await updateTenancy(args)),
+  }),
+  betaZodTool({
+    name: "cancel_move_out",
+    description:
+      "Cancel a scheduled move-out: clears the tenancy's move_out_date, sets " +
+      "it back to active, and returns the room to plain Occupied (no " +
+      "available-from date on Inventory). The undo of end_tenancy.",
+    inputSchema: z.object({ tenancy_id: z.string() }),
+    run: async (args) => JSON.stringify(await cancelMoveOut(args)),
+  }),
+  betaZodTool({
+    name: "add_charge",
+    description:
+      "Post an ad-hoc charge a tenant owes on their ledger: security_deposit, " +
+      "late_fee (~$50), or other (note required). This is the owed side — use " +
+      "record_payment when money is received.",
+    inputSchema: z.object({
+      tenancy_id: z.string(),
+      kind: z.enum(["security_deposit", "late_fee", "other"]),
+      amount: z.number().positive(),
+      note: z.string().optional().describe("Required when kind is 'other'"),
+      charged_on: z
+        .string()
+        .optional()
+        .describe('"YYYY-MM-DD", defaults to today'),
+    }),
+    run: async (args) => JSON.stringify(await addTenancyCharge(args)),
+  }),
+  betaZodTool({
+    name: "get_lease_url",
+    description:
+      "Get a download link for the lease PDF on file for a tenancy. The link " +
+      "is signed and expires after 10 minutes.",
+    inputSchema: z.object({ tenancy_id: z.string() }),
+    run: async (args) => JSON.stringify(await getLeaseUrl(args)),
+  }),
+  betaZodTool({
+    name: "list_cleanings",
+    description:
+      "Recent logged cleanings (newest first) with their record ids — use " +
+      "this to find the record to fix with update_cleaning_record or " +
+      "delete_cleaning_record. Optionally filter to one property.",
+    inputSchema: z.object({
+      property_id: z.string().optional(),
+      limit: z.number().int().min(1).max(100).optional().describe("Default 20"),
+    }),
+    run: async (args) => JSON.stringify(await listCleanings(args)),
+  }),
+  betaZodTool({
+    name: "list_cleaners",
+    description:
+      "All cleaners with contact info, enabled flag, and which properties " +
+      "each is assigned to.",
+    inputSchema: z.object({}),
+    run: async () => JSON.stringify(await listCleaners()),
+  }),
+  betaZodTool({
+    name: "add_cleaner",
+    description: "Add a cleaner (name + email, optional phone), enabled by default.",
+    inputSchema: z.object({
+      name: z.string(),
+      email: z.string(),
+      phone: z.string().optional(),
+    }),
+    run: async (args) => JSON.stringify(await addCleaner(args)),
+  }),
+  betaZodTool({
+    name: "set_cleaner_enabled",
+    description:
+      "Enable or disable a cleaner. Disabled cleaners drop out of the " +
+      "'Cleaned by' options and schedule-change notifications.",
+    inputSchema: z.object({
+      cleaner_id: z.string(),
+      enabled: z.boolean(),
+    }),
+    run: async (args) => JSON.stringify(await setCleanerEnabled(args)),
+  }),
+  betaZodTool({
+    name: "assign_cleaner",
+    description:
+      "Assign a cleaner to a property (assigned: true) or remove the " +
+      "assignment (assigned: false).",
+    inputSchema: z.object({
+      property_id: z.string(),
+      cleaner_id: z.string(),
+      assigned: z.boolean(),
+    }),
+    run: async (args) => JSON.stringify(await assignCleaner(args)),
+  }),
+  betaZodTool({
+    name: "update_cleaning_record",
+    description:
+      "Fix a logged cleaning: change its date, who cleaned, or notes. Only " +
+      "the fields provided change; pass null to clear assigned_to/notes.",
+    inputSchema: z.object({
+      record_id: z.string(),
+      cleaning_date: z.string().optional().describe('"YYYY-MM-DD"'),
+      assigned_to: z.string().nullable().optional(),
+      notes: z.string().nullable().optional(),
+    }),
+    run: async (args) => JSON.stringify(await updateCleaningRecord(args)),
+  }),
+  betaZodTool({
+    name: "delete_cleaning_record",
+    description: "Delete a wrongly logged cleaning record.",
+    inputSchema: z.object({ record_id: z.string() }),
+    run: async (args) => JSON.stringify(await deleteCleaningRecord(args)),
   }),
 ];
 
