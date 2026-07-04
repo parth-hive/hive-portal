@@ -269,7 +269,7 @@ export function buildAgreementPdf(data: AgreementPdfData): jsPDF {
   ];
 
   const remainingClauses = [
-    `Security deposit will be returned within 21 days of moving out.`,
+    `Security deposit will be returned within three weeks of moving out.`,
     `Smoking is strictly prohibited within the apartment and building. If ${data.tenantName} is found smoking in the apartment, a $1,000 fine will be issued.`,
     `${data.tenantName} agrees to adhere to cleanliness standards or additional incurred charges for maid services will be required.`,
     `${data.tenantName} shall pay for all property damage he/she is responsible for in the event something happens during sublease.`,
