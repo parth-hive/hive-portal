@@ -269,7 +269,16 @@ export default async function TenantDetailPage({
                 </dd>
                 <dt className="text-muted">Deposit</dt>
                 <dd className="col-span-2 text-ink">
-                  {fmtMoney(active.security_deposit)}
+                  <RentAmountEdit
+                    field="security_deposit"
+                    tenancyId={active.id}
+                    tenantId={tenant.id}
+                    value={
+                      active.security_deposit !== null
+                        ? Number(active.security_deposit)
+                        : null
+                    }
+                  />
                 </dd>
                 <dt className="text-muted">Lease Start Date</dt>
                 <dd className="col-span-2 text-ink">
@@ -292,10 +301,13 @@ export default async function TenantDetailPage({
                 {active.move_out_date && (
                   <>
                     <dt className="text-muted">Moving out</dt>
-                    <dd className="col-span-2">
-                      <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs uppercase tracking-wide text-accent-text">
-                        {formatDate(active.move_out_date)}
-                      </span>
+                    <dd className="col-span-2 text-ink">
+                      <LeaseDateEdit
+                        field="moveout"
+                        tenancyId={active.id}
+                        tenantId={tenant.id}
+                        value={active.move_out_date}
+                      />
                     </dd>
                   </>
                 )}

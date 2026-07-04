@@ -4,14 +4,14 @@ import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { setTenancyRentAmount } from "../actions";
 
-/** Inline editor for a tenancy's monthly or prorated-first-month rent. */
+/** Inline editor for a tenancy's dollar amounts (monthly / prorated / deposit). */
 export function RentAmountEdit({
   field,
   tenancyId,
   tenantId,
   value,
 }: {
-  field: "monthly_rent" | "first_month_rent";
+  field: "monthly_rent" | "first_month_rent" | "security_deposit";
   tenancyId: string;
   tenantId: string;
   value: number | null;
@@ -19,9 +19,9 @@ export function RentAmountEdit({
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
-  // Monthly rent is required; the prorated amount may be cleared, which
-  // means the starting month is charged the full monthly rent.
-  const clearable = field === "first_month_rent";
+  // Monthly rent is required; the prorated amount and deposit may be
+  // cleared (no proration / no deposit on file).
+  const clearable = field !== "monthly_rent";
 
   function commit(next: string) {
     const raw = next.trim();

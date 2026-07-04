@@ -294,7 +294,7 @@ export async function setTenancyStartDate(
 export async function setTenancyRentAmount(
   tenancyId: string,
   tenantId: string,
-  field: "monthly_rent" | "first_month_rent",
+  field: "monthly_rent" | "first_month_rent" | "security_deposit",
   value: string | null,
 ): Promise<{ ok: true } | { error: string }> {
   const raw = value?.trim() ?? "";
@@ -309,7 +309,9 @@ export async function setTenancyRentAmount(
   const patch =
     field === "monthly_rent"
       ? { monthly_rent: amount as number }
-      : { first_month_rent: amount };
+      : field === "first_month_rent"
+        ? { first_month_rent: amount }
+        : { security_deposit: amount };
 
   const supabase = await createClient();
   const { error } = await supabase
@@ -352,13 +354,11 @@ export async function setTenancyLeaseEndDate(
 //                                    Tenancy stays 'active' and is auto-finalized
 //                                    when move_out_date passes (see processExpiredTenancies).
 
-export async function endTenancy(formData: FormData) {
-  const tenancy_id = String(formData.get("tenancy_id") ?? "");
-  const tenant_id = String(formData.get("tenant_id") ?? "");
-  const move_out_date = String(formData.get("move_out_date") ?? "").trim();
-  if (!tenancy_id || !move_out_date) return;
-
-  const supabase = await createClient();
+async function applyMoveOut(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tenancy_id: string,
+  move_out_date: string,
+) {
   const today = todayISO();
   const isPastOrToday = move_out_date <= today;
 
@@ -396,10 +396,57 @@ export async function endTenancy(formData: FormData) {
       ...rentPatch,
     });
   }
+}
+
+export async function endTenancy(formData: FormData) {
+  const tenancy_id = String(formData.get("tenancy_id") ?? "");
+  const tenant_id = String(formData.get("tenant_id") ?? "");
+  const move_out_date = String(formData.get("move_out_date") ?? "").trim();
+  if (!tenancy_id || !move_out_date) return;
+
+  const supabase = await createClient();
+  await applyMoveOut(supabase, tenancy_id, move_out_date);
 
   revalidatePath("/tenants");
   if (tenant_id) revalidatePath(`/tenants/${tenant_id}`);
   revalidatePath("/inventory");
+}
+
+// Inline edit for the move-out date badge. A new date reruns the same
+// room/status side effects as ending the tenancy; clearing it cancels the
+// move-out entirely (same as the "Cancel move out" button).
+export async function setTenancyMoveOutDate(
+  tenancyId: string,
+  tenantId: string,
+  date: string | null,
+): Promise<{ ok: true } | { error: string }> {
+  const value = date && date.trim() ? date.trim() : null;
+  const supabase = await createClient();
+
+  if (value) {
+    await applyMoveOut(supabase, tenancyId, value);
+  } else {
+    const { data: tenancy } = await supabase
+      .from("tenancies")
+      .select("room_id")
+      .eq("id", tenancyId)
+      .single();
+    await supabase
+      .from("tenancies")
+      .update({ move_out_date: null, status: "active" })
+      .eq("id", tenancyId);
+    if (tenancy?.room_id) {
+      await updateRoomsWithNotification(supabase, tenancy.room_id, {
+        status: "occupied",
+        available_from: null,
+      });
+    }
+  }
+
+  revalidatePath("/tenants");
+  if (tenantId) revalidatePath(`/tenants/${tenantId}`);
+  revalidatePath("/inventory");
+  return { ok: true };
 }
 
 // ----- Undo an end-tenancy (or revive a finalized one) -----

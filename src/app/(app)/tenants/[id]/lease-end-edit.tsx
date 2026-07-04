@@ -2,7 +2,11 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { setTenancyLeaseEndDate, setTenancyStartDate } from "../actions";
+import {
+  setTenancyLeaseEndDate,
+  setTenancyMoveOutDate,
+  setTenancyStartDate,
+} from "../actions";
 
 function fmtDate(s: string | null): string {
   if (!s) return "—";
@@ -15,14 +19,14 @@ function fmtDate(s: string | null): string {
   });
 }
 
-/** Inline editor for a tenancy's lease start or end date. */
+/** Inline editor for a tenancy's lease start, lease end, or move-out date. */
 export function LeaseDateEdit({
   field,
   tenancyId,
   tenantId,
   value,
 }: {
-  field: "start" | "end";
+  field: "start" | "end" | "moveout";
   tenancyId: string;
   tenantId: string;
   value: string | null;
@@ -30,7 +34,8 @@ export function LeaseDateEdit({
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
-  // The lease start date is required; the lease end date may be cleared.
+  // The lease start date is required; the lease end date may be cleared,
+  // and clearing the move-out date cancels the move-out.
   const required = field === "start";
 
   function commit(next: string) {
@@ -42,6 +47,8 @@ export function LeaseDateEdit({
     startTransition(async () => {
       if (field === "start") {
         await setTenancyStartDate(tenancyId, tenantId, value);
+      } else if (field === "moveout") {
+        await setTenancyMoveOutDate(tenancyId, tenantId, value);
       } else {
         await setTenancyLeaseEndDate(tenancyId, tenantId, value);
       }
