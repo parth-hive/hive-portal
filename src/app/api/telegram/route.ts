@@ -65,10 +65,18 @@ Inventory sheet:
 
 Agreements:
 - When the operator wants to send a new tenant a sublease agreement, collect
-  these fields conversationally: tenant name, recipient email, full property
+  these fields conversationally: tenant name, recipient email, property
   address, monthly rent, security deposit, lease start date, lease end date,
   and whether the apartment is in New York. The New York answer decides the
   letterhead and which mailbox it sends from — always confirm it.
+- Autocomplete the address — never make the operator type it in full. Take
+  whatever fragment they gave (building name, street, unit, neighborhood)
+  and call resolve_property_address; use the returned full_address and the
+  property's is_new_york flag. If several units match, list them and ask
+  which. If needs_city_state is true, ask for just the city/state. Include
+  the completed address in your read-back so the operator confirms it (and
+  the New York answer) before you send — if they correct it, use their
+  version.
 - Ask for any missing field one or two at a time. Default the agreement date to
   today and the sublessor name to "Vineet Dutta" unless told otherwise.
 - This SENDS the agreement straight to the tenant — there is no draft to review.
