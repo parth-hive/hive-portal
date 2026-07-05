@@ -3,7 +3,12 @@
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { SearchableSelect } from "@/components/searchable-select";
-import { assignBillProperty, deleteBill, getStatementUrl } from "./actions";
+import {
+  assignBillProperty,
+  deleteBill,
+  dismissOverage,
+  getStatementUrl,
+} from "./actions";
 
 export type UnitOpt = { id: string; label: string };
 
@@ -18,6 +23,7 @@ export type BillRow = {
   period_start: string | null;
   period_end: string | null;
   total_amount: number;
+  overage_dismissed: boolean;
   notes: string | null;
   created_at: string;
   utility_bill_charges: {
@@ -106,17 +112,18 @@ function isOverThreshold(b: BillRow): boolean {
 
 export function BillsLog({ bills, units }: { bills: BillRow[]; units: UnitOpt[] }) {
   const [filter, setFilter] = useState("");
+  const [overOnly, setOverOnly] = useState(false);
   const [openMonths, setOpenMonths] = useState<Set<string>>(new Set());
   const unitName = useMemo(
     () => new Map(units.map((u) => [u.id, u.label])),
     [units],
   );
 
-  const visible = filter
-    ? bills.filter((b) =>
-        filter === "unmatched" ? !b.property_id : b.property_id === filter,
-      )
-    : bills;
+  const visible = bills.filter((b) => {
+    if (overOnly && !isOverThreshold(b)) return false;
+    if (!filter) return true;
+    return filter === "unmatched" ? !b.property_id : b.property_id === filter;
+  });
 
   // Month groups (newest first), each holding unit groups (alphabetical,
   // unmatched last).
@@ -170,8 +177,20 @@ export function BillsLog({ bills, units }: { bills: BillRow[]; units: UnitOpt[] 
         <span className="text-sm tabular-nums text-muted">
           {visible.length} bill{visible.length === 1 ? "" : "s"} · {fmtMoney(total)}
         </span>
+        <button
+          type="button"
+          onClick={() => setOverOnly((o) => !o)}
+          className={`ml-auto rounded-full border px-3 py-1.5 text-xs font-medium transition ${
+            overOnly
+              ? "border-red-300 bg-red-50 text-red-700"
+              : "border-stone bg-white text-muted hover:text-ink"
+          }`}
+          title="Show only electric/gas bills whose usage exceeds $200"
+        >
+          ⚡ Over $200 only
+        </button>
         <SearchableSelect
-          className="ml-auto w-64"
+          className="w-64"
           options={units}
           pinned={[
             { id: "", label: "All units" },
@@ -273,8 +292,9 @@ function OverageFlags({
   bills: BillRow[];
   unitName: Map<string, string>;
 }) {
+  const [pending, startTransition] = useTransition();
   const flagged = bills
-    .filter(isOverThreshold)
+    .filter((b) => isOverThreshold(b) && !b.overage_dismissed)
     .map((b) => ({
       id: b.id,
       unit: b.property_id
@@ -287,11 +307,27 @@ function OverageFlags({
     .sort((a, b) => b.usage - a.usage);
   if (flagged.length === 0) return null;
 
+  const dismiss = (ids: string[]) =>
+    startTransition(async () => {
+      const r = await dismissOverage(ids, true);
+      if (r?.error) toast.error(r.error);
+    });
+
   return (
     <div className="mt-4 rounded-2xl border border-red-200 bg-red-50/80 px-5 py-4">
-      <p className="text-sm font-semibold text-red-900">
-        ⚡ Over the $200 utility threshold
-      </p>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-sm font-semibold text-red-900">
+          ⚡ Over the $200 utility threshold
+        </p>
+        <button
+          type="button"
+          disabled={pending}
+          onClick={() => dismiss(flagged.map((f) => f.id))}
+          className="rounded-full border border-red-200 bg-white px-3 py-1 text-xs font-medium text-red-700 transition hover:bg-red-100 disabled:opacity-50"
+        >
+          Discard all
+        </button>
+      </div>
       <ul className="mt-3 flex flex-col gap-1.5">
         {flagged.map((f) => (
           <li
@@ -305,9 +341,19 @@ function OverageFlags({
             <span className="ml-auto pr-3 tabular-nums text-ink">
               {fmtMoney(f.usage)}
             </span>
-            <span className="mr-1 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-red-700">
+            <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-red-700">
               +{fmtMoney(f.usage - OVERAGE_THRESHOLD)} over
             </span>
+            <button
+              type="button"
+              disabled={pending}
+              aria-label={`Discard flag for ${f.unit}`}
+              title="Discard this flag (the badge on the bill stays)"
+              onClick={() => dismiss([f.id])}
+              className="rounded-full px-1.5 text-muted transition hover:text-ink disabled:opacity-50"
+            >
+              ✕
+            </button>
           </li>
         ))}
       </ul>

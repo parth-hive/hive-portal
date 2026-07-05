@@ -282,6 +282,29 @@ export async function deleteBill(billId: string): Promise<UploadState> {
   return { success: "Bill deleted." };
 }
 
+// Dismiss (or restore) a bill's over-$200 flag in the banner. The badge on
+// the bill card itself is not affected.
+export async function dismissOverage(
+  billIds: string[],
+  dismissed: boolean,
+): Promise<UploadState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+  if (billIds.length === 0) return undefined;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (admin() as any)
+    .from("utility_bills")
+    .update({ overage_dismissed: dismissed })
+    .in("id", billIds);
+  if (error) return { error: error.message };
+  revalidatePath("/utilities");
+  return undefined;
+}
+
 export async function getStatementUrl(
   billId: string,
 ): Promise<{ url?: string; error?: string }> {
