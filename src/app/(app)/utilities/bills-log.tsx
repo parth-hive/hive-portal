@@ -133,7 +133,7 @@ export function BillsLog({
       />
 
       <div className="mt-4 flex flex-col gap-3">
-        {months.map(({ month, bills: monthBills, unitGroups, total: monthTotal }) => {
+        {months.map(({ month, unitGroups, total: monthTotal }) => {
           const open = openMonths.has(month);
           return (
             <div key={month} className="overflow-hidden rounded-2xl bg-white shadow-sm">
@@ -154,7 +154,6 @@ export function BillsLog({
                   {monthLabel(month)}
                 </span>
                 <span className="text-xs text-muted">
-                  {monthBills.length} bill{monthBills.length === 1 ? "" : "s"} ·{" "}
                   {unitGroups.length} unit{unitGroups.length === 1 ? "" : "s"}
                 </span>
                 <span className="ml-auto text-base font-semibold tabular-nums text-ink">
