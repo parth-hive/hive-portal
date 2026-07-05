@@ -86,6 +86,24 @@ const monthLabel = (ym: string) =>
     timeZone: "UTC",
   });
 
+// Lease clause: when a unit's electric/gas bill exceeds $200 in a month, the
+// excess is split among the occupants. The test uses usage charges (kind
+// 'current', which includes taxes) and ignores late fees ('late_fee'/'other').
+const OVERAGE_THRESHOLD = 200;
+
+function usageTotal(b: BillRow): number {
+  return b.utility_bill_charges
+    .filter((c) => c.kind === "current")
+    .reduce((s, c) => s + Number(c.amount), 0);
+}
+
+function isOverThreshold(b: BillRow): boolean {
+  return (
+    (b.utility_type === "electric" || b.utility_type === "gas") &&
+    usageTotal(b) > OVERAGE_THRESHOLD
+  );
+}
+
 export function BillsLog({ bills, units }: { bills: BillRow[]; units: UnitOpt[] }) {
   const [filter, setFilter] = useState("");
   const [openMonths, setOpenMonths] = useState<Set<string>>(new Set());
@@ -165,6 +183,11 @@ export function BillsLog({ bills, units }: { bills: BillRow[]; units: UnitOpt[] 
         />
       </div>
 
+      <OverageFlags
+        bills={visible}
+        unitName={unitName}
+      />
+
       <div className="mt-4 flex flex-col gap-3">
         {months.map(({ month, bills: monthBills, unitGroups, total: monthTotal }) => {
           const open = openMonths.has(month);
@@ -234,6 +257,63 @@ export function BillsLog({ bills, units }: { bills: BillRow[]; units: UnitOpt[] 
           </p>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Alert banner: electric/gas statements whose usage charges (incl. tax,
+ * excl. late fees) exceed the $200 lease threshold — the excess is billable
+ * to the unit's occupants.
+ */
+function OverageFlags({
+  bills,
+  unitName,
+}: {
+  bills: BillRow[];
+  unitName: Map<string, string>;
+}) {
+  const flagged = bills
+    .filter(isOverThreshold)
+    .map((b) => ({
+      id: b.id,
+      unit: b.property_id
+        ? unitName.get(b.property_id) ?? "Unit"
+        : "⚠ Unmatched unit",
+      month: monthLabel(billMonth(b)),
+      type: b.utility_type === "electric" ? "Electric" : "Gas",
+      usage: usageTotal(b),
+    }))
+    .sort((a, b) => b.usage - a.usage);
+  if (flagged.length === 0) return null;
+
+  return (
+    <div className="mt-4 rounded-2xl border border-red-200 bg-red-50/80 px-5 py-4">
+      <p className="text-sm font-semibold text-red-900">
+        ⚡ Over the $200 utility threshold — excess billable to occupants
+      </p>
+      <p className="mt-0.5 text-xs text-red-800/80">
+        Usage charges incl. tax, late fees excluded.
+      </p>
+      <ul className="mt-3 flex flex-col gap-1.5">
+        {flagged.map((f) => (
+          <li
+            key={f.id}
+            className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-white px-3 py-2 text-sm shadow-sm"
+          >
+            <span className="font-medium text-ink">{f.unit}</span>
+            <span className="text-xs text-muted">
+              {f.month} · {f.type}
+            </span>
+            <span className="ml-auto tabular-nums text-ink">
+              {fmtMoney(f.usage)}
+            </span>
+            <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-red-700">
+              +{fmtMoney(f.usage - OVERAGE_THRESHOLD)} over
+            </span>
+          </li>
+        ))}
+      </ul>
     </div>
   );
 }
@@ -316,6 +396,11 @@ function BillCard({
           </p>
         </div>
         <div className="ml-auto flex items-center gap-3">
+          {isOverThreshold(bill) && (
+            <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-red-700">
+              ⚡ {fmtMoney(usageTotal(bill) - OVERAGE_THRESHOLD)} over $200
+            </span>
+          )}
           {extras.length > 0 && (
             <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[11px] font-medium text-amber-800">
               +{extras.length} fee{extras.length === 1 ? "" : "s"}
