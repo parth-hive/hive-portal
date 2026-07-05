@@ -123,6 +123,11 @@ export default async function TenantsPage({ searchParams }: PageProps) {
 
   const rows = data ?? [];
 
+  // The full portfolio — vacant properties still get a (empty) group below.
+  const { data: allProps } = await supabase
+    .from("properties")
+    .select("id, building_name, street_address, unit_number");
+
   // Ad-hoc charges + credit allocations feed the running ledger balance.
   const { charges, allocations } = await fetchLedgerSidecars(supabase);
   const today = todayISO();
@@ -211,6 +216,29 @@ export default async function TenantsPage({ searchParams }: PageProps) {
       balance: r.balance,
     });
   }
+  // Properties with no active tenancy still show up as empty groups, so the
+  // tracker always lists the whole portfolio. They're omitted when the
+  // owing-only filter is on (nothing owed on a vacant unit) and when a search
+  // query doesn't match the unit itself.
+  const seenPropertyIds = new Set(
+    Array.from(groupsMap.values(), (g) => g.propertyId),
+  );
+  if (!owingOnly) {
+    for (const p of allProps ?? []) {
+      if (seenPropertyIds.has(p.id)) continue;
+      const label = `${p.building_name?.trim() || p.street_address} Apt ${p.unit_number}`;
+      if (groupsMap.has(label)) continue;
+      if (query) {
+        const haystack = [p.building_name, p.street_address, p.unit_number]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        if (!haystack.includes(query)) continue;
+      }
+      groupsMap.set(label, { propertyId: p.id, rows: [] });
+    }
+  }
+
   const groups: DisplayGroup[] = Array.from(groupsMap.entries())
     .sort(([a], [b]) =>
       a === "Unassigned" ? 1 : b === "Unassigned" ? -1 : a.localeCompare(b),
@@ -384,24 +412,23 @@ export default async function TenantsPage({ searchParams }: PageProps) {
 
       {error && <p className="mt-6 text-sm text-red-700">{error.message}</p>}
 
-      {rows.length === 0 && (
-        <p className="mt-10 rounded-2xl bg-white px-6 py-12 text-center text-sm text-muted shadow-sm">
-          No active tenants yet. Click <em>Add tenant</em> to assign someone to a
-          room.
-        </p>
-      )}
-
-      {rows.length > 0 && visibleRows.length === 0 && (
+      {groups.length === 0 && (
         <p className="mt-10 rounded-2xl bg-white px-6 py-12 text-center text-sm text-muted shadow-sm">
           {owingOnly && !query
             ? "No tenants have an outstanding balance."
             : owingOnly
               ? `No tenants with a balance match “${query}”.`
-              : `No tenants match “${query}”.`}
+              : query
+                ? `No tenants or units match “${query}”.`
+                : (
+                    <>
+                      No properties yet. Click <em>Add property</em> to start.
+                    </>
+                  )}
         </p>
       )}
 
-      {visibleRows.length > 0 && (
+      {groups.length > 0 && (
         // key forces a remount when the filter toggles so the expand/collapse
         // state re-initializes (collapsed by default, expanded when owing-only).
         <TenantGroups

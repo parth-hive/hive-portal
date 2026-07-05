@@ -164,12 +164,18 @@ export function TenantGroups({
                             {g.label}
                           </span>
                         )}
-                        <span className="text-xs text-muted">
-                          ({g.rows.length})
-                        </span>
+                        {g.rows.length > 0 ? (
+                          <span className="text-xs text-muted">
+                            ({g.rows.length})
+                          </span>
+                        ) : (
+                          <span className="rounded-full bg-warm px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-muted">
+                            Vacant
+                          </span>
+                        )}
                       </div>
                     </td>
-                    {admin ? (
+                    {admin && g.rows.length > 0 ? (
                       <>
                         <td className="px-5 py-2 text-right tabular-nums text-sm font-medium text-ink">
                           {fmtMoney(g.subDue)}
@@ -185,9 +191,21 @@ export function TenantGroups({
                       <>
                         <td />
                         <td />
+                        {admin && <td />}
                       </>
                     )}
                   </tr>
+
+                  {!isCollapsed && g.rows.length === 0 && (
+                    <tr className="border-t border-stone/30">
+                      <td
+                        colSpan={admin ? 5 : 4}
+                        className="px-5 py-3 text-sm text-muted"
+                      >
+                        No active tenants in this unit.
+                      </td>
+                    </tr>
+                  )}
 
                   {!isCollapsed &&
                     g.rows.map((r) => {
