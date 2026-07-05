@@ -197,6 +197,11 @@ export function BillsLog({ bills, units }: { bills: BillRow[]; units: UnitOpt[] 
 
               {open && (
                 <div className="flex flex-col gap-4 border-t border-stone/40 bg-cream/40 px-4 py-4">
+                  <MissingUnits
+                    units={units.filter(
+                      (u) => !unitGroups.some((g) => g.key === u.id),
+                    )}
+                  />
                   {unitGroups.map((g) => (
                     <div key={g.key}>
                       <div className="flex items-center justify-between px-1 pb-2">
@@ -229,6 +234,42 @@ export function BillsLog({ bills, units }: { bills: BillRow[]; units: UnitOpt[] 
           </p>
         )}
       </div>
+    </div>
+  );
+}
+
+/**
+ * Units with no statement logged for the month — shown first inside an
+ * expanded month as its own collapsible row (collapsed by default).
+ */
+function MissingUnits({ units }: { units: UnitOpt[] }) {
+  const [open, setOpen] = useState(false);
+  if (units.length === 0) return null;
+  return (
+    <div className="overflow-hidden rounded-xl border border-amber-200 bg-amber-50/70">
+      <button
+        type="button"
+        onClick={() => setOpen((o) => !o)}
+        className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-xs font-medium text-amber-900 transition hover:bg-amber-100/60"
+      >
+        <span>{open ? "▾" : "▸"}</span>
+        <span>
+          No statement uploaded for {units.length} unit
+          {units.length === 1 ? "" : "s"} this month
+        </span>
+      </button>
+      {open && (
+        <ul className="flex flex-wrap gap-1.5 border-t border-amber-200/60 px-4 py-3">
+          {units.map((u) => (
+            <li
+              key={u.id}
+              className="rounded-full border border-amber-200 bg-white px-2.5 py-0.5 text-[11px] text-amber-900"
+            >
+              {u.label}
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
