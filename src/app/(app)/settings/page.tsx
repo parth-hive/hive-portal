@@ -1,7 +1,9 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { isMaster } from "@/lib/access";
+import { boardAdmin } from "@/lib/board";
 import { ChangePasswordForm } from "./change-password-form";
+import { BoardPrefToggle } from "./board-pref-toggle";
 
 export const dynamic = "force-dynamic";
 
@@ -64,6 +66,18 @@ export default async function AdminSettingsPage() {
   const master = isMaster(user?.email);
   const visibleLinks = ADMIN_LINKS.filter((l) => !l.masterOnly || master);
 
+  // Projects board email pref (default on when no row exists yet).
+  let boardEmails = true;
+  if (user) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: pref } = await (boardAdmin() as any)
+      .from("board_prefs")
+      .select("email_notifications")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    boardEmails = pref?.email_notifications !== false;
+  }
+
   return (
     <div className="mx-auto w-full max-w-3xl">
       <header className="border-b border-stone/60 pb-4">
@@ -99,6 +113,15 @@ export default async function AdminSettingsPage() {
           </div>
         </section>
       )}
+
+      <section className="mt-6 rounded-2xl bg-white p-5 shadow-sm">
+        <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
+          Projects
+        </h2>
+        <div className="mt-4">
+          <BoardPrefToggle initial={boardEmails} />
+        </div>
+      </section>
 
       <section className="mt-6 rounded-2xl bg-white p-5 shadow-sm">
         <h2 className="text-sm font-medium uppercase tracking-wide text-muted">

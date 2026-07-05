@@ -13,6 +13,7 @@ import { sendChangeEmail } from "@/lib/notifications";
 import { runLeaseReminders } from "@/lib/lease-reminders";
 import { runCleaningSchedule } from "@/lib/cleaning-reminders";
 import { flushEmailQueue } from "@/lib/resend-quota";
+import { processBoardDeadlines } from "@/lib/board";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -80,6 +81,13 @@ export async function GET(req: NextRequest) {
   // schedule changes (debounced via /api/cron/cleaner-changes) — no weekly digest.
   const cleaningSchedule = await runCleaningSchedule(supabase);
 
+  // Projects board: roll expired recurring cycles and email tomorrow/overdue
+  // deadline reminders. Runs once daily by design (overdue reminders repeat
+  // each day until resolved — no dedup needed).
+  const board = await processBoardDeadlines(supabase).catch((e) => ({
+    error: e instanceof Error ? e.message : "board failed",
+  }));
+
   const cutoff = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -93,12 +101,12 @@ export async function GET(req: NextRequest) {
     .neq("field", "listing_action");
 
   if (error) {
-    return NextResponse.json({ error: error.message, lease, cleaningSchedule, flush }, { status: 500 });
+    return NextResponse.json({ error: error.message, lease, cleaningSchedule, flush, board }, { status: 500 });
   }
 
   const rows = (events ?? []) as EventRow[];
   if (rows.length === 0) {
-    return NextResponse.json({ followups_due: 0, sent: 0, failed: 0, lease, cleaningSchedule, flush });
+    return NextResponse.json({ followups_due: 0, sent: 0, failed: 0, lease, cleaningSchedule, flush, board });
   }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -178,5 +186,5 @@ export async function GET(req: NextRequest) {
     else failed++;
   }
 
-  return NextResponse.json({ followups_due: rows.length, sent, failed, lease, cleaningSchedule, flush });
+  return NextResponse.json({ followups_due: rows.length, sent, failed, lease, cleaningSchedule, flush, board });
 }

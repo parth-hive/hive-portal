@@ -7,12 +7,19 @@ export type NavIconName =
   | "cleaning"
   | "credentials"
   | "agreements"
+  | "projects"
   | "notifications"
   | "settings";
 
 // Stroke-based 24×24 icons (Feather/Lucide style) matching the inline SVGs
 // already used in the nav header and command palette.
 const PATHS: Record<NavIconName, React.ReactNode> = {
+  projects: (
+    <>
+      <path d="M9 11l3 3 8-8" />
+      <path d="M20 12v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h9" />
+    </>
+  ),
   dashboard: (
     <>
       <rect x="3" y="3" width="7" height="7" rx="1" />
