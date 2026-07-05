@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { NavIcon, type NavIconName } from "./nav-icons";
 
-type NavItem = { href: string; label: string; icon: NavIconName };
+type NavItem = { href: string; label: string; icon: NavIconName; badge?: number };
 
 export function MobileNav({
   items,
@@ -119,6 +119,11 @@ export function MobileNav({
                   >
                     <NavIcon name={item.icon} className="shrink-0 text-accent" />
                     {item.label}
+                    {!!item.badge && (
+                      <span className="ml-auto rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+                        {item.badge > 99 ? "99+" : item.badge}
+                      </span>
+                    )}
                   </Link>
                 );
               })}

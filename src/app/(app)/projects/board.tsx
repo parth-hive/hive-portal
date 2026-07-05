@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import type { BoardStatus } from "@/lib/board";
 import type { TaskWithComments } from "./page";
@@ -158,6 +158,27 @@ export function ProjectsBoard({
   const pendingCount = tasks.filter((t) => t.status === "pending_review").length;
   const attentionCount = tasks.filter((t) => t.needs_attention).length;
 
+  // Admin heads-up popups, once per browser session on opening the tab:
+  // flagged tasks first, then pending reviews after that one is dismissed.
+  const [popup, setPopup] = useState<"attention" | "review" | null>(null);
+  const [popupQueue, setPopupQueue] = useState<"review" | null>(null);
+  useEffect(() => {
+    if (!admin) return;
+    if (sessionStorage.getItem("hive-projects-popups")) return;
+    sessionStorage.setItem("hive-projects-popups", "1");
+    if (attentionCount > 0) {
+      setPopup("attention");
+      if (pendingCount > 0) setPopupQueue("review");
+    } else if (pendingCount > 0) {
+      setPopup("review");
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+  const dismissPopup = () => {
+    setPopup(popupQueue);
+    setPopupQueue(null);
+  };
+
   const sortFn = (a: TaskWithComments, b: TaskWithComments): number => {
     if (sort === "deadline") {
       if (!a.deadline && !b.deadline) return 0;
@@ -307,6 +328,63 @@ export function ProjectsBoard({
           />
         )}
       </div>
+
+      {popup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ink/50 p-4 backdrop-blur-sm">
+          <div className="w-full max-w-md rounded-2xl bg-white p-7 shadow-xl">
+            <h2 className="text-xl tracking-tight text-ink">
+              {popup === "attention" ? (
+                <>🔔 Needs your <span className="font-display text-accent-text">attention</span></>
+              ) : (
+                <>Pending <span className="font-display text-accent-text">reviews</span></>
+              )}
+            </h2>
+            <p className="mt-2 text-sm text-muted">
+              {popup === "attention"
+                ? `${attentionCount} project${attentionCount === 1 ? " has" : "s have"} been flagged by your team members.`
+                : `${pendingCount} project${pendingCount === 1 ? " has" : "s have"} been submitted for your review.`}
+            </p>
+            <ul className="mt-3 flex flex-col gap-1.5 text-sm text-ink/80">
+              {tasks
+                .filter((t) =>
+                  popup === "attention"
+                    ? t.needs_attention
+                    : t.status === "pending_review",
+                )
+                .slice(0, 3)
+                .map((t) => (
+                  <li key={t.id} className="truncate rounded-lg bg-warm/50 px-3 py-1.5">
+                    {t.title}
+                  </li>
+                ))}
+            </ul>
+            {(popup === "attention" ? attentionCount : pendingCount) > 3 && (
+              <p className="mt-1.5 text-xs text-muted">
+                +{(popup === "attention" ? attentionCount : pendingCount) - 3} more
+              </p>
+            )}
+            <div className="mt-5 flex items-center gap-3">
+              <button
+                type="button"
+                onClick={() => {
+                  setView(popup === "attention" ? "attention" : "review");
+                  dismissPopup();
+                }}
+                className="rounded-full bg-ink px-5 py-2 text-sm font-medium text-white shadow-sm hover:bg-accent-dark"
+              >
+                {popup === "attention" ? "View all" : "Review now"}
+              </button>
+              <button
+                type="button"
+                onClick={dismissPopup}
+                className="text-xs uppercase tracking-wide text-muted hover:text-ink"
+              >
+                Dismiss
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {selectedFresh && (
         <TaskModal

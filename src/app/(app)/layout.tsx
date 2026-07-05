@@ -13,6 +13,7 @@ type NavItem = {
   label: string;
   icon: NavIconName;
   masterOnly?: boolean;
+  badge?: number;
 };
 
 const NAV: NavItem[] = [
@@ -43,7 +44,28 @@ export default async function AppLayout({
   }
 
   const master = isMaster(user.email);
-  const navItems = NAV.filter((item) => !item.masterOnly || master);
+
+  // Projects nav badge: for the admin, tasks awaiting review or flagged for
+  // attention; for members, their unseen ("New") assignments.
+  let projectsBadge = 0;
+  {
+    // board_tasks post-dates the generated types.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const q = (supabase as any)
+      .from("board_tasks")
+      .select("id", { count: "exact", head: true });
+    const { count } = master
+      ? await q.or("status.eq.pending_review,needs_attention.eq.true")
+      : await q
+          .eq("assigned_to", user.id)
+          .eq("seen_by_assignee", false)
+          .neq("status", "completed");
+    projectsBadge = count ?? 0;
+  }
+
+  const navItems = NAV.map((item) =>
+    item.href === "/projects" ? { ...item, badge: projectsBadge } : item,
+  ).filter((item) => !item.masterOnly || master);
 
   const displayName =
     typeof user.user_metadata?.display_name === "string"
@@ -95,6 +117,11 @@ export default async function AppLayout({
             >
               <NavIcon name={item.icon} className="shrink-0 text-accent" />
               {item.label}
+              {!!item.badge && (
+                <span className="ml-auto rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+                  {item.badge > 99 ? "99+" : item.badge}
+                </span>
+              )}
             </Link>
           ))}
         </nav>
