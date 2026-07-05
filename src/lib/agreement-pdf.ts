@@ -9,7 +9,7 @@
  */
 
 import { jsPDF } from "jspdf";
-import { HIVE_LOGO_DATA_URL, HIVE_LOGO_ASPECT } from "./agreement-logo";
+import { drawHiveLetterhead, LETTERHEAD_GOLD } from "./agreement-logo";
 
 export type AgreementPdfData = {
   tenantName: string;
@@ -191,26 +191,15 @@ export function buildAgreementPdf(data: AgreementPdfData): jsPDF {
   const sectionSpacing = hasLetterhead ? 5 : 8;
 
   if (hasLetterhead) {
-    const logoWidth = 48;
-    const logoHeight = logoWidth * HIVE_LOGO_ASPECT;
-    // "SLOW" = maximum flate compression on the decoded RGBA image — without
-    // it jsPDF embeds the logo raw and the PDF balloons to ~2 MB.
-    pdf.addImage(
-      HIVE_LOGO_DATA_URL,
-      "PNG",
-      margin,
-      yPos,
-      logoWidth,
-      logoHeight,
-      undefined,
-      "SLOW",
-    );
+    // Vector lockup from hiveny.com: gold hive glyph + HIVE wordmark.
+    const logoHeight = 16;
+    drawHiveLetterhead(pdf, margin, yPos, logoHeight);
 
     // Contact details on top right
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(9);
     const rightX = pageWidth - margin;
-    let contactY = yPos + 6;
+    let contactY = yPos + 4;
     pdf.text("917-622-9847", rightX, contactY, { align: "right" });
     contactY += 4;
     pdf.text("Vineet.Dutta@HiveNY.com", rightX, contactY, { align: "right" });
@@ -219,10 +208,10 @@ export function buildAgreementPdf(data: AgreementPdfData): jsPDF {
     contactY += 4;
     pdf.text("New York, NY 10018", rightX, contactY, { align: "right" });
 
-    yPos += logoHeight + 1;
+    yPos += logoHeight + 2;
 
-    // Yellow divider line
-    pdf.setDrawColor(255, 204, 0);
+    // Honey-gold divider line (brand accent #d4920b)
+    pdf.setDrawColor(...LETTERHEAD_GOLD);
     pdf.setLineWidth(0.7);
     pdf.line(margin, yPos, pageWidth - margin, yPos);
     yPos += 5;
