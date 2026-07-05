@@ -469,7 +469,7 @@ function OverviewView({
               filter === s.key ? "bg-ink text-white" : "bg-white hover:shadow"
             }`}
           >
-            <div className="font-display text-2xl">
+            <div className="text-3xl font-semibold tabular-nums">
               {tasks.filter(s.match).length}
             </div>
             <div
@@ -531,7 +531,7 @@ function OverviewView({
                 >
                   <div className="flex items-center justify-between">
                     <span className="text-sm font-medium text-ink">{m.name}</span>
-                    <span className="text-xs text-muted">
+                    <span className="text-xs tabular-nums text-muted">
                       {done}/{theirs.length} · {pct}%
                     </span>
                   </div>
@@ -953,7 +953,7 @@ function CalendarView({
           >
             ‹
           </button>
-          <span className="min-w-[160px] text-center font-display text-xl text-ink">
+          <span className="min-w-[160px] text-center text-xl tracking-tight text-ink">
             {first.toLocaleDateString("en-US", { month: "long", year: "numeric" })}
           </span>
           <button
@@ -1151,7 +1151,7 @@ function TaskModal({
     >
       <div className="max-h-[88vh] w-full max-w-xl overflow-y-auto rounded-2xl bg-white p-7 shadow-xl">
         <div className="flex items-start justify-between gap-3">
-          <h2 className="font-display text-xl text-ink">
+          <h2 className="text-xl tracking-tight text-ink">
             {task.urgent && (
               <span className="mr-2 rounded-full border border-red-200 bg-red-50 px-2 py-0.5 align-middle text-[11px] font-medium text-red-700">
                 Urgent
@@ -1483,7 +1483,9 @@ function CreateModal({
       onClick={(e) => e.target === e.currentTarget && onClose()}
     >
       <div className="max-h-[88vh] w-full max-w-lg overflow-y-auto rounded-2xl bg-white p-7 shadow-xl">
-        <h2 className="font-display text-xl text-ink">New Project</h2>
+        <h2 className="text-xl tracking-tight text-ink">
+          New <span className="font-display text-accent-text">project</span>
+        </h2>
 
         <div className="mt-5 flex flex-col gap-4">
           <label className="flex flex-col gap-1.5">
