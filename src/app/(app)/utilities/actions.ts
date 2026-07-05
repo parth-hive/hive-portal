@@ -19,6 +19,19 @@ function admin() {
 
 const MAX_STATEMENT_BYTES = 20 * 1024 * 1024;
 
+// Normalized hint keys for the learned statement→unit mappings.
+function hintKeys(bill: {
+  account_number: string | null;
+  service_address: string | null;
+}): string[] {
+  const keys: string[] = [];
+  const acct = bill.account_number?.replace(/\D/g, "");
+  if (acct) keys.push(`acct:${acct}`);
+  const addr = bill.service_address?.toLowerCase().replace(/[^a-z0-9]/g, "");
+  if (addr) keys.push(`addr:${addr}`);
+  return keys;
+}
+
 export async function uploadStatement(
   _prev: UploadState,
   formData: FormData,
@@ -63,6 +76,23 @@ export async function uploadStatement(
     };
   }
 
+  // Operator-confirmed mappings beat the model's guess: if this account or
+  // service address was ever manually assigned to a unit, reuse that unit.
+  const keys = hintKeys(extracted);
+  let learned = false;
+  if (keys.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: hints } = await (sb as any)
+      .from("utility_unit_hints")
+      .select("key, property_id")
+      .in("key", keys);
+    const hint = (hints ?? [])[0];
+    if (hint && hint.property_id !== extracted.property_id) {
+      extracted.property_id = hint.property_id;
+      learned = true;
+    }
+  }
+
   if (extracted.charges.length === 0) {
     return {
       error:
@@ -92,7 +122,6 @@ export async function uploadStatement(
       statement_date: extracted.statement_date,
       period_start: extracted.period_start,
       period_end: extracted.period_end,
-      due_date: extracted.due_date,
       total_amount: total,
       statement_path: path,
       notes: extracted.notes,
@@ -122,6 +151,7 @@ export async function uploadStatement(
     `Logged $${total.toLocaleString(undefined, { minimumFractionDigits: 2 })}`,
     extracted.provider ?? "utility",
     unit ? `for ${unit.label}` : "",
+    learned ? "(matched from your earlier manual assignment)" : "",
     extras.length
       ? `(${extras.length} late-fee/other charge${extras.length === 1 ? "" : "s"} saved separately)`
       : "",
@@ -144,12 +174,32 @@ export async function assignBillProperty(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
 
+  const sb = admin();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (admin() as any)
+  const { data: bill, error } = await (sb as any)
     .from("utility_bills")
     .update({ property_id: propertyId })
-    .eq("id", billId);
+    .eq("id", billId)
+    .select("account_number, service_address")
+    .single();
   if (error) return { error: error.message };
+
+  // Learn from the correction: remember this account/address → unit so the
+  // next statement from the same source is assigned automatically.
+  const keys = bill ? hintKeys(bill) : [];
+  if (keys.length > 0) {
+    if (propertyId) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (sb as any).from("utility_unit_hints").upsert(
+        keys.map((key) => ({ key, property_id: propertyId })),
+        { onConflict: "key" },
+      );
+    } else {
+      // Un-assigning means the learned mapping was wrong — forget it.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (sb as any).from("utility_unit_hints").delete().in("key", keys);
+    }
+  }
   revalidatePath("/utilities");
   return { success: "Bill reassigned." };
 }

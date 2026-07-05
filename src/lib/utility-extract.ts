@@ -41,7 +41,6 @@ const ExtractionSchema = z.object({
   statement_date: z.string().nullable().describe('"YYYY-MM-DD"'),
   period_start: z.string().nullable().describe('Billing period start, "YYYY-MM-DD"'),
   period_end: z.string().nullable().describe('Billing period end, "YYYY-MM-DD"'),
-  due_date: z.string().nullable().describe('"YYYY-MM-DD"'),
   property_id: z
     .string()
     .nullable()

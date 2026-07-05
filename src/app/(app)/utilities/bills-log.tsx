@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
+import { SearchableSelect } from "@/components/searchable-select";
 import { assignBillProperty, deleteBill, getStatementUrl } from "./actions";
 
 export type UnitOpt = { id: string; label: string };
@@ -16,7 +17,6 @@ export type BillRow = {
   statement_date: string | null;
   period_start: string | null;
   period_end: string | null;
-  due_date: string | null;
   total_amount: number;
   notes: string | null;
   created_at: string;
@@ -74,19 +74,17 @@ export function BillsLog({ bills, units }: { bills: BillRow[]; units: UnitOpt[] 
         <span className="text-sm tabular-nums text-muted">
           {visible.length} bill{visible.length === 1 ? "" : "s"} · {fmtMoney(total)}
         </span>
-        <select
+        <SearchableSelect
+          className="ml-auto w-64"
+          options={units}
+          pinned={[
+            { id: "", label: "All units" },
+            ...(hasUnmatched ? [{ id: "unmatched", label: "⚠ Unmatched" }] : []),
+          ]}
           value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          className="ml-auto rounded-lg border border-stone bg-white px-3 py-1.5 text-sm text-ink focus:border-accent focus:outline-none"
-        >
-          <option value="">All units</option>
-          {hasUnmatched && <option value="unmatched">⚠ Unmatched</option>}
-          {units.map((u) => (
-            <option key={u.id} value={u.id}>
-              {u.label}
-            </option>
-          ))}
-        </select>
+          onSelect={setFilter}
+          placeholder="Search units…"
+        />
       </div>
 
       <div className="mt-4 flex flex-col gap-3">
@@ -143,7 +141,6 @@ function BillCard({
               ? `${fmtDate(bill.period_start)} – ${fmtDate(bill.period_end)}`
               : `Statement ${fmtDate(bill.statement_date)}`}
           </p>
-          {bill.due_date && <p>Due {fmtDate(bill.due_date)}</p>}
         </div>
         <div className="ml-auto flex items-center gap-3">
           {extras.length > 0 && (
@@ -199,29 +196,26 @@ function BillCard({
           )}
 
           <div className="mt-4 flex flex-wrap items-center gap-3 text-xs">
-            <select
+            <SearchableSelect
+              className="w-64"
+              options={units}
+              pinned={[{ id: "", label: "— no unit —" }]}
               value={bill.property_id ?? ""}
               disabled={pending}
-              onChange={(e) =>
+              placeholder="Search units…"
+              onSelect={(id) =>
                 startTransition(async () => {
-                  const r = await assignBillProperty(
-                    bill.id,
-                    e.target.value || null,
-                  );
+                  const r = await assignBillProperty(bill.id, id || null);
                   if (r?.error) toast.error(r.error);
-                  else toast.success("Bill reassigned.");
+                  else
+                    toast.success(
+                      id
+                        ? "Bill reassigned — future statements from this account will match automatically."
+                        : "Bill unassigned.",
+                    );
                 })
               }
-              onClick={(e) => e.stopPropagation()}
-              className="rounded-lg border border-stone bg-white px-2 py-1 text-xs text-ink focus:border-accent focus:outline-none"
-            >
-              <option value="">— no unit —</option>
-              {units.map((u) => (
-                <option key={u.id} value={u.id}>
-                  {u.label}
-                </option>
-              ))}
-            </select>
+            />
             <button
               type="button"
               disabled={pending}
