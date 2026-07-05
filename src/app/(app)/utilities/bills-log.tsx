@@ -165,7 +165,6 @@ export function BillsLog({ bills, units }: { bills: BillRow[]; units: UnitOpt[] 
       });
   }, [visible, unitName]);
 
-  const total = visible.reduce((s, b) => s + Number(b.total_amount), 0);
   const hasUnmatched = bills.some((b) => !b.property_id);
 
   return (
@@ -174,9 +173,6 @@ export function BillsLog({ bills, units }: { bills: BillRow[]; units: UnitOpt[] 
         <h2 className="text-xl tracking-tight text-ink">
           Expense <span className="font-display text-accent-text">log</span>
         </h2>
-        <span className="text-sm tabular-nums text-muted">
-          {visible.length} bill{visible.length === 1 ? "" : "s"} · {fmtMoney(total)}
-        </span>
         <button
           type="button"
           onClick={() => setOverOnly((o) => !o)}
