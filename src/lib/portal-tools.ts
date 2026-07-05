@@ -28,6 +28,14 @@ import { logEmail } from "@/lib/email-log";
 import { sendSms } from "@/lib/sms";
 import { computeLedger } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
+import {
+  billMonth,
+  isOverThreshold,
+  usageTotal,
+  OVERAGE_THRESHOLD,
+  monthLabel as utilityMonthLabel,
+  type BillRow,
+} from "@/lib/utility-bills";
 import { buildInventorySheet } from "@/lib/inventory-sheet";
 import { sendDocument } from "@/lib/telegram";
 
@@ -399,6 +407,114 @@ export async function getCredentials(args: {
     owner_label: c.owner_label,
     notes: c.notes,
   }));
+}
+
+type UtilityType = "electric" | "gas" | "water" | "internet" | "trash" | "other";
+
+export async function getUtilityBills(args: {
+  month?: string;
+  property_id?: string;
+  utility_type?: UtilityType;
+  over_threshold_only?: boolean;
+  months_back?: number;
+}) {
+  const supabase = admin();
+
+  if (args.month && !/^\d{4}-(0[1-9]|1[0-2])$/.test(args.month)) {
+    throw new Error('month must be "YYYY-MM".');
+  }
+
+  // utility_bills post-dates the generated types.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any)
+    .from("utility_bills")
+    .select(
+      `id, property_id, provider, utility_type, statement_date,
+       period_start, period_end, total_amount, overage_dismissed, notes,
+       created_at,
+       utility_bill_charges(id, kind, description, amount),
+       properties(building_name, street_address, unit_number)`,
+    )
+    .order("statement_date", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false });
+  if (error) throw new Error(error.message);
+
+  // A bill's month is where the majority of its billing period falls, so
+  // month filtering happens here rather than in SQL.
+  const rows = ((data ?? []) as (BillRow & {
+    properties: {
+      building_name: string | null;
+      street_address: string;
+      unit_number: string;
+    } | null;
+  })[]).map((b) => ({ bill: b, month: billMonth(b) }));
+
+  // Default window when no single month is requested, so the payload (and
+  // the model's context) stays bounded.
+  const monthsBack = args.months_back ?? 6;
+  const cutoff = new Date();
+  cutoff.setUTCMonth(cutoff.getUTCMonth() - (monthsBack - 1));
+  const cutoffYm = cutoff.toISOString().slice(0, 7);
+
+  const filtered = rows.filter(({ bill, month }) => {
+    if (args.month ? month !== args.month : month < cutoffYm) return false;
+    if (args.property_id === "unmatched") {
+      if (bill.property_id) return false;
+    } else if (args.property_id && bill.property_id !== args.property_id) {
+      return false;
+    }
+    if (args.utility_type && bill.utility_type !== args.utility_type)
+      return false;
+    if (args.over_threshold_only && !isOverThreshold(bill)) return false;
+    return true;
+  });
+
+  const monthly = new Map<string, { total: number; count: number }>();
+  for (const { bill, month } of filtered) {
+    const m = monthly.get(month) ?? { total: 0, count: 0 };
+    m.total += Number(bill.total_amount);
+    m.count += 1;
+    monthly.set(month, m);
+  }
+
+  const round = (n: number) => Math.round(n * 100) / 100;
+  return {
+    window: args.month
+      ? utilityMonthLabel(args.month)
+      : `last ${monthsBack} months`,
+    bill_count: filtered.length,
+    total_amount: round(
+      filtered.reduce((s, { bill }) => s + Number(bill.total_amount), 0),
+    ),
+    monthly_totals: [...monthly.entries()]
+      .sort(([a], [b]) => (a < b ? 1 : -1))
+      .map(([ym, m]) => ({
+        month: ym,
+        label: utilityMonthLabel(ym),
+        bill_count: m.count,
+        total: round(m.total),
+      })),
+    bills: filtered.map(({ bill, month }) => {
+      const usage = usageTotal(bill);
+      const over = isOverThreshold(bill);
+      return {
+        id: bill.id,
+        unit: bill.properties ? propertyLabel(one(bill.properties)!) : "unmatched",
+        provider: bill.provider,
+        utility_type: bill.utility_type,
+        month,
+        statement_date: bill.statement_date,
+        period: `${bill.period_start ?? "?"} → ${bill.period_end ?? "?"}`,
+        total_amount: round(Number(bill.total_amount)),
+        usage_total: round(usage),
+        late_fees_and_other: round(Number(bill.total_amount) - usage),
+        over_200_usage_threshold: over,
+        excess_over_200: over ? round(usage - OVERAGE_THRESHOLD) : 0,
+        overage_dismissed: bill.overage_dismissed,
+        notes: bill.notes,
+      };
+    }),
+  };
 }
 
 // ----- Write tools -----
@@ -1573,6 +1689,46 @@ const rawTools = [
           category: args.category,
         }),
       ),
+  }),
+  betaZodTool({
+    name: "get_utility_bills",
+    description:
+      "Utility bills logged in the portal (extracted from uploaded statements), " +
+      "with per-month totals. A bill belongs to the calendar month holding the " +
+      "majority of its billing-period days (Apr 7–May 6 → April). Defaults to " +
+      "the last 6 months; pass month for a single month. Lease clause: when a " +
+      "unit's electric or gas usage charges exceed $200 in a month, the excess " +
+      "is split among the occupants — over_200_usage_threshold / excess_over_200 " +
+      "flag those bills (late fees don't count toward the $200). Bills the " +
+      "extractor couldn't match to a unit have unit: 'unmatched'.",
+    inputSchema: z.object({
+      month: z
+        .string()
+        .optional()
+        .describe('Single month as "YYYY-MM". Omit for the recent window.'),
+      property_id: z
+        .string()
+        .optional()
+        .describe(
+          'Filter to one unit (UUID from list_properties), or "unmatched" ' +
+            "for bills not linked to a unit.",
+        ),
+      utility_type: z
+        .enum(["electric", "gas", "water", "internet", "trash", "other"])
+        .optional(),
+      over_threshold_only: z
+        .boolean()
+        .optional()
+        .describe("Only electric/gas bills whose usage exceeds $200."),
+      months_back: z
+        .number()
+        .int()
+        .min(1)
+        .max(24)
+        .optional()
+        .describe("Window size when month is omitted (default 6)."),
+    }),
+    run: async (args) => JSON.stringify(await getUtilityBills(args)),
   }),
   betaZodTool({
     name: "record_payment",

@@ -134,6 +134,21 @@ Editing tenants & tenancies:
 - These write to the database — read the change back and get an explicit
   confirmation before calling, then confirm the result.
 
+Utilities:
+- get_utility_bills answers anything about utility spend: bills are extracted
+  from statements uploaded on the portal's Utilities tab. Filter by month
+  ("YYYY-MM"), unit (property_id via list_properties /
+  resolve_property_address), utility type, or over_threshold_only.
+- A bill counts toward the calendar month holding most of its billing-period
+  days, matching the portal's Utilities page — so "May's electric" means
+  billing periods mostly in May, not statements dated May.
+- The $200 overage clause: when a unit's electric or gas USAGE charges (not
+  late fees) top $200 in a month, the excess is split among that unit's
+  occupants. Use over_threshold_only to find those bills; excess_over_200 is
+  the amount to split. overage_dismissed means the operator already waived it.
+- Bills with unit "unmatched" weren't linked to a property — mention them when
+  totals look low, and suggest matching them on the Utilities page.
+
 Cleaning:
 - log_cleaning records a cleaning; list_cleanings shows recent records so a
   wrong one can be fixed (update_cleaning_record) or removed
@@ -309,6 +324,8 @@ export async function POST(req: Request) {
         "• Send me the shareable inventory sheet\n" +
         "• Email the inventory sheet to broker@example.com\n" +
         "• Which units are due for cleaning?\n" +
+        "• How much did we spend on utilities in May?\n" +
+        "• Which units went over $200 on electric last month?\n" +
         "• What's the ClickPay password for 90 Washington?\n" +
         "• Record a $2000 rent payment for Tom today, Zelle\n" +
         "• End John's tenancy on July 31\n\n" +
