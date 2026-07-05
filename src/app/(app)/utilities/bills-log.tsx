@@ -135,8 +135,10 @@ export function BillsLog({
       <div className="mt-4 flex flex-col gap-3">
         {months.map(({ month, unitGroups, total: monthTotal }) => {
           const open = openMonths.has(month);
+          // No overflow-hidden on the card: it would clip the unit-picker
+          // dropdown inside the bill cards. Corners are rounded per-child.
           return (
-            <div key={month} className="overflow-hidden rounded-2xl bg-white shadow-sm">
+            <div key={month} className="rounded-2xl bg-white shadow-sm">
               <button
                 type="button"
                 onClick={() =>
@@ -147,7 +149,9 @@ export function BillsLog({
                     return next;
                   })
                 }
-                className="flex w-full items-center gap-3 px-5 py-4 text-left transition hover:bg-warm/40"
+                className={`flex w-full items-center gap-3 px-5 py-4 text-left transition hover:bg-warm/40 ${
+                  open ? "rounded-t-2xl" : "rounded-2xl"
+                }`}
               >
                 <span className="text-muted">{open ? "▾" : "▸"}</span>
                 <span className="text-base font-medium text-ink">
@@ -162,7 +166,7 @@ export function BillsLog({
               </button>
 
               {open && (
-                <div className="flex flex-col gap-4 border-t border-stone/40 bg-cream/40 px-4 py-4">
+                <div className="flex flex-col gap-4 rounded-b-2xl border-t border-stone/40 bg-cream/40 px-4 py-4">
                   <MissingUnits
                     units={units.filter(
                       (u) => !unitGroups.some((g) => g.key === u.id),
