@@ -37,8 +37,12 @@ function monthLabel(monthIso: string) {
   return d.toLocaleString("en-US", { month: "long", year: "numeric", timeZone: "UTC" });
 }
 
-export async function GET(_req: Request, context: RouteContext) {
+export async function GET(req: Request, context: RouteContext) {
   const { id } = await context.params;
+  // ?filter=issues → only mismatched and missing rows (the ones needing
+  // follow-up), leaving clean matches out of the sheet.
+  const issuesOnly =
+    new URL(req.url).searchParams.get("filter") === "issues";
 
   const supabase = await createClient();
   const [{ data: run }, { data: matches }] = await Promise.all([
@@ -61,7 +65,9 @@ export async function GET(_req: Request, context: RouteContext) {
   if (!run) {
     return NextResponse.json({ error: "Run not found" }, { status: 404 });
   }
-  const rows = matches ?? [];
+  const rows = (matches ?? []).filter(
+    (m) => !issuesOnly || m.status === "mismatch" || m.status === "missing",
+  );
 
   // Group rows by property_label (sorted by first appearance to mirror the
   // reconciler's grouped-by-apartment output).
@@ -77,7 +83,9 @@ export async function GET(_req: Request, context: RouteContext) {
   }
 
   const wb = new ExcelJS.Workbook();
-  const ws = wb.addWorksheet(`Reconciliation ${monthLabel(run.month)}`);
+  const ws = wb.addWorksheet(
+    `Reconciliation ${monthLabel(run.month)}${issuesOnly ? " — issues" : ""}`,
+  );
 
   ws.columns = [
     { header: "#", key: "n", width: 5 },
@@ -183,12 +191,13 @@ export async function GET(_req: Request, context: RouteContext) {
 
   const buffer = await wb.xlsx.writeBuffer();
   const monthSlug = run.month.slice(0, 7);
+  const filename = `reconciliation-${monthSlug}${issuesOnly ? "-issues" : ""}.xlsx`;
   return new NextResponse(buffer, {
     status: 200,
     headers: {
       "Content-Type":
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-      "Content-Disposition": `attachment; filename="reconciliation-${monthSlug}.xlsx"`,
+      "Content-Disposition": `attachment; filename="${filename}"`,
       "Cache-Control": "no-store",
     },
   });

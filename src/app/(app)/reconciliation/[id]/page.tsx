@@ -191,6 +191,13 @@ export default async function ReconciliationRunPage({
           >
             Download Excel
           </a>
+          <a
+            href={`/reconciliation/${run.id}/export?filter=issues`}
+            title="Only mismatched and missing rows"
+            className="rounded-full border border-stone bg-white px-4 py-2 text-sm text-ink shadow-sm hover:bg-warm"
+          >
+            Download Issues Only
+          </a>
           {run.posted_at ? (
             <form action={unpostPayments}>
               <input type="hidden" name="run_id" value={run.id} />
