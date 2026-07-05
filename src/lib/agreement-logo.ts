@@ -47,13 +47,14 @@ export function drawHiveLetterhead(
   // wordmark's cap height is ~44% of the icon height (nav icon 30px next to
   // an 18.4px HIVE), the tagline ~42% of the wordmark, gap ~40% of icon
   // height. Helvetica cap height ≈ 0.72em; 1pt = 0.3528mm.
-  const wordPt = (0.44 * iconHeight) / (0.3528 * 0.72);
+  const capRatio = 0.52; // wordmark cap height as a share of icon height
+  const wordPt = (capRatio * iconHeight) / (0.3528 * 0.72);
   const tagPt = wordPt * 0.42;
   const textX = x + 80 * s + iconHeight * 0.4;
 
   // Center the two-line block against the icon.
-  const capH = 0.44 * iconHeight;
-  const tagGap = iconHeight * 0.4;
+  const capH = capRatio * iconHeight;
+  const tagGap = iconHeight * 0.5;
   const blockH = capH + tagGap;
   const wordY = y + (iconHeight - blockH) / 2 + capH;
 
