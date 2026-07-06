@@ -152,7 +152,7 @@ export function RoomRow({
           >
             Edit
           </button>
-          <form action={deleteRoom}>
+          <form action={deleteRoom} className="flex items-center">
             <input type="hidden" name="room_id" value={room.id} />
             <input type="hidden" name="property_id" value={propertyId} />
             <button
