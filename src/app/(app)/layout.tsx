@@ -119,7 +119,7 @@ export default async function AppLayout({
               <NavIcon name={item.icon} className="shrink-0 text-accent" />
               {item.label}
               {!!item.badge && (
-                <span className="ml-auto rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
+                <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white">
                   {item.badge > 99 ? "99+" : item.badge}
                 </span>
               )}
