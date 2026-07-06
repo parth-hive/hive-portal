@@ -333,38 +333,66 @@ export async function dismissOverage(
 // who had already moved out are NOT charged — their share becomes an alert
 // popup on the Rent Tracker instead.
 
-const fmt$ = (n: number) =>
-  `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+/** Per-bill outcome of a charge run, rendered in the results popup. */
+export type OverageChargeResult = {
+  billId: string;
+  unit: string;
+  period: string;
+  /** null when the bill was charged; otherwise why it was skipped. */
+  error: string | null;
+  charged: { name: string; amount: number }[];
+  /** Not charged — flagged on the Rent Tracker instead. */
+  movedOut: { name: string; amount: number }[];
+  /** Overage dollars falling on days no eligible tenant was living there. */
+  uncovered: number;
+};
 
-export async function chargeOverage(billId: string): Promise<UploadState> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!user) return { error: "Not signed in." };
+async function chargeOverageCore(
+  sb: ReturnType<typeof admin>,
+  billId: string,
+): Promise<OverageChargeResult> {
+  const result: OverageChargeResult = {
+    billId,
+    unit: "⚠ Unmatched unit",
+    period: "—",
+    error: null,
+    charged: [],
+    movedOut: [],
+    uncovered: 0,
+  };
+  const fail = (error: string) => ({ ...result, error });
 
-  const sb = admin();
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: bill, error: billErr } = await (sb as any)
     .from("utility_bills")
     .select("*, utility_bill_charges(id, kind, description, amount)")
     .eq("id", billId)
     .maybeSingle();
-  if (billErr) return { error: billErr.message };
-  if (!bill) return { error: "Bill not found." };
+  if (billErr) return fail(billErr.message);
+  if (!bill) return fail("Bill not found.");
   const b = bill as BillRow & { overage_charged_at: string | null };
 
+  result.period = `${monthLabel(billMonth(b))} · ${b.utility_type}${b.provider ? ` (${b.provider})` : ""}`;
+  if (b.property_id) {
+    const { data: p } = await sb
+      .from("properties")
+      .select("building_name, street_address, unit_number")
+      .eq("id", b.property_id)
+      .maybeSingle();
+    if (p)
+      result.unit = `${p.building_name?.trim() || p.street_address} Apt ${p.unit_number}`;
+  }
+
   if (b.overage_charged_at)
-    return { error: "This bill's overage has already been charged." };
+    return fail("This bill's overage has already been charged.");
   if (!b.property_id)
-    return { error: "Assign the bill to a unit before charging tenants." };
+    return fail("Assign the bill to a unit before charging tenants.");
   if (!isOverThreshold(b))
-    return { error: "This bill's usage is not over the $200 threshold." };
+    return fail("This bill's usage is not over the $200 threshold.");
   if (!b.period_start || !b.period_end || b.period_end < b.period_start)
-    return {
-      error:
-        "The bill has no billing period on file — the overage can't be prorated per day.",
-    };
+    return fail(
+      "The bill has no billing period on file — the overage can't be prorated per day.",
+    );
 
   const overage = usageTotal(b) - OVERAGE_THRESHOLD;
 
@@ -383,13 +411,13 @@ export async function chargeOverage(billId: string): Promise<UploadState> {
     .eq("property_id", b.property_id);
   const acRoomIds = (rooms ?? []).filter((r) => r.has_ac).map((r) => r.id);
   if (acRoomIds.length === 0)
-    return { error: "No rooms in this unit are marked as having AC." };
+    return fail("No rooms in this unit are marked as having AC.");
 
   const { data: tenancies, error: tErr } = await sb
     .from("tenancies")
     .select("id, start_date, move_out_date, status, tenants(full_name)")
     .in("room_id", acRoomIds);
-  if (tErr) return { error: tErr.message };
+  if (tErr) return fail(tErr.message);
 
   // Walk the billed days: each day's slice of the overage is split equally
   // among the tenants living in an AC room that day.
@@ -410,24 +438,11 @@ export async function chargeOverage(billId: string): Promise<UploadState> {
     }
   }
   if (shares.size === 0)
-    return {
-      error:
-        "No tenants were living in this unit's AC rooms during the billing period.",
-    };
+    return fail(
+      "No tenants were living in this unit's AC rooms during the billing period.",
+    );
 
   const today = todayISO();
-  const period = `${monthLabel(billMonth(b))} · ${b.utility_type}${b.provider ? ` (${b.provider})` : ""}`;
-  const unitLabel = await (async () => {
-    const { data: p } = await sb
-      .from("properties")
-      .select("building_name, street_address, unit_number")
-      .eq("id", b.property_id!)
-      .maybeSingle();
-    return p
-      ? `${p.building_name?.trim() || p.street_address} Apt ${p.unit_number}`
-      : "Unit";
-  })();
-
   const charged: { tenancyId: string; name: string; amount: number }[] = [];
   const movedOut: { tenancyId: string; name: string; amount: number }[] = [];
   for (const [tenancyId, raw] of shares) {
@@ -450,10 +465,10 @@ export async function chargeOverage(billId: string): Promise<UploadState> {
         kind: "utility_overage",
         amount: c.amount,
         charged_on: today,
-        note: period,
+        note: result.period,
       })),
     );
-    if (error) return { error: error.message };
+    if (error) return fail(error.message);
   }
 
   if (movedOut.length > 0) {
@@ -463,12 +478,12 @@ export async function chargeOverage(billId: string): Promise<UploadState> {
         bill_id: b.id,
         tenancy_id: m.tenancyId,
         tenant_name: m.name,
-        unit_label: unitLabel,
+        unit_label: result.unit,
         amount: m.amount,
-        period_label: period,
+        period_label: result.period,
       })),
     );
-    if (error) return { error: error.message };
+    if (error) return fail(error.message);
   }
 
   // Mark the bill charged and clear its banner flag.
@@ -478,54 +493,59 @@ export async function chargeOverage(billId: string): Promise<UploadState> {
     .update({ overage_charged_at: new Date().toISOString(), overage_dismissed: true })
     .eq("id", b.id);
 
+  result.charged = charged.map(({ name, amount }) => ({ name, amount }));
+  result.movedOut = movedOut.map(({ name, amount }) => ({ name, amount }));
+  result.uncovered = Math.round(unassigned * 100) / 100;
+  return result;
+}
+
+export async function chargeOverage(
+  billId: string,
+): Promise<OverageChargeResult> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user)
+    return {
+      billId,
+      unit: "—",
+      period: "—",
+      error: "Not signed in.",
+      charged: [],
+      movedOut: [],
+      uncovered: 0,
+    };
+
+  const result = await chargeOverageCore(admin(), billId);
   revalidatePath("/utilities");
   revalidatePath("/tenants");
-
-  const parts: string[] = [];
-  if (charged.length > 0) {
-    const total = charged.reduce((s, c) => s + c.amount, 0);
-    parts.push(
-      `Charged ${fmt$(total)} across ${charged.length} tenant${charged.length === 1 ? "" : "s"} (${charged.map((c) => `${c.name} ${fmt$(c.amount)}`).join(", ")}).`,
-    );
-  }
-  if (movedOut.length > 0) {
-    parts.push(
-      `${movedOut.length} moved-out tenant${movedOut.length === 1 ? "" : "s"} flagged on the Rent Tracker (not charged).`,
-    );
-  }
-  if (unassigned > 0.005) {
-    parts.push(`${fmt$(unassigned)} fell on days with no occupants and was not charged.`);
-  }
-  return { success: parts.join(" ") };
+  return result;
 }
 
 /**
  * Charge every flagged bill in one go. Each bill is processed independently
  * — one bill failing validation (no unit, no billing period…) doesn't stop
- * the others — and the outcomes are reported together.
+ * the others — and the per-bill outcomes are returned together for the
+ * results popup.
  */
-export async function chargeAllOverages(billIds: string[]): Promise<UploadState> {
-  if (billIds.length === 0) return undefined;
-  const results: string[] = [];
-  const failures: string[] = [];
+export async function chargeAllOverages(
+  billIds: string[],
+): Promise<OverageChargeResult[]> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return [];
+
+  const sb = admin();
+  const results: OverageChargeResult[] = [];
   for (const id of billIds) {
-    const r = await chargeOverage(id);
-    if (r?.error) failures.push(r.error);
-    else if (r?.success) results.push(r.success);
+    results.push(await chargeOverageCore(sb, id));
   }
-  const summary = [
-    results.length > 0
-      ? `${results.length} bill${results.length === 1 ? "" : "s"} charged. ${results.join(" ")}`
-      : null,
-    failures.length > 0
-      ? `${failures.length} skipped: ${failures.join(" ")}`
-      : null,
-  ]
-    .filter(Boolean)
-    .join(" — ");
-  return results.length === 0 && failures.length > 0
-    ? { error: summary }
-    : { success: summary, warning: failures.length > 0 ? summary : undefined };
+  revalidatePath("/utilities");
+  revalidatePath("/tenants");
+  return results;
 }
 
 export async function getStatementUrl(

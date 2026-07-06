@@ -10,6 +10,7 @@ import {
   deleteBill,
   dismissOverage,
   getStatementUrl,
+  type OverageChargeResult,
 } from "./actions";
 import {
   billMonth,
@@ -252,6 +253,8 @@ function OverageFlags({
   const [pending, startTransition] = useTransition();
   // Two-step confirm for posting the overage to the tenants' ledgers.
   const [confirmCharge, setConfirmCharge] = useState<string | null>(null);
+  // Per-bill outcomes of the last charge run, shown in a popup until closed.
+  const [results, setResults] = useState<OverageChargeResult[] | null>(null);
   const flagged = bills
     .filter((b) => isOverThreshold(b) && !b.overage_dismissed)
     .map((b) => ({
@@ -265,7 +268,9 @@ function OverageFlags({
       usage: usageTotal(b),
     }))
     .sort((a, b) => b.usage - a.usage);
-  if (flagged.length === 0) return null;
+  // Keep rendering while the results popup is open even if charging emptied
+  // the banner (charged bills drop out of the flagged list on revalidation).
+  if (flagged.length === 0 && !results) return null;
 
   const dismiss = (ids: string[]) =>
     startTransition(async () => {
@@ -276,20 +281,23 @@ function OverageFlags({
   const charge = (id: string) =>
     startTransition(async () => {
       const r = await chargeOverage(id);
-      if (r?.error) toast.error(r.error);
-      else if (r?.success) toast.success(r.success, { duration: 10000 });
+      setResults([r]);
       setConfirmCharge(null);
     });
 
   const chargeAll = (ids: string[]) =>
     startTransition(async () => {
-      const r = await chargeAllOverages(ids);
-      if (r?.error) toast.error(r.error, { duration: 12000 });
-      else if (r?.success) toast.success(r.success, { duration: 12000 });
+      const rs = await chargeAllOverages(ids);
+      setResults(rs);
       setConfirmCharge(null);
     });
 
   return (
+    <>
+      {results && (
+        <ChargeResults results={results} onClose={() => setResults(null)} />
+      )}
+      {flagged.length > 0 && (
     <div className="mt-4 rounded-2xl border border-red-200 bg-red-50/80 px-5 py-4">
       <div className="flex items-center justify-between gap-3">
         <p className="text-sm font-semibold text-red-900">
@@ -416,6 +424,108 @@ function OverageFlags({
           </li>
         ))}
       </ul>
+    </div>
+      )}
+    </>
+  );
+}
+
+/**
+ * Popup summarizing a charge run, bill by bill: who was charged what, whose
+ * share went to a moved-out alert, and which bills were skipped and why.
+ * Stays open until dismissed so a "Charge all" over many bills is reviewable
+ * at once.
+ */
+function ChargeResults({
+  results,
+  onClose,
+}: {
+  results: OverageChargeResult[];
+  onClose: () => void;
+}) {
+  const totalCharged = results
+    .flatMap((r) => r.charged)
+    .reduce((s, c) => s + c.amount, 0);
+  const chargedBills = results.filter((r) => !r.error).length;
+  const skipped = results.filter((r) => r.error).length;
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-ink/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative flex max-h-[85vh] w-full max-w-xl flex-col rounded-2xl bg-white shadow-xl">
+        <div className="border-b border-stone/40 px-6 py-4">
+          <h2 className="text-lg font-medium text-ink">
+            Overage charges ·{" "}
+            <span className="font-display italic text-accent-text">results</span>
+          </h2>
+          <p className="mt-0.5 text-sm text-muted">
+            {chargedBills > 0 &&
+              `${fmtMoney(totalCharged)} posted across ${chargedBills} bill${chargedBills === 1 ? "" : "s"}.`}
+            {skipped > 0 && ` ${skipped} bill${skipped === 1 ? "" : "s"} skipped.`}
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-3 overflow-y-auto px-6 py-4">
+          {results.map((r) => (
+            <div key={r.billId} className="rounded-xl border border-stone/40 bg-cream/50 px-4 py-3">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                <span className="text-sm font-medium text-ink">{r.unit}</span>
+                <span className="text-xs text-muted">{r.period}</span>
+                {r.error ? (
+                  <span className="ml-auto rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold text-red-700">
+                    Skipped
+                  </span>
+                ) : (
+                  <span className="ml-auto rounded-full border border-green-200 bg-green-50 px-2 py-0.5 text-[11px] font-semibold text-green-700">
+                    ✓ Charged
+                  </span>
+                )}
+              </div>
+              {r.error ? (
+                <p className="mt-1.5 text-xs text-red-700">{r.error}</p>
+              ) : (
+                <ul className="mt-2 flex flex-col gap-1 text-sm">
+                  {r.charged.map((c, i) => (
+                    <li key={`c${i}`} className="flex items-center gap-2">
+                      <span className="text-ink/80">{c.name}</span>
+                      <span className="ml-auto tabular-nums text-ink">
+                        {fmtMoney(c.amount)}
+                      </span>
+                    </li>
+                  ))}
+                  {r.movedOut.map((m, i) => (
+                    <li key={`m${i}`} className="flex items-center gap-2">
+                      <span className="text-ink/80">{m.name}</span>
+                      <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+                        moved out · flagged on Rent Tracker
+                      </span>
+                      <span className="ml-auto tabular-nums text-muted line-through">
+                        {fmtMoney(m.amount)}
+                      </span>
+                    </li>
+                  ))}
+                  {r.uncovered > 0 && (
+                    <li className="text-xs text-muted">
+                      {fmtMoney(r.uncovered)} fell on vacant days and was not
+                      charged.
+                    </li>
+                  )}
+                </ul>
+              )}
+            </div>
+          ))}
+        </div>
+
+        <div className="flex justify-end border-t border-stone/40 px-6 py-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-accent-dark"
+          >
+            Done
+          </button>
+        </div>
+      </div>
     </div>
   );
 }
