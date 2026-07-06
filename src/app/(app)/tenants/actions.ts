@@ -642,6 +642,11 @@ export async function addCharge(
 export async function acknowledgeOverageAlerts(ids: string[]) {
   if (ids.length === 0) return;
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  // The popup is operator-facing; only the ledger admins may dismiss it.
+  if (!canEditLedger(user?.email)) return;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (supabase as any)
     .from("utility_overage_alerts")

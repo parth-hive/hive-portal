@@ -2,7 +2,6 @@
 
 import { createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
-import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { extractUtilityBill, type UnitOption } from "@/lib/utility-extract";
 import { compressStatement } from "@/lib/compress-statement";
@@ -21,14 +20,6 @@ import {
 export type UploadState =
   | { error?: string; success?: string; warning?: string }
   | undefined;
-
-function admin() {
-  return createServiceClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
-    { auth: { persistSession: false, autoRefreshToken: false } },
-  );
-}
 
 const MAX_STATEMENT_BYTES = 20 * 1024 * 1024;
 
@@ -112,6 +103,15 @@ export async function uploadStatement(
     };
   }
 
+  // The model's unit match is untrusted output from reading the statement —
+  // never let it write an id outside the known unit list.
+  if (
+    extracted.property_id &&
+    !units.some((u) => u.id === extracted.property_id)
+  ) {
+    extracted.property_id = null;
+  }
+
   // Operator-confirmed mappings beat the model's guess: if this account or
   // service address was ever manually assigned to a unit, reuse that unit.
   const keys = hintKeys(extracted);
@@ -184,7 +184,9 @@ export async function uploadStatement(
     });
   if (upErr) return { error: `Failed to store the statement: ${upErr.message}` };
 
-  const total = extracted.charges.reduce((s, c) => s + c.amount, 0);
+  const total =
+    Math.round(extracted.charges.reduce((s, c) => s + c.amount, 0) * 100) /
+    100;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: bill, error: insErr } = await (sb as any)
     .from("utility_bills")
@@ -218,7 +220,15 @@ export async function uploadStatement(
       amount: c.amount,
     })),
   );
-  if (chErr) return { error: chErr.message };
+  if (chErr) {
+    // Don't strand a bill with a total but no charge rows: it would show in
+    // the log yet never trip the over-$200 check, and its file hash would
+    // block re-uploading the statement.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (sb as any).from("utility_bills").delete().eq("id", bill.id);
+    await sb.storage.from("utilities").remove([path]);
+    return { error: chErr.message };
+  }
 
   revalidatePath("/utilities");
   const unit = units.find((u) => u.id === extracted.property_id);
@@ -251,6 +261,19 @@ export async function assignBillProperty(
   if (!user) return { error: "Not signed in." };
 
   const sb = supabase;
+  // A charged bill's ledger charges belong to the current unit's tenants —
+  // reassigning it would silently misattribute them.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: existing } = await (sb as any)
+    .from("utility_bills")
+    .select("overage_charged_at")
+    .eq("id", billId)
+    .maybeSingle();
+  if (existing?.overage_charged_at)
+    return {
+      error:
+        "This bill's overage is charged to tenants — unpost it before reassigning the unit.",
+    };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: bill, error } = await (sb as any)
     .from("utility_bills")
@@ -291,9 +314,17 @@ export async function deleteBill(billId: string): Promise<UploadState> {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: bill } = await (sb as any)
     .from("utility_bills")
-    .select("statement_path")
+    .select("statement_path, overage_charged_at")
     .eq("id", billId)
     .maybeSingle();
+  // Deleting a charged bill would sever tenancy_charges.bill_id (set null),
+  // making the posted charges impossible to unpost — and clear the dedup
+  // hash, so re-uploading the same statement could double-charge tenants.
+  if (bill?.overage_charged_at)
+    return {
+      error:
+        "This bill's overage is charged to tenants — unpost it before deleting the bill.",
+    };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { error } = await (sb as any).from("utility_bills").delete().eq("id", billId);
   if (error) return { error: error.message };
@@ -399,13 +430,24 @@ async function chargeOverageCore(
       "The bill has no billing period on file — the overage can't be prorated per day.",
     );
 
-  const overage = usageTotal(b) - OVERAGE_THRESHOLD;
+  // Money math in integer cents; usage is a float sum of numeric strings.
+  const overageCents =
+    Math.round(usageTotal(b) * 100) - OVERAGE_THRESHOLD * 100;
+  if (overageCents <= 0)
+    return fail("This bill's usage is not over the $200 threshold.");
+  const overage = overageCents / 100;
 
-  // Inclusive day count: "the number of days that statement has billed for".
+  // The period end is exclusive: statements bill start..(end - 1) and the
+  // end date is the next cycle's start (verified against the uploaded
+  // ConEd/PSE&G statements). Walking it inclusively would bill the boundary
+  // day under two consecutive statements. Same-day periods count as 1 day.
   const dayMs = 24 * 60 * 60 * 1000;
   const startMs = Date.parse(`${b.period_start.slice(0, 10)}T00:00:00Z`);
-  const endMs = Date.parse(`${b.period_end.slice(0, 10)}T00:00:00Z`);
-  const days = Math.round((endMs - startMs) / dayMs) + 1;
+  const endMs = Math.max(
+    startMs + dayMs,
+    Date.parse(`${b.period_end.slice(0, 10)}T00:00:00Z`),
+  );
+  const days = Math.round((endMs - startMs) / dayMs);
   const perDay = overage / days;
 
   // Occupants: tenancies in this unit's AC rooms. Rooms without AC don't
@@ -424,11 +466,11 @@ async function chargeOverageCore(
     .in("room_id", acRoomIds);
   if (tErr) return fail(tErr.message);
 
-  // Walk the billed days: each day's slice of the overage is split equally
-  // among the tenants living in an AC room that day.
+  // Walk the billed days ([start, end) exclusive): each day's slice of the
+  // overage is split equally among the tenants living in an AC room that day.
   const shares = new Map<string, number>();
   let unassigned = 0;
-  for (let ms = startMs; ms <= endMs; ms += dayMs) {
+  for (let ms = startMs; ms < endMs; ms += dayMs) {
     const day = new Date(ms).toISOString().slice(0, 10);
     const living = (tenancies ?? []).filter(
       (t) =>
@@ -447,12 +489,27 @@ async function chargeOverageCore(
       "No tenants were living in this unit's AC rooms during the billing period.",
     );
 
+  // Largest-remainder rounding: per-tenancy cents that sum exactly to the
+  // assigned overage (overage minus vacant-day remainder) — independent
+  // rounding can gain or lose a cent per tenant.
+  const assignedCents = overageCents - Math.round(unassigned * 100);
+  const rounded = [...shares.entries()].map(([tenancyId, raw]) => {
+    const cents = raw * 100;
+    return { tenancyId, cents: Math.floor(cents + 1e-6), frac: cents % 1 };
+  });
+  let leftover = assignedCents - rounded.reduce((s, r) => s + r.cents, 0);
+  rounded.sort((a, b) => b.frac - a.frac);
+  for (let i = 0; leftover > 0 && rounded.length > 0; i = (i + 1) % rounded.length) {
+    rounded[i].cents += 1;
+    leftover -= 1;
+  }
+
   const today = todayISO();
   const charged: { tenancyId: string; name: string; amount: number }[] = [];
   const movedOut: { tenancyId: string; name: string; amount: number }[] = [];
-  for (const [tenancyId, raw] of shares) {
-    const amount = Math.round(raw * 100) / 100;
-    if (amount <= 0) continue;
+  for (const { tenancyId, cents } of rounded) {
+    if (cents <= 0) continue;
+    const amount = cents / 100;
     const t = (tenancies ?? []).find((x) => x.id === tenancyId)!;
     const name = one(t.tenants)?.full_name ?? "Tenant";
     const isMovedOut =
@@ -461,8 +518,37 @@ async function chargeOverageCore(
     else charged.push({ tenancyId, name, amount });
   }
 
+  // Claim the bill FIRST with a compare-and-set, so a concurrent charge of
+  // the same bill (double click, second session, overlapping Charge All)
+  // loses the race here instead of double-billing the tenants. The partial
+  // unique index tenancy_charges_overage_once is the DB-level backstop.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: claimed, error: claimErr } = await (sb as any)
+    .from("utility_bills")
+    .update({
+      overage_charged_at: new Date().toISOString(),
+      overage_dismissed: true,
+    })
+    .eq("id", b.id)
+    .is("overage_charged_at", null)
+    .select("id");
+  if (claimErr) return fail(claimErr.message);
+  if (!claimed || claimed.length === 0)
+    return fail("This bill's overage has already been charged.");
+
+  // If a later write fails, put the bill back exactly as it was.
+  const releaseClaim = async () => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (sb as any)
+      .from("utility_bills")
+      .update({
+        overage_charged_at: null,
+        overage_dismissed: b.overage_dismissed,
+      })
+      .eq("id", b.id);
+  };
+
   if (charged.length > 0) {
-    // One batch insert so a failure can't leave the bill half-charged.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { error } = await (sb as any).from("tenancy_charges").insert(
       charged.map((c) => ({
@@ -474,7 +560,10 @@ async function chargeOverageCore(
         bill_id: b.id,
       })),
     );
-    if (error) return fail(error.message);
+    if (error) {
+      await releaseClaim();
+      return fail(error.message);
+    }
   }
 
   if (movedOut.length > 0) {
@@ -489,15 +578,18 @@ async function chargeOverageCore(
         period_label: result.period,
       })),
     );
-    if (error) return fail(error.message);
+    if (error) {
+      // Roll the whole run back: charges out, claim released.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await (sb as any)
+        .from("tenancy_charges")
+        .delete()
+        .eq("bill_id", b.id)
+        .eq("kind", "utility_overage");
+      await releaseClaim();
+      return fail(error.message);
+    }
   }
-
-  // Mark the bill charged and clear its banner flag.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  await (sb as any)
-    .from("utility_bills")
-    .update({ overage_charged_at: new Date().toISOString(), overage_dismissed: true })
-    .eq("id", b.id);
 
   result.charged = charged.map(({ name, amount }) => ({ name, amount }));
   result.movedOut = movedOut.map(({ name, amount }) => ({ name, amount }));
@@ -618,7 +710,9 @@ export async function getStatementUrl(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
 
-  const sb = admin();
+  // Session client so the read and signed URL honor RLS if it's ever
+  // tightened per-property.
+  const sb = supabase;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: bill, error } = await (sb as any)
     .from("utility_bills")

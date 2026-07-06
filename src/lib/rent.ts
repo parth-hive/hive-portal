@@ -285,7 +285,10 @@ export function buildLedgerEntries(
       description: (KIND_LABEL[c.kind] ?? c.kind) + (c.note ? ` · ${c.note}` : ""),
       charge: num(c.amount),
       payment: 0,
-      deletable: "charge",
+      // Utility overcharges are managed as a set per bill: deleting a single
+      // tenant's line would desync the bill's "charged" state. Reverse them
+      // via Unpost on the Utilities page instead.
+      deletable: c.kind === "utility_overage" ? null : "charge",
       refIds: [c.id],
     });
   }

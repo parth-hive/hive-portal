@@ -82,8 +82,10 @@ export function usageTotal(b: BillRow): number {
 }
 
 export function isOverThreshold(b: BillRow): boolean {
+  // Compare in whole cents: usageTotal is a float sum, and an exactly-$200
+  // bill can come out as 200.00000000000003.
   return (
     (b.utility_type === "electric" || b.utility_type === "gas") &&
-    usageTotal(b) > OVERAGE_THRESHOLD
+    Math.round(usageTotal(b) * 100) > OVERAGE_THRESHOLD * 100
   );
 }

@@ -454,9 +454,12 @@ export async function getUtilityBills(args: {
   // Default window when no single month is requested, so the payload (and
   // the model's context) stays bounded.
   const monthsBack = args.months_back ?? 6;
-  const cutoff = new Date();
-  cutoff.setUTCMonth(cutoff.getUTCMonth() - (monthsBack - 1));
-  const cutoffYm = cutoff.toISOString().slice(0, 7);
+  // Month arithmetic on a year*12+month index — setUTCMonth on a day-29..31
+  // date overflows into the next month and silently drops the oldest month.
+  const now = new Date();
+  const cutoffIdx =
+    now.getUTCFullYear() * 12 + now.getUTCMonth() - (monthsBack - 1);
+  const cutoffYm = `${Math.floor(cutoffIdx / 12)}-${String((cutoffIdx % 12) + 1).padStart(2, "0")}`;
 
   const filtered = rows.filter(({ bill, month }) => {
     if (args.month ? month !== args.month : month < cutoffYm) return false;
