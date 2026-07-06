@@ -253,47 +253,67 @@ export default async function TenantDetailPage({
                 </dd>
                 <dt className="text-muted">Monthly</dt>
                 <dd className="col-span-2 text-ink">
-                  <RentAmountEdit
-                    field="monthly_rent"
-                    tenancyId={active.id}
-                    tenantId={tenant.id}
-                    value={Number(active.monthly_rent)}
-                  />
+                  {ledgerAdmin ? (
+                    <RentAmountEdit
+                      field="monthly_rent"
+                      tenancyId={active.id}
+                      tenantId={tenant.id}
+                      value={Number(active.monthly_rent)}
+                    />
+                  ) : (
+                    fmtMoney(Number(active.monthly_rent))
+                  )}
                 </dd>
                 <dt className="text-muted">First month (prorated)</dt>
                 <dd className="col-span-2 text-ink">
-                  <RentAmountEdit
-                    field="first_month_rent"
-                    tenancyId={active.id}
-                    tenantId={tenant.id}
-                    value={
-                      active.first_month_rent !== null
-                        ? Number(active.first_month_rent)
-                        : null
-                    }
-                  />
+                  {ledgerAdmin ? (
+                    <RentAmountEdit
+                      field="first_month_rent"
+                      tenancyId={active.id}
+                      tenantId={tenant.id}
+                      value={
+                        active.first_month_rent !== null
+                          ? Number(active.first_month_rent)
+                          : null
+                      }
+                    />
+                  ) : active.first_month_rent !== null ? (
+                    fmtMoney(Number(active.first_month_rent))
+                  ) : (
+                    "—"
+                  )}
                 </dd>
                 <dt className="text-muted">Deposit</dt>
                 <dd className="col-span-2 text-ink">
-                  <RentAmountEdit
-                    field="security_deposit"
-                    tenancyId={active.id}
-                    tenantId={tenant.id}
-                    value={
-                      active.security_deposit !== null
-                        ? Number(active.security_deposit)
-                        : null
-                    }
-                  />
+                  {ledgerAdmin ? (
+                    <RentAmountEdit
+                      field="security_deposit"
+                      tenancyId={active.id}
+                      tenantId={tenant.id}
+                      value={
+                        active.security_deposit !== null
+                          ? Number(active.security_deposit)
+                          : null
+                      }
+                    />
+                  ) : active.security_deposit !== null ? (
+                    fmtMoney(Number(active.security_deposit))
+                  ) : (
+                    "—"
+                  )}
                 </dd>
                 <dt className="text-muted">Lease Start Date</dt>
                 <dd className="col-span-2 text-ink">
-                  <LeaseDateEdit
-                    field="start"
-                    tenancyId={active.id}
-                    tenantId={tenant.id}
-                    value={active.start_date}
-                  />
+                  {ledgerAdmin ? (
+                    <LeaseDateEdit
+                      field="start"
+                      tenancyId={active.id}
+                      tenantId={tenant.id}
+                      value={active.start_date}
+                    />
+                  ) : (
+                    formatDate(active.start_date)
+                  )}
                 </dd>
                 <dt className="text-muted">Lease End Date</dt>
                 <dd className="col-span-2 text-ink">
@@ -308,30 +328,35 @@ export default async function TenantDetailPage({
                   <>
                     <dt className="text-muted">Moving out</dt>
                     <dd className="col-span-2 text-ink">
-                      <LeaseDateEdit
-                        field="moveout"
-                        tenancyId={active.id}
-                        tenantId={tenant.id}
-                        value={active.move_out_date}
-                      />
+                      {ledgerAdmin ? (
+                        <LeaseDateEdit
+                          field="moveout"
+                          tenancyId={active.id}
+                          tenantId={tenant.id}
+                          value={active.move_out_date}
+                        />
+                      ) : (
+                        formatDate(active.move_out_date)
+                      )}
                     </dd>
                   </>
                 )}
               </dl>
               <div className="mt-4 flex flex-wrap items-center gap-4">
-                {!active.move_out_date ? (
-                  <EndTenancyForm
-                    tenancyId={active.id}
-                    tenantId={tenant.id}
-                  />
-                ) : (
-                  <ReactivateTenancyButton
-                    tenancyId={active.id}
-                    tenantId={tenant.id}
-                    label="Cancel move out"
-                    variant="primary"
-                  />
-                )}
+                {ledgerAdmin &&
+                  (!active.move_out_date ? (
+                    <EndTenancyForm
+                      tenancyId={active.id}
+                      tenantId={tenant.id}
+                    />
+                  ) : (
+                    <ReactivateTenancyButton
+                      tenancyId={active.id}
+                      tenantId={tenant.id}
+                      label="Cancel move out"
+                      variant="primary"
+                    />
+                  ))}
                 {active.lease_pdf_path && (
                   <LeaseDownload tenancyId={active.id} />
                 )}
@@ -436,7 +461,7 @@ export default async function TenantDetailPage({
                         <BalanceCell n={e.balance} />
                       </td>
                       <td className="px-5 py-3 text-right">
-                        {e.deletable === "payment" ? (
+                        {e.deletable === "payment" && ledgerAdmin ? (
                           <DeletePaymentButton
                             paymentId={e.refIds[0]}
                             tenantId={tenant.id}
@@ -477,20 +502,24 @@ export default async function TenantDetailPage({
                     {fmtMoney(t.monthly_rent)}/mo
                   </p>
                 </div>
-                <ReactivateTenancyButton
-                  tenancyId={t.id}
-                  tenantId={tenant.id}
-                  label="Reactivate"
-                />
+                {ledgerAdmin && (
+                  <ReactivateTenancyButton
+                    tenancyId={t.id}
+                    tenantId={tenant.id}
+                    label="Reactivate"
+                  />
+                )}
               </li>
             ))}
           </ul>
         </section>
       )}
 
-      <section className="mt-16 border-t border-stone/60 pt-6">
-        <DeleteTenantButton id={tenant.id} name={tenant.full_name} />
-      </section>
+      {ledgerAdmin && (
+        <section className="mt-16 border-t border-stone/60 pt-6">
+          <DeleteTenantButton id={tenant.id} name={tenant.full_name} />
+        </section>
+      )}
     </div>
   );
 }

@@ -13,9 +13,21 @@ import {
 } from "@/lib/email";
 import { sendSms } from "@/lib/sms";
 import { todayISO } from "@/lib/date";
-import { computeLedger } from "@/lib/rent";
+import { computeLedger, LEDGER_PAYMENT_CUTOFF } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
 import { canEditLedger, LEDGER_ADMIN_ERROR } from "@/lib/access";
+
+// Accrual-affecting mutations (rent amounts, tenancy dates, deleting
+// payments/tenants) change what a tenant owes just as directly as a charge
+// row — same two-operator restriction as charges.
+async function requireLedgerAdmin(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+): Promise<string | null> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return canEditLedger(user?.email) ? null : LEDGER_ADMIN_ERROR;
+}
 
 type PaymentType = Database["public"]["Enums"]["payment_type"];
 // Typed as string[] (not PaymentType[]) so values validate even before the
@@ -279,6 +291,8 @@ export async function setTenancyStartDate(
   const value = date && date.trim() ? date.trim() : null;
   if (!value) return { error: "Lease start date is required." };
   const supabase = await createClient();
+  const denied = await requireLedgerAdmin(supabase);
+  if (denied) return { error: denied };
   const { error } = await supabase
     .from("tenancies")
     .update({ start_date: value })
@@ -315,6 +329,8 @@ export async function setTenancyRentAmount(
         : { security_deposit: amount };
 
   const supabase = await createClient();
+  const denied = await requireLedgerAdmin(supabase);
+  if (denied) return { error: denied };
   const { error } = await supabase
     .from("tenancies")
     .update(patch)
@@ -406,6 +422,7 @@ export async function endTenancy(formData: FormData) {
   if (!tenancy_id || !move_out_date) return;
 
   const supabase = await createClient();
+  if (await requireLedgerAdmin(supabase)) return;
   await applyMoveOut(supabase, tenancy_id, move_out_date);
 
   revalidatePath("/tenants");
@@ -423,6 +440,8 @@ export async function setTenancyMoveOutDate(
 ): Promise<{ ok: true } | { error: string }> {
   const value = date && date.trim() ? date.trim() : null;
   const supabase = await createClient();
+  const denied = await requireLedgerAdmin(supabase);
+  if (denied) return { error: denied };
 
   if (value) {
     await applyMoveOut(supabase, tenancyId, value);
@@ -458,12 +477,26 @@ export async function reactivateTenancy(formData: FormData) {
   if (!tenancy_id) return;
 
   const supabase = await createClient();
+  if (await requireLedgerAdmin(supabase)) return;
 
   const { data: tenancy } = await supabase
     .from("tenancies")
     .select("room_id")
     .eq("id", tenancy_id)
     .single();
+
+  // Never create two active tenancies on one room: if it was re-let after
+  // this tenancy ended, reactivation must not double-accrue rent on it.
+  if (tenancy?.room_id) {
+    const { data: conflict } = await supabase
+      .from("tenancies")
+      .select("id")
+      .eq("room_id", tenancy.room_id)
+      .eq("status", "active")
+      .neq("id", tenancy_id)
+      .maybeSingle();
+    if (conflict) return;
+  }
 
   await supabase
     .from("tenancies")
@@ -519,6 +552,8 @@ export async function deleteTenant(formData: FormData) {
   if (!id) return;
 
   const supabase = await createClient();
+  // Cascades destroy the tenant's payments/charges history — operator-only.
+  if (await requireLedgerAdmin(supabase)) return;
 
   // Free up any rooms that were occupied by this tenant
   const { data: rooms } = await supabase
@@ -566,6 +601,17 @@ export async function recordPayment(
   const amount = Number(amount_str);
   if (!Number.isFinite(amount) || amount <= 0)
     return { error: "Amount must be a positive number." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(paid_on))
+    return { error: "Payment date must be YYYY-MM-DD." };
+  if (paid_on > todayISO())
+    return { error: "Payment date can't be in the future." };
+  // A rent payment dated before the ledger cutoff would be silently excluded
+  // from the balance (pre-ledger months are treated as settled) — catch the
+  // typo here instead of recording invisible money.
+  if (payment_type === "rent" && paid_on < LEDGER_PAYMENT_CUTOFF)
+    return {
+      error: `Rent payments must be dated ${LEDGER_PAYMENT_CUTOFF} or later — earlier months predate the ledger and wouldn't count toward the balance.`,
+    };
 
   const supabase = await createClient();
   const { error } = await supabase.from("payments").insert({
@@ -591,6 +637,7 @@ export async function deletePayment(formData: FormData) {
   if (!payment_id) return;
 
   const supabase = await createClient();
+  if (await requireLedgerAdmin(supabase)) return;
   await supabase.from("payments").delete().eq("id", payment_id);
 
   revalidatePath("/tenants");

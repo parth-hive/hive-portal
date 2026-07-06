@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { isMaster } from "@/lib/access";
+import { canEditLedger, isMaster, LEDGER_ADMIN_ERROR } from "@/lib/access";
 import { one } from "@/lib/relations";
 import { todayISO } from "@/lib/date";
 import {
@@ -163,6 +163,19 @@ function buildMatches(
   let mismatchCount = 0;
   let missingCount = 0;
 
+  // Two tenancies can share a payer key (a tenant who moved rooms mid-month,
+  // or two tenants with identical names). The deposits are one pot of money —
+  // credit it to ONE tenancy (the most recent, deterministically) instead of
+  // showing the full sum on every row and double-counting the totals.
+  const ordered = [...tenancies].sort((a, b) =>
+    b.start_date.localeCompare(a.start_date),
+  );
+  const keyClaimedBy = new Map<string, string>();
+  for (const t of ordered) {
+    const k = tenantKey(t.pays_as, t.full_name);
+    if (!keyClaimedBy.has(k)) keyClaimedBy.set(k, t.id);
+  }
+
   for (const t of tenancies) {
     const rawKey = tenantKey(t.pays_as, t.full_name);
     const expected = expectedForMonth(
@@ -172,7 +185,8 @@ function buildMatches(
       monthStart,
       monthEnd,
     );
-    const actual = aggregate.get(rawKey) ?? 0;
+    const actual =
+      keyClaimedBy.get(rawKey) === t.id ? aggregate.get(rawKey) ?? 0 : 0;
     if (actual > 0) {
       claimedKeys.add(rawKey);
       tenancyByKey.set(rawKey, t.id);
@@ -229,10 +243,10 @@ export async function runReconciliation(
   formData: FormData,
 ): Promise<RunFormState> {
   const monthRaw = String(formData.get("month") ?? "").trim();
-  const month = /^\d{4}-\d{2}$/.test(monthRaw)
+  const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(monthRaw)
     ? `${monthRaw}-01`
     : monthRaw;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(month)) {
+  if (!/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(month)) {
     return { error: "Pick a month for this reconciliation." };
   }
 
@@ -280,6 +294,41 @@ export async function runReconciliation(
     allDeposits = [...allDeposits, ...otherResult.deposits];
   }
 
+  // Fingerprint hygiene, in two parts:
+  // 1) Rows WITH a Conf#: the same confirmation number twice in one export is
+  //    the same transaction listed twice — keep the first, drop the rest so
+  //    the run's "collected" totals aren't inflated (posting was already
+  //    deduped by the unique index, but the display wasn't).
+  // 2) Rows WITHOUT a Conf# (synthetic fingerprints): scope by run month and
+  //    an occurrence ordinal. Otherwise (a) a dateless file posted in June
+  //    collides with the identical row in July's file — July's money would
+  //    silently never post — and (b) two identical same-day cash rows in one
+  //    file would post once while displaying twice.
+  {
+    const seenConf = new Set<string>();
+    const occurrence = new Map<string, number>();
+    const deduped: Deposit[] = [];
+    let confDupes = 0;
+    for (const d of allDeposits) {
+      if (d.externalRef.startsWith("zelle:")) {
+        if (seenConf.has(d.externalRef)) {
+          confDupes++;
+          continue;
+        }
+        seenConf.add(d.externalRef);
+        deduped.push(d);
+      } else {
+        const n = (occurrence.get(d.externalRef) ?? 0) + 1;
+        occurrence.set(d.externalRef, n);
+        deduped.push({ ...d, externalRef: `${d.externalRef}:${month}:${n}` });
+      }
+    }
+    allDeposits = deduped;
+    if (confDupes > 0) {
+      console.log(`[recon] dropped ${confDupes} duplicate Conf# rows`);
+    }
+  }
+
   // 2) Snapshot tenancies that overlapped the selected month (including ones
   //    that ended mid-month, whose payments would otherwise go unattributed).
   const { start, end } = monthBounds(month);
@@ -314,25 +363,36 @@ export async function runReconciliation(
   const runId = runIns.id;
   console.log("[recon] run created:", runId);
 
-  // 4) Upload source files to storage (audit trail; non-fatal on failure).
+  // 4) Upload source files to storage (audit trail; non-fatal on failure —
+  //    but don't record a path pointing at an object that failed to store).
   const safeName = (s: string) => s.replace(/[^\w.\-]/g, "_");
-  const bankPath = `${runId}/bank-${Date.now()}-${safeName(bankFile.name)}`;
-  await supabase.storage
-    .from("reconciliation")
-    .upload(bankPath, bankFile, {
-      contentType: bankFile.type || "application/octet-stream",
-      upsert: false,
-    });
+  let bankPath: string | null = `${runId}/bank-${Date.now()}-${safeName(bankFile.name)}`;
+  {
+    const { error: upErr } = await supabase.storage
+      .from("reconciliation")
+      .upload(bankPath, bankFile, {
+        contentType: bankFile.type || "application/octet-stream",
+        upsert: false,
+      });
+    if (upErr) {
+      console.error("[recon] bank file upload failed:", upErr.message);
+      bankPath = null;
+    }
+  }
 
   let otherPath: string | null = null;
   if (otherFile instanceof File && otherFile.size > 0) {
     otherPath = `${runId}/other-${Date.now()}-${safeName(otherFile.name)}`;
-    await supabase.storage
+    const { error: upErr } = await supabase.storage
       .from("reconciliation")
       .upload(otherPath, otherFile, {
         contentType: otherFile.type || "application/octet-stream",
         upsert: false,
       });
+    if (upErr) {
+      console.error("[recon] other file upload failed:", upErr.message);
+      otherPath = null;
+    }
   }
 
   // 5) Build per-tenant matches.
@@ -482,14 +542,27 @@ async function postRunCore(supabase: SupabaseClient, runId: string) {
       continue;
     }
     let paymentId: string | null = ins?.id ?? null;
-    // If ignored (conflict), look up the existing row so we can link.
+    // If ignored (conflict), look up the existing row so we can link. When
+    // the deposit was re-attributed since (e.g. a pays_as fix moved it to a
+    // different tenancy), move the money too — otherwise the match table
+    // would show the new tenant paid while the ledger credits the old one.
     if (!paymentId) {
       const { data: existing } = await supabase
         .from("payments")
-        .select("id")
+        .select("id, tenancy_id")
         .eq("external_ref", d.external_ref)
         .maybeSingle();
       paymentId = existing?.id ?? null;
+      if (existing && existing.tenancy_id !== d.tenancy_id) {
+        const { error: moveErr } = await supabase
+          .from("payments")
+          .update({ tenancy_id: d.tenancy_id })
+          .eq("id", existing.id);
+        if (moveErr) {
+          failures.push(`${d.external_ref}: ${moveErr.message}`);
+          continue;
+        }
+      }
     }
     if (paymentId) {
       const { error: linkErr } = await supabase
@@ -524,6 +597,12 @@ export async function postPayments(formData: FormData) {
   const runId = String(formData.get("run_id") ?? "");
   if (!runId) return;
   const supabase = await createClient();
+  // Posting writes a month of payments into tenant ledgers — operator-only,
+  // same restriction as ledger charges.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!canEditLedger(user?.email)) throw new Error(LEDGER_ADMIN_ERROR);
   await postRunCore(supabase, runId);
   revalidatePath("/reconciliation");
   revalidatePath(`/reconciliation/${runId}`);
@@ -535,32 +614,41 @@ export async function unpostPayments(formData: FormData) {
   if (!runId) return;
 
   const supabase = await createClient();
+  // Unposting deletes a month of payments from tenant ledgers — operator-only.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!canEditLedger(user?.email)) throw new Error(LEDGER_ADMIN_ERROR);
 
-  // Collect this run's external_refs so we can remove only the payment
-  // rows that were created from these deposits.
+  // Delete by the payment ids this run's deposits were LINKED to at post
+  // time — not by external_ref. Matching on refs made unpost a silent no-op
+  // whenever another run (even an unposted preview of the same statement)
+  // held the same refs. A payment is kept only if a *different* run's
+  // deposit is actually linked to it (payment_id set, i.e. that run posted).
   const { data: deps } = await supabase
     .from("reconciliation_deposits")
-    .select("external_ref")
-    .eq("run_id", runId);
-
-  const refs = Array.from(
-    new Set(((deps ?? []) as { external_ref: string }[]).map((d) => d.external_ref)),
+    .select("payment_id")
+    .eq("run_id", runId)
+    .not("payment_id", "is", null);
+  const paymentIds = Array.from(
+    new Set(
+      ((deps ?? []) as { payment_id: string }[]).map((d) => d.payment_id),
+    ),
   );
-  if (refs.length > 0) {
-    // Only delete payments whose external_ref isn't referenced by any
-    // OTHER run's deposits — so overlap with another posted run keeps
-    // its payment alive.
-    const { data: otherRefs } = await supabase
+  if (paymentIds.length > 0) {
+    const { data: otherLinks } = await supabase
       .from("reconciliation_deposits")
-      .select("external_ref")
+      .select("payment_id")
       .neq("run_id", runId)
-      .in("external_ref", refs);
-    const stillReferenced = new Set(
-      ((otherRefs ?? []) as { external_ref: string }[]).map((r) => r.external_ref),
+      .in("payment_id", paymentIds);
+    const keep = new Set(
+      ((otherLinks ?? []) as { payment_id: string }[]).map(
+        (r) => r.payment_id,
+      ),
     );
-    const safeToDelete = refs.filter((r) => !stillReferenced.has(r));
+    const safeToDelete = paymentIds.filter((id) => !keep.has(id));
     if (safeToDelete.length > 0) {
-      await supabase.from("payments").delete().in("external_ref", safeToDelete);
+      await supabase.from("payments").delete().in("id", safeToDelete);
     }
   }
 
@@ -607,10 +695,27 @@ export async function deleteRun(formData: FormData) {
       .from("reconciliation")
       .remove(objects.map((o) => `${id}/${o.name}`));
   }
-  await supabase
+  // Keep any payment another run's posted deposits are linked to — a payment
+  // created by this run can since have been adopted by an overlapping run.
+  const { data: mine } = await supabase
     .from("payments")
-    .delete()
+    .select("id")
     .eq("reconciliation_run_id", id);
+  const mineIds = (mine ?? []).map((p) => p.id);
+  if (mineIds.length > 0) {
+    const { data: otherLinks } = await supabase
+      .from("reconciliation_deposits")
+      .select("payment_id")
+      .neq("run_id", id)
+      .in("payment_id", mineIds);
+    const keep = new Set(
+      ((otherLinks ?? []) as { payment_id: string }[]).map((r) => r.payment_id),
+    );
+    const del = mineIds.filter((p) => !keep.has(p));
+    if (del.length > 0) {
+      await supabase.from("payments").delete().in("id", del);
+    }
+  }
   await supabase.from("reconciliation_runs").delete().eq("id", id);
   revalidatePath("/reconciliation");
   redirect("/reconciliation");
@@ -761,6 +866,12 @@ export async function assignUnmatchedDeposit(
   }
 
   const supabase = await createClient();
+  // Rewrites the tenant's pays_as alias and can immediately re-post money on
+  // a posted run — operator-only.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!canEditLedger(user?.email)) return { error: LEDGER_ADMIN_ERROR };
 
   // Resolve the tenant behind the chosen tenancy.
   const { data: ten, error: tErr } = await supabase

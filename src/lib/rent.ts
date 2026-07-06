@@ -23,6 +23,14 @@ import { todayISO } from "@/lib/date";
 /** First day of the month the running ledger begins accruing from. */
 export const LEDGER_ANCHOR = "2026-06-01";
 
+/**
+ * Rent payments count from here. Rent is collected on a 27th→26th cycle
+ * (see currentRentCycle), so the anchor month's rent legitimately arrives
+ * from the 27th of the prior month — cutting payments off at the anchor
+ * itself silently voided a May 27–31 payment for June rent.
+ */
+export const LEDGER_PAYMENT_CUTOFF = "2026-05-27";
+
 /** Month number (`year*12 + monthIndex`) from a "YYYY-MM-DD"+ ISO string. */
 export function monthIndex(iso: string): number {
   const y = Number(iso.slice(0, 4));
@@ -97,10 +105,13 @@ export function computeLedger(
   allocations: LedgerAllocation[],
   todayIso: string = todayISO(),
 ): Ledger {
-  // Rent paid counts only payments from the anchor forward (earlier months are
-  // settled). Allocations always move money *out* of the rent bucket.
+  // Rent paid counts only payments from the anchor cycle forward (earlier
+  // months are settled). Allocations always move money *out* of the rent
+  // bucket.
   const rentPaidGross = payments
-    .filter((p) => p.payment_type === "rent" && p.paid_on >= LEDGER_ANCHOR)
+    .filter(
+      (p) => p.payment_type === "rent" && p.paid_on >= LEDGER_PAYMENT_CUTOFF,
+    )
     .reduce((s, p) => s + num(p.amount), 0);
   const allocatedAway = allocations.reduce((s, a) => s + num(a.amount), 0);
   const rentPaid = rentPaidGross - allocatedAway;
@@ -130,10 +141,16 @@ export function computeLedger(
   const deposit = bucket(chargedOf("security_deposit"), "security_deposit");
   const lateFee = bucket(chargedOf("late_fee"), "late_fee");
   // Utility overcharges (the over-$200 electric/gas split) ride in the
-  // "other" bucket; 'utility' payments settle against it.
+  // "other" bucket; 'utility' payments settle against it. The dormant
+  // 'broker_fee' payment type also lands here so the summary stays in
+  // lockstep with the running ledger (which counts every non-rent payment).
   const other: Bucket = (() => {
     const owed = chargedOf("other") + chargedOf("utility_overage");
-    const paid = paidOf("other") + allocOf("other") + paidOf("utility");
+    const paid =
+      paidOf("other") +
+      allocOf("other") +
+      paidOf("utility") +
+      paidOf("broker_fee");
     return { owed, paid, balance: owed - paid };
   })();
 
@@ -313,7 +330,7 @@ export function buildLedgerEntries(
   // This mirrors computeLedger so the running balance lands on the same net
   // figure.
   for (const p of payments) {
-    if (p.payment_type === "rent" && p.paid_on < LEDGER_ANCHOR) continue;
+    if (p.payment_type === "rent" && p.paid_on < LEDGER_PAYMENT_CUTOFF) continue;
     if (p.payment_type === "refund") {
       rows.push({
         id: p.id,

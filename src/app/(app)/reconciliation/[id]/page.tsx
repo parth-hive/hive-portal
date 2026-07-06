@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
-import { isMaster } from "@/lib/access";
+import { canEditLedger, isMaster } from "@/lib/access";
 import { formatDate } from "@/lib/date";
 import { DeleteRunButton } from "./delete-run";
 import { AssignDepositForm, type AssignTenantOption } from "./assign-deposit-form";
@@ -90,6 +90,9 @@ export default async function ReconciliationRunPage({
     data: { user },
   } = await supabase.auth.getUser();
   const admin = isMaster(user?.email);
+  // Posting/unposting writes or deletes ledger payments — operator-only
+  // (enforced server-side in the actions; hidden here to match).
+  const canPost = canEditLedger(user?.email);
 
   const [{ data: run }, { data: matches }] = await Promise.all([
     supabase
@@ -185,40 +188,45 @@ export default async function ReconciliationRunPage({
           </p>
         </div>
         <div className="flex items-center gap-3">
-          <a
-            href={`/reconciliation/${run.id}/export`}
-            className="rounded-full border border-stone bg-white px-4 py-2 text-sm text-ink shadow-sm hover:bg-warm"
-          >
-            Download Excel
-          </a>
-          <a
-            href={`/reconciliation/${run.id}/export?filter=issues`}
-            title="Only mismatched and missing rows"
-            className="rounded-full border border-stone bg-white px-4 py-2 text-sm text-ink shadow-sm hover:bg-warm"
-          >
-            Download Issues Only
-          </a>
-          {run.posted_at ? (
-            <form action={unpostPayments}>
-              <input type="hidden" name="run_id" value={run.id} />
-              <button
-                type="submit"
-                className="rounded-full border border-stone bg-white px-4 py-2 text-sm text-red-700 hover:bg-red-50"
+          {admin && (
+            <>
+              <a
+                href={`/reconciliation/${run.id}/export`}
+                className="rounded-full border border-stone bg-white px-4 py-2 text-sm text-ink shadow-sm hover:bg-warm"
               >
-                Unpost from Ledger
-              </button>
-            </form>
-          ) : (
-            <form action={postPayments}>
-              <input type="hidden" name="run_id" value={run.id} />
-              <button
-                type="submit"
-                className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-accent-dark"
+                Download Excel
+              </a>
+              <a
+                href={`/reconciliation/${run.id}/export?filter=issues`}
+                title="Only mismatched and missing rows"
+                className="rounded-full border border-stone bg-white px-4 py-2 text-sm text-ink shadow-sm hover:bg-warm"
               >
-                Post to Ledger
-              </button>
-            </form>
+                Download Issues Only
+              </a>
+            </>
           )}
+          {canPost &&
+            (run.posted_at ? (
+              <form action={unpostPayments}>
+                <input type="hidden" name="run_id" value={run.id} />
+                <button
+                  type="submit"
+                  className="rounded-full border border-stone bg-white px-4 py-2 text-sm text-red-700 hover:bg-red-50"
+                >
+                  Unpost from Ledger
+                </button>
+              </form>
+            ) : (
+              <form action={postPayments}>
+                <input type="hidden" name="run_id" value={run.id} />
+                <button
+                  type="submit"
+                  className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-accent-dark"
+                >
+                  Post to Ledger
+                </button>
+              </form>
+            ))}
         </div>
       </header>
 

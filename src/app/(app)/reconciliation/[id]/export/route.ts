@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { createClient } from "@/lib/supabase/server";
+import { isMaster } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 // Building the workbook scales with match count; lift the ceiling off Vercel's
@@ -45,6 +46,14 @@ export async function GET(req: Request, context: RouteContext) {
     new URL(req.url).searchParams.get("filter") === "issues";
 
   const supabase = await createClient();
+  // The sheet carries the money totals and tenant emails/phones the UI
+  // deliberately hides from non-admins — enforce the same rule here.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!isMaster(user?.email)) {
+    return NextResponse.json({ error: "Not authorized" }, { status: 403 });
+  }
   const [{ data: run }, { data: matches }] = await Promise.all([
     supabase
       .from("reconciliation_runs")

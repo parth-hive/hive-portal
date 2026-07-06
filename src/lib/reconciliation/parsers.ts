@@ -243,6 +243,7 @@ function rowsToDeposits(
   opts: { zelleOnly: boolean },
 ): ParseResult {
   let nonPositive = 0;
+  let zelleReversals = 0;
   let nonZelle = 0;
   let blank = 0;
   const out: Deposit[] = [];
@@ -252,7 +253,11 @@ function rowsToDeposits(
       continue;
     }
     if (r.amount <= 0) {
-      nonPositive++;
+      // A negative ZELLE row is likely a reversal/chargeback of a deposit —
+      // count it separately so the operator is told to check, instead of
+      // burying it with ordinary debits.
+      if (ZELLE_FROM_RE.test(r.description)) zelleReversals++;
+      else nonPositive++;
       continue;
     }
     let key: string | null;
@@ -284,6 +289,12 @@ function rowsToDeposits(
     });
   }
   const skipped: { reason: string; count: number }[] = [];
+  if (zelleReversals > 0)
+    skipped.push({
+      reason:
+        "⚠ NEGATIVE ZELLE ROWS — possible reversals/chargebacks, check whether a posted payment was returned",
+      count: zelleReversals,
+    });
   if (nonPositive > 0)
     skipped.push({ reason: "Negative or zero amount", count: nonPositive });
   if (nonZelle > 0)
