@@ -61,7 +61,9 @@ export async function uploadStatement(
     return { error: "Statement must be 20 MB or smaller." };
   const mediaType = file.type || "application/pdf";
 
-  const sb = admin();
+  // Session client (not service-role) so the audit log attributes the
+  // upload to the signed-in user. Same for the other mutations below.
+  const sb = supabase;
 
   // Units for address matching.
   const { data: props } = await sb
@@ -247,7 +249,7 @@ export async function assignBillProperty(
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
 
-  const sb = admin();
+  const sb = supabase;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: bill, error } = await (sb as any)
     .from("utility_bills")
@@ -284,7 +286,7 @@ export async function deleteBill(billId: string): Promise<UploadState> {
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
 
-  const sb = admin();
+  const sb = supabase;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: bill } = await (sb as any)
     .from("utility_bills")
@@ -315,7 +317,7 @@ export async function dismissOverage(
   if (billIds.length === 0) return undefined;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { error } = await (admin() as any)
+  const { error } = await (supabase as any)
     .from("utility_bills")
     .update({ overage_dismissed: dismissed })
     .in("id", billIds);
@@ -347,8 +349,10 @@ export type OverageChargeResult = {
   uncovered: number;
 };
 
+type SessionClient = Awaited<ReturnType<typeof createClient>>;
+
 async function chargeOverageCore(
-  sb: ReturnType<typeof admin>,
+  sb: SessionClient,
   billId: string,
 ): Promise<OverageChargeResult> {
   const result: OverageChargeResult = {
@@ -518,7 +522,7 @@ export async function chargeOverage(
       uncovered: 0,
     };
 
-  const result = await chargeOverageCore(admin(), billId);
+  const result = await chargeOverageCore(supabase, billId);
   revalidatePath("/utilities");
   revalidatePath("/tenants");
   return result;
@@ -539,7 +543,7 @@ export async function chargeAllOverages(
   } = await supabase.auth.getUser();
   if (!user) return [];
 
-  const sb = admin();
+  const sb = supabase;
   const results: OverageChargeResult[] = [];
   for (const id of billIds) {
     results.push(await chargeOverageCore(sb, id));
@@ -561,7 +565,7 @@ export async function unpostOverage(billId: string): Promise<UploadState> {
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
 
-  const sb = admin();
+  const sb = supabase;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: bill } = await (sb as any)
     .from("utility_bills")
