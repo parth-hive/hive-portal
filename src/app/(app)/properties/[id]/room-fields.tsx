@@ -90,7 +90,7 @@ export function RoomFields({
           <input
             type="checkbox"
             name="has_ac"
-            defaultChecked={v.has_ac ?? false}
+            defaultChecked={v.has_ac ?? true}
             className="accent-accent"
           />
           AC
