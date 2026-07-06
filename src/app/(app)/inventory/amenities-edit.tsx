@@ -118,6 +118,9 @@ export function InlineAmenitiesEdit({
                   has_private_bathroom: !d.has_private_bathroom,
                 })),
               )}
+              {row(draft.has_ac, "AC", () =>
+                setDraft((d) => ({ ...d, has_ac: !d.has_ac })),
+              )}
 
               <p className="mt-2 px-1.5 text-xs font-medium uppercase tracking-wide text-muted">
                 Unit amenities

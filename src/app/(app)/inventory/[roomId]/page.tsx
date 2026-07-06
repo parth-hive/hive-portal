@@ -39,6 +39,7 @@ type Room = {
   total_rent: number | null;
   available_from: string | null;
   has_private_bathroom: boolean;
+  has_ac: boolean;
   marketing_description: string | null;
   photos_url: string | null;
   listing_action: Action;
@@ -70,7 +71,7 @@ export default async function VacancyDetailPage({ params }: PageProps) {
         .from("rooms")
         .select(
           `id, room_number, status, base_rent, bundle_fee, total_rent,
-         available_from, has_private_bathroom,
+         available_from, has_private_bathroom, has_ac,
          marketing_description, photos_url, listing_action,
          properties(id, building_name, street_address, unit_number,
                     cross_street, neighborhood,
@@ -119,6 +120,7 @@ export default async function VacancyDetailPage({ params }: PageProps) {
           on: (p.building_amenities ?? []).includes(label),
         })),
         { label: "Private bathroom", on: room.has_private_bathroom },
+        { label: "AC", on: room.has_ac },
       ]
     : [];
 

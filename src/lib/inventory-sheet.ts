@@ -37,6 +37,7 @@ type Row = {
   total_rent: number | null;
   photos_url: string | null;
   has_private_bathroom: boolean;
+  has_ac: boolean;
   // Carried only for filter parity with the inventory table (poster filter) —
   // not displayed in the shareable sheet.
   ads: { posted_by: string | null }[];
@@ -57,6 +58,7 @@ function prettyDate(iso: string | null): string {
 function amenitiesFor(room: Row, p: PropertyRel | null): string {
   const tags: string[] = [];
   if (room.has_private_bathroom) tags.push("Private bath");
+  if (room.has_ac) tags.push("AC");
   tags.push(...(p?.unit_amenities ?? []));
   tags.push(...(p?.building_amenities ?? []));
   return tags.join(", ");
@@ -82,7 +84,7 @@ export async function buildInventorySheet(
     .from("rooms")
     .select(
       `id, status, available_from, base_rent, bundle_fee, total_rent,
-       photos_url, has_private_bathroom,
+       photos_url, has_private_bathroom, has_ac,
        properties(cross_street, neighborhood, bedrooms, bathrooms,
                   building_name, street_address, unit_number,
                   unit_amenities, building_amenities)`,

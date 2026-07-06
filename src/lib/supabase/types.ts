@@ -12,8 +12,59 @@ export type Database = {
   __InternalSupabase: {
     PostgrestVersion: "14.5"
   }
+  graphql_public: {
+    Tables: {
+      [_ in never]: never
+    }
+    Views: {
+      [_ in never]: never
+    }
+    Functions: {
+      graphql: {
+        Args: {
+          extensions?: Json
+          operationName?: string
+          query?: string
+          variables?: Json
+        }
+        Returns: Json
+      }
+    }
+    Enums: {
+      [_ in never]: never
+    }
+    CompositeTypes: {
+      [_ in never]: never
+    }
+  }
   public: {
     Tables: {
+      agreement_addresses: {
+        Row: {
+          confirmed_at: string
+          full_address: string
+          property_id: string
+        }
+        Insert: {
+          confirmed_at?: string
+          full_address: string
+          property_id: string
+        }
+        Update: {
+          confirmed_at?: string
+          full_address?: string
+          property_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agreement_addresses_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: true
+            referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_log: {
         Row: {
           action: string
@@ -50,6 +101,119 @@ export type Database = {
           table_name?: string
           user_email?: string | null
           user_id?: string | null
+        }
+        Relationships: []
+      }
+      board_comments: {
+        Row: {
+          author: string | null
+          author_label: string | null
+          created_at: string
+          id: string
+          task_id: string
+          text: string
+        }
+        Insert: {
+          author?: string | null
+          author_label?: string | null
+          created_at?: string
+          id?: string
+          task_id: string
+          text: string
+        }
+        Update: {
+          author?: string | null
+          author_label?: string | null
+          created_at?: string
+          id?: string
+          task_id?: string
+          text?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "board_comments_task_id_fkey"
+            columns: ["task_id"]
+            isOneToOne: false
+            referencedRelation: "board_tasks"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      board_prefs: {
+        Row: {
+          email_notifications: boolean
+          user_id: string
+        }
+        Insert: {
+          email_notifications?: boolean
+          user_id: string
+        }
+        Update: {
+          email_notifications?: boolean
+          user_id?: string
+        }
+        Relationships: []
+      }
+      board_tasks: {
+        Row: {
+          assigned_label: string | null
+          assigned_to: string | null
+          created_at: string
+          deadline: string | null
+          description: string | null
+          id: string
+          last_completed_month: string | null
+          missed_months: string[]
+          needs_attention: boolean
+          nudge_history: string[]
+          recurring: boolean
+          recurring_day: number | null
+          seen_by_assignee: boolean
+          seq: number
+          status: string
+          title: string
+          updated_at: string
+          urgent: boolean
+        }
+        Insert: {
+          assigned_label?: string | null
+          assigned_to?: string | null
+          created_at?: string
+          deadline?: string | null
+          description?: string | null
+          id?: string
+          last_completed_month?: string | null
+          missed_months?: string[]
+          needs_attention?: boolean
+          nudge_history?: string[]
+          recurring?: boolean
+          recurring_day?: number | null
+          seen_by_assignee?: boolean
+          seq?: never
+          status?: string
+          title: string
+          updated_at?: string
+          urgent?: boolean
+        }
+        Update: {
+          assigned_label?: string | null
+          assigned_to?: string | null
+          created_at?: string
+          deadline?: string | null
+          description?: string | null
+          id?: string
+          last_completed_month?: string | null
+          missed_months?: string[]
+          needs_attention?: boolean
+          nudge_history?: string[]
+          recurring?: boolean
+          recurring_day?: number | null
+          seen_by_assignee?: boolean
+          seq?: never
+          status?: string
+          title?: string
+          updated_at?: string
+          urgent?: boolean
         }
         Relationships: []
       }
@@ -1092,6 +1256,7 @@ export type Database = {
           base_rent: number | null
           bundle_fee: number | null
           created_at: string
+          has_ac: boolean
           has_private_bathroom: boolean
           id: string
           listing_action: Database["public"]["Enums"]["listing_action"]
@@ -1113,6 +1278,7 @@ export type Database = {
           base_rent?: number | null
           bundle_fee?: number | null
           created_at?: string
+          has_ac?: boolean
           has_private_bathroom?: boolean
           id?: string
           listing_action?: Database["public"]["Enums"]["listing_action"]
@@ -1134,6 +1300,7 @@ export type Database = {
           base_rent?: number | null
           bundle_fee?: number | null
           created_at?: string
+          has_ac?: boolean
           has_private_bathroom?: boolean
           id?: string
           listing_action?: Database["public"]["Enums"]["listing_action"]
@@ -1262,6 +1429,24 @@ export type Database = {
           created_at?: string
           id?: number
           role?: string
+        }
+        Relationships: []
+      }
+      telegram_updates: {
+        Row: {
+          chat_id: number | null
+          received_at: string
+          update_id: number
+        }
+        Insert: {
+          chat_id?: number | null
+          received_at?: string
+          update_id: number
+        }
+        Update: {
+          chat_id?: number | null
+          received_at?: string
+          update_id?: number
         }
         Relationships: []
       }
@@ -1443,6 +1628,126 @@ export type Database = {
           updated_at?: string
         }
         Relationships: []
+      }
+      utility_bill_charges: {
+        Row: {
+          amount: number
+          bill_id: string
+          description: string | null
+          id: string
+          kind: string
+        }
+        Insert: {
+          amount: number
+          bill_id: string
+          description?: string | null
+          id?: string
+          kind?: string
+        }
+        Update: {
+          amount?: number
+          bill_id?: string
+          description?: string | null
+          id?: string
+          kind?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "utility_bill_charges_bill_id_fkey"
+            columns: ["bill_id"]
+            isOneToOne: false
+            referencedRelation: "utility_bills"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      utility_bills: {
+        Row: {
+          account_number: string | null
+          created_at: string
+          file_sha256: string | null
+          id: string
+          notes: string | null
+          overage_dismissed: boolean
+          period_end: string | null
+          period_start: string | null
+          property_id: string | null
+          provider: string | null
+          service_address: string | null
+          statement_date: string | null
+          statement_path: string
+          total_amount: number
+          utility_type: string
+        }
+        Insert: {
+          account_number?: string | null
+          created_at?: string
+          file_sha256?: string | null
+          id?: string
+          notes?: string | null
+          overage_dismissed?: boolean
+          period_end?: string | null
+          period_start?: string | null
+          property_id?: string | null
+          provider?: string | null
+          service_address?: string | null
+          statement_date?: string | null
+          statement_path: string
+          total_amount?: number
+          utility_type?: string
+        }
+        Update: {
+          account_number?: string | null
+          created_at?: string
+          file_sha256?: string | null
+          id?: string
+          notes?: string | null
+          overage_dismissed?: boolean
+          period_end?: string | null
+          period_start?: string | null
+          property_id?: string | null
+          provider?: string | null
+          service_address?: string | null
+          statement_date?: string | null
+          statement_path?: string
+          total_amount?: number
+          utility_type?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "utility_bills_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      utility_unit_hints: {
+        Row: {
+          created_at: string
+          key: string
+          property_id: string
+        }
+        Insert: {
+          created_at?: string
+          key: string
+          property_id: string
+        }
+        Update: {
+          created_at?: string
+          key?: string
+          property_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "utility_unit_hints_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+        ]
       }
     }
     Views: {
@@ -1691,6 +1996,9 @@ export type CompositeTypes<
     : never
 
 export const Constants = {
+  graphql_public: {
+    Enums: {},
+  },
   public: {
     Enums: {
       credential_category: [

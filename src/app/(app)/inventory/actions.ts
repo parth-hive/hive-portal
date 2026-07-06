@@ -173,6 +173,7 @@ export async function setRoomPhotosUrl(
 export type AmenityValues = {
   // Room-level (rooms table)
   has_private_bathroom: boolean;
+  has_ac: boolean;
   // Unit + building amenities (properties table — apply to every room in the unit)
   unit_amenities: string[];
   building_amenities: string[];
@@ -194,6 +195,7 @@ export async function setRoomAmenities(
     .from("rooms")
     .update({
       has_private_bathroom: a.has_private_bathroom,
+      has_ac: a.has_ac,
     })
     .eq("id", roomId);
   if (roomErr) return { error: roomErr.message };

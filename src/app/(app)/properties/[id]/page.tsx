@@ -58,7 +58,7 @@ export default async function PropertyDetailPage({ params }: PageProps) {
     supabase
       .from("rooms")
       .select(
-        "id, room_number, base_rent, bundle_fee, total_rent, status, available_from, has_private_bathroom, notes, marketing_description, photos_url",
+        "id, room_number, base_rent, bundle_fee, total_rent, status, available_from, has_private_bathroom, has_ac, notes, marketing_description, photos_url",
       )
       .eq("property_id", id)
       .order("room_number", { ascending: true }),

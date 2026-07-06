@@ -19,6 +19,7 @@ type Room = {
   status: "occupied" | "available" | "reserved" | "maintenance";
   available_from: string | null;
   has_private_bathroom: boolean;
+  has_ac: boolean;
   notes: string | null;
   marketing_description: string | null;
   photos_url: string | null;
@@ -124,6 +125,11 @@ export function RoomRow({
               }
             >
               Private bath
+            </span>
+            <span
+              className={room.has_ac ? "text-ink" : "text-muted line-through"}
+            >
+              AC
             </span>
           </div>
           {room.notes && (

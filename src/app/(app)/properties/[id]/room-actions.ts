@@ -21,6 +21,7 @@ type RoomValues = {
   status: RoomStatus;
   available_from: string | null;
   has_private_bathroom: boolean;
+  has_ac: boolean;
   notes: string | null;
   marketing_description: string | null;
   photos_url: string | null;
@@ -46,6 +47,7 @@ function parseRoom(formData: FormData): RoomValues | { error: string } {
     status,
     available_from,
     has_private_bathroom: formData.get("has_private_bathroom") === "on",
+    has_ac: formData.get("has_ac") === "on",
     notes: String(formData.get("notes") ?? "").trim() || null,
     marketing_description:
       String(formData.get("marketing_description") ?? "").trim() || null,

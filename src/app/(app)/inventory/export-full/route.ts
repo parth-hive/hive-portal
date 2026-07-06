@@ -42,6 +42,7 @@ type Row = {
   total_rent: number | null;
   photos_url: string | null;
   has_private_bathroom: boolean;
+  has_ac: boolean;
   listing_action: Action;
   ads: { url: string; posted_by: string | null }[];
   properties: PropertyRel | PropertyRel[] | null;
@@ -64,6 +65,7 @@ function prettyDate(iso: string | null): string {
 function amenitiesFor(room: Row, p: PropertyRel | null): string {
   const tags: string[] = [];
   if (room.has_private_bathroom) tags.push("Private bath");
+  if (room.has_ac) tags.push("AC");
   tags.push(...(p?.unit_amenities ?? []));
   tags.push(...(p?.building_amenities ?? []));
   return tags.join(", ");
@@ -83,7 +85,7 @@ export async function GET(request: Request) {
     .from("rooms")
     .select(
       `id, room_number, status, available_from, base_rent, bundle_fee, total_rent,
-       photos_url, has_private_bathroom, listing_action,
+       photos_url, has_private_bathroom, has_ac, listing_action,
        properties(building_name, street_address, unit_number, neighborhood,
                   unit_amenities, building_amenities),
        tenancies(status, start_date, move_out_date, tenants(full_name))`,

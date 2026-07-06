@@ -6,6 +6,7 @@ type Initial = {
   status?: "occupied" | "available" | "reserved" | "maintenance";
   available_from?: string | null;
   has_private_bathroom?: boolean | null;
+  has_ac?: boolean | null;
   notes?: string | null;
   marketing_description?: string | null;
   photos_url?: string | null;
@@ -84,6 +85,15 @@ export function RoomFields({
             className="accent-accent"
           />
           Private bathroom
+        </label>
+        <label className={checkboxLabel}>
+          <input
+            type="checkbox"
+            name="has_ac"
+            defaultChecked={v.has_ac ?? false}
+            className="accent-accent"
+          />
+          AC
         </label>
       </div>
       <label className="flex flex-col gap-1.5 sm:col-span-2">

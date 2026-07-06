@@ -63,6 +63,7 @@ type Row = {
   marketing_description: string | null;
   photos_url: string | null;
   has_private_bathroom: boolean;
+  has_ac: boolean;
   listing_action: Action;
   // Every ad posted for this room (see room_ads); attached after the query.
   ads: AdRow[];
@@ -115,7 +116,7 @@ export default async function InventoryPage({ searchParams }: PageProps) {
     .from("rooms")
     .select(
       `id, room_number, base_rent, bundle_fee, total_rent, available_from, status,
-       marketing_description, photos_url, has_private_bathroom,
+       marketing_description, photos_url, has_private_bathroom, has_ac,
        listing_action,
        properties(id, building_name, street_address, unit_number, neighborhood,
                   unit_amenities, building_amenities),
@@ -597,6 +598,7 @@ function InventoryRow({
           propertyId={p?.id ?? null}
           values={{
             has_private_bathroom: room.has_private_bathroom,
+            has_ac: room.has_ac,
             unit_amenities: p?.unit_amenities ?? [],
             building_amenities: p?.building_amenities ?? [],
           }}
@@ -672,11 +674,12 @@ function Amenities({
   room,
   property,
 }: {
-  room: Pick<Row, "has_private_bathroom">;
+  room: Pick<Row, "has_private_bathroom" | "has_ac">;
   property: PropertyRel | null;
 }) {
   const tags: string[] = [];
   if (room.has_private_bathroom) tags.push("Private bath");
+  if (room.has_ac) tags.push("AC");
   tags.push(...(property?.unit_amenities ?? []));
   tags.push(...(property?.building_amenities ?? []));
 

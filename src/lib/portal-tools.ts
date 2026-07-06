@@ -142,7 +142,7 @@ export async function getProperty(id: string) {
   const { data: rooms, error: rErr } = await supabase
     .from("rooms")
     .select(
-      `id, room_number, has_private_bathroom, base_rent, bundle_fee,
+      `id, room_number, has_private_bathroom, has_ac, base_rent, bundle_fee,
        total_rent, status, available_from, listing_action,
        tenancies!left(id, status, monthly_rent, start_date, move_out_date,
                       tenants(id, full_name, email, phone))`,
@@ -178,6 +178,7 @@ export async function getProperty(id: string) {
         listing_action: r.listing_action,
         rent: { base: r.base_rent, bundle: r.bundle_fee, total: r.total_rent },
         has_private_bathroom: r.has_private_bathroom,
+        has_ac: r.has_ac,
         available_from: r.available_from,
         current_tenant: active && tenant
           ? {
@@ -202,7 +203,7 @@ export async function listInventory() {
     .from("rooms")
     .select(
       `id, room_number, total_rent, available_from, status, listing_action,
-       has_private_bathroom,
+       has_private_bathroom, has_ac,
        marketing_description, photos_url,
        properties(id, building_name, street_address, unit_number, neighborhood)`,
     )
@@ -241,6 +242,7 @@ export async function listInventory() {
       listing_action: r.listing_action,
       ads: adsByRoom.get(r.id) ?? [],
       has_private_bathroom: r.has_private_bathroom,
+      has_ac: r.has_ac,
       description: r.marketing_description,
       photos_url: r.photos_url,
     };
