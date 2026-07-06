@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
 import { SearchableSelect } from "@/components/searchable-select";
 import {
@@ -47,10 +47,28 @@ export function BillsLog({
   setOverOnly: (fn: (o: boolean) => boolean) => void;
 }) {
   const [openMonths, setOpenMonths] = useState<Set<string>>(new Set());
+  // Bill the user jumped to from the over-$200 banner: its card is scrolled
+  // into view, expanded, and briefly highlighted.
+  const [jumpTo, setJumpTo] = useState<string | null>(null);
   const unitName = useMemo(
     () => new Map(units.map((u) => [u.id, u.label])),
     [units],
   );
+
+  const jumpToBill = (bill: BillRow) => {
+    setOpenMonths((prev) => new Set(prev).add(billMonth(bill)));
+    setJumpTo(bill.id);
+  };
+
+  useEffect(() => {
+    if (!jumpTo) return;
+    // Runs after the month group has rendered open, so the card exists.
+    document
+      .getElementById(`bill-${jumpTo}`)
+      ?.scrollIntoView({ behavior: "smooth", block: "center" });
+    const t = setTimeout(() => setJumpTo(null), 2500);
+    return () => clearTimeout(t);
+  }, [jumpTo]);
 
   const visible = filterBills(bills, filter, overOnly);
 
@@ -130,6 +148,7 @@ export function BillsLog({
       <OverageFlags
         bills={visible}
         unitName={unitName}
+        onJump={jumpToBill}
       />
 
       <div className="mt-4 flex flex-col gap-3">
@@ -188,7 +207,13 @@ export function BillsLog({
                       </div>
                       <div className="flex flex-col gap-2">
                         {g.bills.map((b) => (
-                          <BillCard key={b.id} bill={b} units={units} unitName={unitName} />
+                          <BillCard
+                            key={b.id}
+                            bill={b}
+                            units={units}
+                            unitName={unitName}
+                            highlighted={jumpTo === b.id}
+                          />
                         ))}
                       </div>
                     </div>
@@ -216,15 +241,18 @@ export function BillsLog({
 function OverageFlags({
   bills,
   unitName,
+  onJump,
 }: {
   bills: BillRow[];
   unitName: Map<string, string>;
+  onJump: (bill: BillRow) => void;
 }) {
   const [pending, startTransition] = useTransition();
   const flagged = bills
     .filter((b) => isOverThreshold(b) && !b.overage_dismissed)
     .map((b) => ({
       id: b.id,
+      bill: b,
       unit: b.property_id
         ? unitName.get(b.property_id) ?? "Unit"
         : "⚠ Unmatched unit",
@@ -239,13 +267,6 @@ function OverageFlags({
     startTransition(async () => {
       const r = await dismissOverage(ids, true);
       if (r?.error) toast.error(r.error);
-    });
-
-  const openStatement = (id: string) =>
-    startTransition(async () => {
-      const r = await getStatementUrl(id);
-      if (r.error) toast.error(r.error);
-      else if (r.url) window.open(r.url, "_blank");
     });
 
   return (
@@ -269,12 +290,12 @@ function OverageFlags({
             key={f.id}
             role="button"
             tabIndex={0}
-            title="Open the statement"
-            onClick={() => openStatement(f.id)}
+            title="Show this bill in the log"
+            onClick={() => onJump(f.bill)}
             onKeyDown={(e) => {
               if (e.key === "Enter" || e.key === " ") {
                 e.preventDefault();
-                openStatement(f.id);
+                onJump(f.bill);
               }
             }}
             className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-white px-3 py-2 text-sm shadow-sm transition hover:bg-red-100/50"
@@ -349,18 +370,31 @@ function BillCard({
   bill,
   units,
   unitName,
+  highlighted = false,
 }: {
   bill: BillRow;
   units: UnitOpt[];
   unitName: Map<string, string>;
+  highlighted?: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [pending, startTransition] = useTransition();
   const extras = bill.utility_bill_charges.filter((c) => c.kind !== "current");
 
+  // Jumped to from the over-$200 banner: expand the card so the details are
+  // right there.
+  useEffect(() => {
+    if (highlighted) setOpen(true);
+  }, [highlighted]);
+
   return (
-    <div className="rounded-2xl bg-white p-5 shadow-sm">
+    <div
+      id={`bill-${bill.id}`}
+      className={`rounded-2xl bg-white p-5 shadow-sm transition-shadow duration-700 ${
+        highlighted ? "ring-2 ring-red-400" : "ring-0 ring-transparent"
+      }`}
+    >
       <div
         className="flex cursor-pointer flex-wrap items-center gap-x-4 gap-y-2"
         onClick={() => setOpen((o) => !o)}
