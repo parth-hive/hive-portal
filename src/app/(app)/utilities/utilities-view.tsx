@@ -14,11 +14,14 @@ export function UtilitiesView({
   bills,
   units,
   canCharge,
+  billTenants,
 }: {
   bills: BillRow[];
   units: UnitOpt[];
   /** Ledger-admin only: posting/unposting overage charges to tenants. */
   canCharge: boolean;
+  /** Per over-$200 bill: first names of the tenants sharing the overage. */
+  billTenants: Record<string, string[]>;
 }) {
   const [filter, setFilter] = useState("");
   const [overOnly, setOverOnly] = useState(false);
@@ -60,6 +63,7 @@ export function UtilitiesView({
           overOnly={overOnly}
           setOverOnly={setOverOnly}
           canCharge={canCharge}
+          billTenants={billTenants}
         />
       </section>
     </>

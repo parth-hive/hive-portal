@@ -43,6 +43,7 @@ export function BillsLog({
   overOnly,
   setOverOnly,
   canCharge,
+  billTenants,
 }: {
   bills: BillRow[];
   units: UnitOpt[];
@@ -51,6 +52,8 @@ export function BillsLog({
   overOnly: boolean;
   setOverOnly: (fn: (o: boolean) => boolean) => void;
   canCharge: boolean;
+  /** Per over-$200 bill: first names of the tenants sharing the overage. */
+  billTenants: Record<string, string[]>;
 }) {
   const [openMonths, setOpenMonths] = useState<Set<string>>(new Set());
   // Bill the user jumped to from the over-$200 banner: its card is scrolled
@@ -157,6 +160,7 @@ export function BillsLog({
         onJump={jumpToBill}
         showDismissed={overOnly}
         canCharge={canCharge}
+        billTenants={billTenants}
       />
 
       <div className="mt-4 flex flex-col gap-3">
@@ -253,6 +257,7 @@ function OverageFlags({
   onJump,
   showDismissed,
   canCharge,
+  billTenants,
 }: {
   bills: BillRow[];
   unitName: Map<string, string>;
@@ -260,6 +265,8 @@ function OverageFlags({
   /** With the over-$200 filter on, discarded flags resurface (restorable). */
   showDismissed: boolean;
   canCharge: boolean;
+  /** Per over-$200 bill: first names of the tenants sharing the overage. */
+  billTenants: Record<string, string[]>;
 }) {
   const [pending, startTransition] = useTransition();
   // Two-step confirm for posting the overage to the tenants' ledgers.
@@ -289,8 +296,13 @@ function OverageFlags({
       unit: b.property_id
         ? unitName.get(b.property_id) ?? "Unit"
         : "⚠ Unmatched unit",
-      month: monthLabel(billMonth(b)),
-      type: b.utility_type === "electric" ? "Electric" : "Gas",
+      period:
+        b.period_start || b.period_end
+          ? `${fmtDate(b.period_start)} – ${fmtDate(b.period_end)}`
+          : b.statement_date
+            ? `Statement ${fmtDate(b.statement_date)}`
+            : null,
+      tenants: billTenants[b.id] ?? [],
       usage: usageTotal(b),
     }))
     .sort((a, b) => b.usage - a.usage);
@@ -383,90 +395,112 @@ function OverageFlags({
           </button>
         </span>
       </div>
-      <ul className="mt-3 flex flex-col gap-1.5">
-        {flagged.map((f) => (
-          <li
-            key={f.id}
-            role="button"
-            tabIndex={0}
-            title="Show this bill in the log"
-            onClick={() => onJump(f.bill)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter" || e.key === " ") {
-                e.preventDefault();
-                onJump(f.bill);
-              }
-            }}
-            className="flex cursor-pointer flex-wrap items-center gap-x-3 gap-y-1 rounded-xl bg-white px-3 py-2 text-sm shadow-sm transition hover:bg-red-100/50"
-          >
-            <span className="font-medium text-ink">{f.unit}</span>
-            <span className="text-xs text-muted">
-              {f.month} · {f.type}
-            </span>
-            {f.dismissed && (
-              <span className="rounded-full border border-stone bg-warm/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-wide text-muted">
-                discarded
-              </span>
-            )}
-            <span className="ml-auto pr-3 tabular-nums text-ink">
-              {fmtMoney(f.usage)}
-            </span>
-            <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-red-700">
-              +{fmtMoney(f.usage - OVERAGE_THRESHOLD)} over
-            </span>
-            {canCharge && (confirmCharge === f.id ? (
-              <span
-                className="flex items-center gap-1.5"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <button
-                  type="button"
-                  disabled={pending}
-                  onClick={() => charge(f.id)}
-                  className="rounded-full bg-ink px-2.5 py-0.5 text-[11px] font-semibold text-white hover:bg-accent-dark disabled:opacity-50"
-                >
-                  {pending
-                    ? "Charging…"
-                    : `Yes, split ${fmtMoney(f.usage - OVERAGE_THRESHOLD)}`}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setConfirmCharge(null)}
-                  className="text-[11px] text-muted hover:text-ink"
-                >
-                  Cancel
-                </button>
-              </span>
-            ) : (
-              <button
-                type="button"
-                disabled={pending}
-                title="Split the overage per-day among the tenants in this unit's AC rooms and post it to their ledgers"
-                onClick={(e) => {
-                  e.stopPropagation();
-                  setConfirmCharge(f.id);
+      <div className="mt-3 overflow-x-auto rounded-xl bg-white shadow-sm">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="border-b border-stone/40 text-left text-[11px] font-medium uppercase tracking-wide text-muted">
+              <th className="px-4 py-2.5 font-medium">Unit</th>
+              <th className="px-4 py-2.5 font-medium">Period</th>
+              <th className="px-4 py-2.5 font-medium">Tenants charged</th>
+              <th className="px-4 py-2.5 text-right font-medium">Usage</th>
+              <th className="px-4 py-2.5 text-right font-medium">Overage</th>
+              {canCharge && (
+                <th className="px-4 py-2.5 text-right font-medium">Action</th>
+              )}
+              <th className="w-10 px-2 py-2.5" />
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-stone/30">
+            {flagged.map((f) => (
+              <tr
+                key={f.id}
+                tabIndex={0}
+                title="Show this bill in the log"
+                onClick={() => onJump(f.bill)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onJump(f.bill);
+                  }
                 }}
-                className="rounded-full border border-stone bg-white px-2.5 py-0.5 text-[11px] font-medium text-ink transition hover:border-accent hover:text-accent-text disabled:opacity-50"
+                className="cursor-pointer transition hover:bg-red-50/70"
               >
-                Charge tenants
-              </button>
+                <td className="px-4 py-2.5 font-medium text-ink">{f.unit}</td>
+                <td className="whitespace-nowrap px-4 py-2.5 text-muted">
+                  {f.period ?? "—"}
+                </td>
+                <td className="px-4 py-2.5 text-ink/80">
+                  {f.tenants.length > 0 ? f.tenants.join(", ") : "—"}
+                </td>
+                <td className="whitespace-nowrap px-4 py-2.5 text-right tabular-nums text-ink">
+                  {fmtMoney(f.usage)}
+                </td>
+                <td className="whitespace-nowrap px-4 py-2.5 text-right">
+                  <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-[11px] font-semibold tabular-nums text-red-700">
+                    +{fmtMoney(f.usage - OVERAGE_THRESHOLD)}
+                  </span>
+                </td>
+                {canCharge && (
+                  <td className="whitespace-nowrap px-4 py-2.5 text-right">
+                    {confirmCharge === f.id ? (
+                      <span
+                        className="flex items-center justify-end gap-1.5"
+                        onClick={(e) => e.stopPropagation()}
+                      >
+                        <button
+                          type="button"
+                          disabled={pending}
+                          onClick={() => charge(f.id)}
+                          className="rounded-full bg-ink px-2.5 py-0.5 text-[11px] font-semibold text-white hover:bg-accent-dark disabled:opacity-50"
+                        >
+                          {pending
+                            ? "Charging…"
+                            : `Yes, split ${fmtMoney(f.usage - OVERAGE_THRESHOLD)}`}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setConfirmCharge(null)}
+                          className="text-[11px] text-muted hover:text-ink"
+                        >
+                          Cancel
+                        </button>
+                      </span>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={pending}
+                        title="Split the overage per-day among the tenants in this unit's AC rooms and post it to their ledgers"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setConfirmCharge(f.id);
+                        }}
+                        className="rounded-full border border-stone bg-white px-2.5 py-0.5 text-[11px] font-medium text-ink transition hover:border-accent hover:text-accent-text disabled:opacity-50"
+                      >
+                        Charge tenants
+                      </button>
+                    )}
+                  </td>
+                )}
+                <td className="px-2 py-2.5 text-center">
+                  <button
+                    type="button"
+                    disabled={pending}
+                    aria-label={`Discard flag for ${f.unit}`}
+                    title="Discard this row (the ⚡ Over $200 only filter brings it back)"
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      hideRows([f]);
+                    }}
+                    className="rounded-full px-1.5 text-muted transition hover:text-ink disabled:opacity-50"
+                  >
+                    ✕
+                  </button>
+                </td>
+              </tr>
             ))}
-            <button
-              type="button"
-              disabled={pending}
-              aria-label={`Discard flag for ${f.unit}`}
-              title="Discard this row (the ⚡ Over $200 only filter brings it back)"
-              onClick={(e) => {
-                e.stopPropagation();
-                hideRows([f]);
-              }}
-              className="rounded-full px-1.5 text-muted transition hover:text-ink disabled:opacity-50"
-            >
-              ✕
-            </button>
-          </li>
-        ))}
-      </ul>
+          </tbody>
+        </table>
+      </div>
     </div>
       )}
     </>
