@@ -229,8 +229,9 @@ function addDaysISO(iso: string, days: number): string {
  * Runs once from the daily cron:
  *  1. Rolls forward recurring tasks whose deadline passed uncompleted,
  *     appending the missed "YYYY-MM" cycle (skips tasks sitting in review).
- *  2. Emails assignees whose tasks are due tomorrow or overdue (recurring
- *     tasks only get the "tomorrow" variant — rollover handles overdue).
+ *  2. Emails each assignee ONE digest covering all of their tasks due
+ *     tomorrow or overdue — never one email per task (recurring tasks only
+ *     get the "tomorrow" variant — rollover handles overdue).
  * No dedup needed: overdue reminders intentionally repeat daily, and the
  * cron runs once per day.
  */
@@ -279,39 +280,64 @@ export async function processBoardDeadlines(
   if (dueTasks.length === 0) return { rolled, remindersSent: 0 };
 
   const members = await listBoardMembers(sb);
-  let remindersSent = 0;
+
+  // One digest per assignee: every task due tomorrow or overdue lands in a
+  // single email, never one email per task.
+  const byAssignee = new Map<string, BoardTask[]>();
   for (const t of dueTasks) {
     if (!t.assigned_to) continue;
     const isOverdue = t.deadline! < today;
     if (isOverdue && t.recurring) continue; // rollover already handled these
-    const daysOverdue = isOverdue
-      ? Math.round(
-          (Date.parse(`${today}T00:00:00Z`) -
-            Date.parse(`${t.deadline}T00:00:00Z`)) /
-            86400000,
-        )
-      : 0;
-    const subject = isOverdue
-      ? daysOverdue > 1
-        ? `Overdue (${daysOverdue} days): ${t.title}`
-        : `Overdue: ${t.title}`
-      : `Deadline Tomorrow: ${t.title}`;
+    if (!byAssignee.has(t.assigned_to)) byAssignee.set(t.assigned_to, []);
+    byAssignee.get(t.assigned_to)!.push(t);
+  }
+
+  const daysOverdue = (t: BoardTask) =>
+    Math.round(
+      (Date.parse(`${today}T00:00:00Z`) -
+        Date.parse(`${t.deadline}T00:00:00Z`)) /
+        86400000,
+    );
+
+  let remindersSent = 0;
+  for (const [userId, tasks] of byAssignee) {
+    const overdue = tasks
+      .filter((t) => t.deadline! < today)
+      .sort((a, b) => a.deadline!.localeCompare(b.deadline!));
+    const dueTomorrow = tasks.filter((t) => t.deadline! >= today);
+
+    const lines: string[] = [];
+    for (const t of overdue) {
+      const days = daysOverdue(t);
+      lines.push(
+        `Overdue — ${t.title}: was due ${formatBoardDate(t.deadline)}, ${days} day${days === 1 ? "" : "s"} past.`,
+      );
+    }
+    for (const t of dueTomorrow) {
+      lines.push(`Due tomorrow — ${t.title}: ${formatBoardDate(t.deadline)}.`);
+    }
+    lines.push(
+      overdue.length > 0
+        ? "Please complete these projects or update their status."
+        : "Please update your progress.",
+    );
+
+    const parts = [
+      overdue.length > 0
+        ? `${overdue.length} overdue`
+        : null,
+      dueTomorrow.length > 0
+        ? `${dueTomorrow.length} due tomorrow`
+        : null,
+    ].filter(Boolean);
+
     await sendBoardEmail(sb, members, {
-      toUserId: t.assigned_to,
-      subject,
-      badge: isOverdue
-        ? `Overdue · ${daysOverdue} day${daysOverdue === 1 ? "" : "s"} past`
-        : "Deadline tomorrow",
-      heading: t.title,
-      lines: [
-        isOverdue
-          ? `This project was due ${formatBoardDate(t.deadline)} and is ${daysOverdue} day${daysOverdue === 1 ? "" : "s"} past its deadline.`
-          : `This project is due tomorrow, ${formatBoardDate(t.deadline)}.`,
-        isOverdue
-          ? "Please complete it or update its status."
-          : "Please update your progress.",
-      ],
-      taskTitle: t.title,
+      toUserId: userId,
+      subject: `Project deadlines: ${parts.join(", ")}`,
+      badge: "Daily reminders",
+      heading: `Your project deadline${tasks.length === 1 ? "" : "s"}`,
+      lines,
+      taskTitle: `daily digest (${tasks.length} task${tasks.length === 1 ? "" : "s"})`,
     });
     remindersSent++;
   }
