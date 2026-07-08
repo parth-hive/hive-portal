@@ -383,10 +383,39 @@ export type OverageChargeResult = {
 
 type SessionClient = Awaited<ReturnType<typeof createClient>>;
 
-async function chargeOverageCore(
+/** One occupant's computed slice of a bill's overage. */
+type SplitEntry = {
+  tenancyId: string;
+  name: string;
+  cents: number;
+  movedOut: boolean;
+  /** Billed days they lived in an AC room, and the first/last such date. */
+  days: number;
+  firstDay: string;
+  lastDay: string;
+};
+
+type SplitOutcome =
+  | { ok: false; result: OverageChargeResult }
+  | {
+      ok: true;
+      result: OverageChargeResult; // unit/period metadata filled in
+      bill: BillRow;
+      overageCents: number;
+      unassigned: number;
+      periodDays: number;
+      entries: SplitEntry[];
+    };
+
+/**
+ * Computes the per-tenant split of a bill's overage (per-day proration among
+ * AC-room occupants) without posting anything — shared by the preview popup
+ * and the charge run itself.
+ */
+async function computeOverageSplit(
   sb: SessionClient,
   billId: string,
-): Promise<OverageChargeResult> {
+): Promise<SplitOutcome> {
   const result: OverageChargeResult = {
     billId,
     unit: "⚠ Unmatched unit",
@@ -396,7 +425,10 @@ async function chargeOverageCore(
     movedOut: [],
     uncovered: 0,
   };
-  const fail = (error: string) => ({ ...result, error });
+  const fail = (error: string): SplitOutcome => ({
+    ok: false,
+    result: { ...result, error },
+  });
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: bill, error: billErr } = await (sb as any)
@@ -468,7 +500,13 @@ async function chargeOverageCore(
 
   // Walk the billed days ([start, end) exclusive): each day's slice of the
   // overage is split equally among the tenants living in an AC room that day.
+  // Alongside the dollar shares, track each tenant's covered days and date
+  // range for the charge-preview popup.
   const shares = new Map<string, number>();
+  const dayStats = new Map<
+    string,
+    { days: number; firstDay: string; lastDay: string }
+  >();
   let unassigned = 0;
   for (let ms = startMs; ms < endMs; ms += dayMs) {
     const day = new Date(ms).toISOString().slice(0, 10);
@@ -482,6 +520,13 @@ async function chargeOverageCore(
     }
     for (const t of living) {
       shares.set(t.id, (shares.get(t.id) ?? 0) + perDay / living.length);
+      const s = dayStats.get(t.id);
+      if (s) {
+        s.days += 1;
+        s.lastDay = day;
+      } else {
+        dayStats.set(t.id, { days: 1, firstDay: day, lastDay: day });
+      }
     }
   }
   if (shares.size === 0)
@@ -505,18 +550,71 @@ async function chargeOverageCore(
   }
 
   const today = todayISO();
-  const charged: { tenancyId: string; name: string; amount: number }[] = [];
-  const movedOut: { tenancyId: string; name: string; amount: number }[] = [];
-  for (const { tenancyId, cents } of rounded) {
-    if (cents <= 0) continue;
-    const amount = cents / 100;
+  const entries: SplitEntry[] = rounded.map(({ tenancyId, cents }) => {
     const t = (tenancies ?? []).find((x) => x.id === tenancyId)!;
-    const name = one(t.tenants)?.full_name ?? "Tenant";
-    const isMovedOut =
-      t.status === "ended" || (!!t.move_out_date && t.move_out_date < today);
-    if (isMovedOut) movedOut.push({ tenancyId, name, amount });
-    else charged.push({ tenancyId, name, amount });
+    const stats = dayStats.get(tenancyId)!;
+    return {
+      tenancyId,
+      name: one(t.tenants)?.full_name ?? "Tenant",
+      cents,
+      movedOut:
+        t.status === "ended" || (!!t.move_out_date && t.move_out_date < today),
+      days: stats.days,
+      firstDay: stats.firstDay,
+      lastDay: stats.lastDay,
+    };
+  });
+
+  return {
+    ok: true,
+    result,
+    bill: b,
+    overageCents,
+    unassigned,
+    periodDays: days,
+    entries,
+  };
+}
+
+async function chargeOverageCore(
+  sb: SessionClient,
+  billId: string,
+  /** Operator-edited shares from the preview popup, matched by tenancy. */
+  editedShares?: { tenancyId: string; amount: number }[],
+): Promise<OverageChargeResult> {
+  const split = await computeOverageSplit(sb, billId);
+  if (!split.ok) return split.result;
+  const { result, bill: b, unassigned } = split;
+  const fail = (error: string) => ({ ...result, error });
+
+  let entries = split.entries;
+  if (editedShares) {
+    const byId = new Map(editedShares.map((s) => [s.tenancyId, s.amount]));
+    for (const s of editedShares) {
+      if (!Number.isFinite(s.amount) || s.amount < 0)
+        return fail("Each share must be a non-negative amount.");
+      if (!entries.some((e) => e.tenancyId === s.tenancyId))
+        return fail("A share was submitted for a tenant not on this bill.");
+    }
+    entries = entries.map((e) => {
+      const amount = byId.get(e.tenancyId);
+      return amount === undefined
+        ? e
+        : { ...e, cents: Math.round(amount * 100) };
+    });
   }
+
+  // A $0 share (rounded to nothing, or zeroed by the operator) isn't posted.
+  const charged = entries
+    .filter((e) => !e.movedOut && e.cents > 0)
+    .map((e) => ({ tenancyId: e.tenancyId, name: e.name, amount: e.cents / 100 }));
+  const movedOut = entries
+    .filter((e) => e.movedOut && e.cents > 0)
+    .map((e) => ({ tenancyId: e.tenancyId, name: e.name, amount: e.cents / 100 }));
+  if (charged.length === 0 && movedOut.length === 0)
+    return fail("Every share is $0 — nothing to charge.");
+
+  const today = todayISO();
 
   // Claim the bill FIRST with a compare-and-set, so a concurrent charge of
   // the same bill (double click, second session, overlapping Charge All)
@@ -607,8 +705,93 @@ const deniedResult = (billId: string, error: string): OverageChargeResult => ({
   uncovered: 0,
 });
 
+/** One row of the charge-preview popup: a tenant, their stay, their share. */
+export type OveragePreviewTenant = {
+  tenancyId: string;
+  name: string;
+  /** Computed share in dollars — the popup's editable starting value. */
+  amount: number;
+  movedOut: boolean;
+  /** Billed days they lived in an AC room, and the first/last such date. */
+  days: number;
+  firstDay: string;
+  lastDay: string;
+};
+
+export type OveragePreview = {
+  billId: string;
+  unit: string;
+  period: string;
+  /** Statement billing period (raw dates; end is the cycle boundary). */
+  periodStart: string | null;
+  periodEnd: string | null;
+  periodDays: number;
+  overage: number;
+  /** Overage dollars falling on days no eligible tenant was living there. */
+  uncovered: number;
+  error: string | null;
+  tenants: OveragePreviewTenant[];
+};
+
+/**
+ * Dry-run of a bill's overage split for the charge-preview popup: who would
+ * be charged what, over which days. Posts nothing.
+ */
+export async function previewOverage(billId: string): Promise<OveragePreview> {
+  const empty: OveragePreview = {
+    billId,
+    unit: "—",
+    period: "—",
+    periodStart: null,
+    periodEnd: null,
+    periodDays: 0,
+    overage: 0,
+    uncovered: 0,
+    error: null,
+    tenants: [],
+  };
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { ...empty, error: "Not signed in." };
+  if (!canEditLedger(user.email)) return { ...empty, error: LEDGER_ADMIN_ERROR };
+
+  const split = await computeOverageSplit(supabase, billId);
+  if (!split.ok)
+    return {
+      ...empty,
+      unit: split.result.unit,
+      period: split.result.period,
+      error: split.result.error,
+    };
+
+  return {
+    billId,
+    unit: split.result.unit,
+    period: split.result.period,
+    periodStart: split.bill.period_start,
+    periodEnd: split.bill.period_end,
+    periodDays: split.periodDays,
+    overage: split.overageCents / 100,
+    uncovered: Math.round(split.unassigned * 100) / 100,
+    error: null,
+    tenants: split.entries.map((e) => ({
+      tenancyId: e.tenancyId,
+      name: e.name,
+      amount: e.cents / 100,
+      movedOut: e.movedOut,
+      days: e.days,
+      firstDay: e.firstDay,
+      lastDay: e.lastDay,
+    })),
+  };
+}
+
 export async function chargeOverage(
   billId: string,
+  /** Operator-edited shares from the preview popup; omit to use the split. */
+  shares?: { tenancyId: string; amount: number }[],
 ): Promise<OverageChargeResult> {
   const supabase = await createClient();
   const {
@@ -618,7 +801,7 @@ export async function chargeOverage(
   if (!canEditLedger(user.email))
     return deniedResult(billId, LEDGER_ADMIN_ERROR);
 
-  const result = await chargeOverageCore(supabase, billId);
+  const result = await chargeOverageCore(supabase, billId, shares);
   revalidatePath("/utilities");
   revalidatePath("/tenants");
   return result;

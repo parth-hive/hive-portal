@@ -10,8 +10,10 @@ import {
   deleteBill,
   dismissOverage,
   getStatementUrl,
+  previewOverage,
   unpostOverage,
   type OverageChargeResult,
+  type OveragePreview,
 } from "./actions";
 import {
   billMonth,
@@ -269,8 +271,10 @@ function OverageFlags({
   billTenants: Record<string, string[]>;
 }) {
   const [pending, startTransition] = useTransition();
-  // Two-step confirm for posting the overage to the tenants' ledgers.
+  // Two-step confirm for the banner-level "Charge all" over every flagged bill.
   const [confirmCharge, setConfirmCharge] = useState<string | null>(null);
+  // Charge-tenants preview popup for one bill: per-tenant editable shares.
+  const [preview, setPreview] = useState<OveragePreview | null>(null);
   // Per-bill outcomes of the last charge run, shown in a popup until closed.
   const [results, setResults] = useState<OverageChargeResult[] | null>(null);
   // Rows ✕'d in this view. Cleared when the over-$200 filter toggles, so
@@ -328,11 +332,13 @@ function OverageFlags({
     }
   };
 
-  const charge = (id: string) =>
+  // "Charge tenants" on one bill: dry-run the split and open the preview
+  // popup, where each tenant's share is editable before posting.
+  const openPreview = (id: string) =>
     startTransition(async () => {
-      const r = await chargeOverage(id);
-      setResults([r]);
-      setConfirmCharge(null);
+      const p = await previewOverage(id);
+      if (p.error) toast.error(p.error);
+      else setPreview(p);
     });
 
   const chargeAll = (ids: string[]) =>
@@ -346,6 +352,16 @@ function OverageFlags({
     <>
       {results && (
         <ChargeResults results={results} onClose={() => setResults(null)} />
+      )}
+      {preview && (
+        <ChargePreview
+          preview={preview}
+          onClose={() => setPreview(null)}
+          onCharged={(r) => {
+            setPreview(null);
+            setResults([r]);
+          }}
+        />
       )}
       {flagged.length > 0 && (
     <div className="mt-4 rounded-2xl border border-red-200 bg-red-50/80 px-5 py-4">
@@ -442,43 +458,18 @@ function OverageFlags({
                 </td>
                 {canCharge && (
                   <td className="whitespace-nowrap px-4 py-2.5 text-right">
-                    {confirmCharge === f.id ? (
-                      <span
-                        className="flex items-center justify-end gap-1.5"
-                        onClick={(e) => e.stopPropagation()}
-                      >
-                        <button
-                          type="button"
-                          disabled={pending}
-                          onClick={() => charge(f.id)}
-                          className="rounded-full bg-ink px-2.5 py-0.5 text-[11px] font-semibold text-white hover:bg-accent-dark disabled:opacity-50"
-                        >
-                          {pending
-                            ? "Charging…"
-                            : `Yes, split ${fmtMoney(f.usage - OVERAGE_THRESHOLD)}`}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setConfirmCharge(null)}
-                          className="text-[11px] text-muted hover:text-ink"
-                        >
-                          Cancel
-                        </button>
-                      </span>
-                    ) : (
-                      <button
-                        type="button"
-                        disabled={pending}
-                        title="Split the overage per-day among the tenants in this unit's AC rooms and post it to their ledgers"
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          setConfirmCharge(f.id);
-                        }}
-                        className="rounded-full border border-stone bg-white px-2.5 py-0.5 text-[11px] font-medium text-ink transition hover:border-accent hover:text-accent-text disabled:opacity-50"
-                      >
-                        Charge tenants
-                      </button>
-                    )}
+                    <button
+                      type="button"
+                      disabled={pending}
+                      title="Preview each tenant's per-day share of the overage, adjust if needed, then post"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        openPreview(f.id);
+                      }}
+                      className="rounded-full border border-stone bg-white px-2.5 py-0.5 text-[11px] font-medium text-ink transition hover:border-accent hover:text-accent-text disabled:opacity-50"
+                    >
+                      Charge tenants
+                    </button>
                   </td>
                 )}
                 <td className="px-2 py-2.5 text-center">
@@ -504,6 +495,137 @@ function OverageFlags({
     </div>
       )}
     </>
+  );
+}
+
+/**
+ * Popup previewing one bill's overage split before anything is posted: each
+ * tenant with their covered days and dates, and an editable share. "Charge
+ * all" posts the (possibly adjusted) shares to the tenants' ledgers.
+ */
+function ChargePreview({
+  preview,
+  onClose,
+  onCharged,
+}: {
+  preview: OveragePreview;
+  onClose: () => void;
+  onCharged: (r: OverageChargeResult) => void;
+}) {
+  const [pending, startTransition] = useTransition();
+  const [amounts, setAmounts] = useState<Record<string, string>>(() =>
+    Object.fromEntries(
+      preview.tenants.map((t) => [t.tenancyId, t.amount.toFixed(2)]),
+    ),
+  );
+
+  const shares = preview.tenants.map((t) => ({
+    tenancyId: t.tenancyId,
+    amount: Number(amounts[t.tenancyId]),
+  }));
+  const invalid = shares.some(
+    (s) => !Number.isFinite(s.amount) || s.amount < 0,
+  );
+  const total = invalid
+    ? null
+    : Math.round(shares.reduce((sum, s) => sum + s.amount, 0) * 100) / 100;
+
+  const chargeAll = () =>
+    startTransition(async () => {
+      const r = await chargeOverage(preview.billId, shares);
+      onCharged(r);
+    });
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+      <div className="absolute inset-0 bg-ink/40 backdrop-blur-sm" onClick={onClose} />
+      <div className="relative flex max-h-[85vh] w-full max-w-xl flex-col rounded-2xl bg-white shadow-xl">
+        <div className="border-b border-stone/40 px-6 py-4">
+          <h2 className="text-lg font-medium text-ink">
+            Charge{" "}
+            <span className="font-display italic text-accent-text">tenants</span>
+          </h2>
+          <p className="mt-0.5 text-sm text-muted">
+            {preview.unit} · {preview.period}
+          </p>
+          <p className="mt-0.5 text-xs text-muted">
+            Statement {fmtDate(preview.periodStart)} –{" "}
+            {fmtDate(preview.periodEnd)} · {fmtMoney(preview.overage)} over the
+            $200 threshold, split per day lived
+          </p>
+        </div>
+
+        <div className="flex flex-col gap-2 overflow-y-auto px-6 py-4">
+          {preview.tenants.map((t) => (
+            <div
+              key={t.tenancyId}
+              className="flex items-center gap-3 rounded-xl border border-stone/40 bg-cream/50 px-4 py-3"
+            >
+              <div className="min-w-0">
+                <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-ink">
+                  {t.name}
+                  {t.movedOut && (
+                    <span className="rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800">
+                      moved out · will be flagged on Rent Tracker
+                    </span>
+                  )}
+                </p>
+                <p className="mt-0.5 text-xs text-muted">
+                  Lived {t.days} of {preview.periodDays} day
+                  {preview.periodDays === 1 ? "" : "s"} · {fmtDate(t.firstDay)}{" "}
+                  – {fmtDate(t.lastDay)}
+                </p>
+              </div>
+              <label className="ml-auto flex items-center gap-1 text-sm text-ink">
+                <span className="text-muted">$</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={amounts[t.tenancyId] ?? ""}
+                  onChange={(e) =>
+                    setAmounts((prev) => ({
+                      ...prev,
+                      [t.tenancyId]: e.target.value,
+                    }))
+                  }
+                  className="w-20 rounded-lg border border-stone bg-white px-2 py-1 text-right tabular-nums outline-none transition focus:border-accent"
+                  aria-label={`${t.name}'s share`}
+                />
+              </label>
+            </div>
+          ))}
+          {preview.uncovered > 0 && (
+            <p className="text-xs text-muted">
+              {fmtMoney(preview.uncovered)} falls on vacant days and will not
+              be charged.
+            </p>
+          )}
+        </div>
+
+        <div className="flex items-center gap-3 border-t border-stone/40 px-6 py-3">
+          <span className="text-xs text-muted">
+            {invalid
+              ? "Each share must be a non-negative amount."
+              : `Total ${fmtMoney(total ?? 0)} of ${fmtMoney(preview.overage)} overage`}
+          </span>
+          <button
+            type="button"
+            onClick={onClose}
+            className="ml-auto text-sm text-muted hover:text-ink"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={pending || invalid || !total}
+            onClick={chargeAll}
+            className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-accent-dark disabled:opacity-50"
+          >
+            {pending ? "Charging…" : "Charge all"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 
