@@ -4,14 +4,15 @@
  * "how much did we collect last quarter?".
  *
  * "Expected" for a month = sum of each active tenancy's due for that
- * month (first_month_rent if it's the tenancy's starting month, else
- * monthly_rent). "Collected" = sum of payments.payment_type='rent' in
- * that calendar month.
+ * month (first_month_rent if it's the tenancy's starting month, else the
+ * monthly rate in effect that month per tenancy_rent_history). "Collected"
+ * = sum of payments.payment_type='rent' in that calendar month.
  */
 
 import { createClient } from "@/lib/supabase/server";
 import { one } from "@/lib/relations";
 import { todayISO } from "@/lib/date";
+import { rateForMonthISO, type RentChange } from "@/lib/rent";
 
 export type CollectionRow = {
   month: string; // "YYYY-MM"
@@ -75,6 +76,8 @@ type TenancyForMonth = {
   move_out_date: string | null;
   monthly_rent: number;
   first_month_rent: number | null;
+  /** Rent-rate history so past months bill the rate in effect back then. */
+  rent_changes: RentChange[];
 };
 
 function dueForMonth(t: TenancyForMonth, monthStart: string, monthEnd: string): number {
@@ -86,7 +89,45 @@ function dueForMonth(t: TenancyForMonth, monthStart: string, monthEnd: string): 
   if (isStartingMonth && t.first_month_rent !== null) {
     return Number(t.first_month_rent);
   }
-  return Number(t.monthly_rent);
+  return rateForMonthISO(monthStart, t.monthly_rent, t.rent_changes);
+}
+
+type RawTenancy = {
+  id: string;
+  start_date: string;
+  move_out_date: string | null;
+  monthly_rent: number;
+  first_month_rent: number | null;
+};
+
+// Attach each tenancy's rent-rate history so dueForMonth can bill past months
+// at the rate in effect back then. Accessed via `as any` because the table
+// post-dates the generated types (same pattern as rent-data.ts).
+async function withRentChanges(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  tenancies: RawTenancy[],
+): Promise<TenancyForMonth[]> {
+  if (tenancies.length === 0) return [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as any;
+  const { data: histRows } = await sb
+    .from("tenancy_rent_history")
+    .select("tenancy_id, effective_month, monthly_rent")
+    .in("tenancy_id", tenancies.map((t) => t.id));
+  const byTenancy = new Map<string, RentChange[]>();
+  for (const r of histRows ?? []) {
+    const change = {
+      effective_month: r.effective_month,
+      monthly_rent: r.monthly_rent,
+    };
+    const list = byTenancy.get(r.tenancy_id);
+    if (list) list.push(change);
+    else byTenancy.set(r.tenancy_id, [change]);
+  }
+  return tenancies.map((t) => ({
+    ...t,
+    rent_changes: byTenancy.get(t.id) ?? [],
+  }));
 }
 
 /** Resolve a property-IDs filter into the tenancies + payments those rooms had. */
@@ -106,8 +147,7 @@ async function loadFilteredHistory(propertyIds?: string[]) {
       .in("room_id", roomIds);
 
     const tenancyIds = (tenancies ?? []).map((t) => t.id);
-    if (tenancyIds.length === 0)
-      return { tenancies: tenancies ?? [], payments: [] };
+    if (tenancyIds.length === 0) return { tenancies: [], payments: [] };
 
     const { data: payments } = await supabase
       .from("payments")
@@ -115,7 +155,10 @@ async function loadFilteredHistory(propertyIds?: string[]) {
       .eq("payment_type", "rent")
       .in("tenancy_id", tenancyIds);
 
-    return { tenancies: tenancies ?? [], payments: payments ?? [] };
+    return {
+      tenancies: await withRentChanges(supabase, tenancies ?? []),
+      payments: payments ?? [],
+    };
   }
 
   const [{ data: tenancies }, { data: payments }] = await Promise.all([
@@ -127,7 +170,10 @@ async function loadFilteredHistory(propertyIds?: string[]) {
       .select("amount, paid_on")
       .eq("payment_type", "rent"),
   ]);
-  return { tenancies: tenancies ?? [], payments: payments ?? [] };
+  return {
+    tenancies: await withRentChanges(supabase, tenancies ?? []),
+    payments: payments ?? [],
+  };
 }
 
 /**

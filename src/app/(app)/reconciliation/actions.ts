@@ -15,6 +15,7 @@ import {
   bankPayerNameDisplay,
   type Deposit,
 } from "@/lib/reconciliation/parsers";
+import { rateForMonthISO, type RentChange } from "@/lib/rent";
 import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type RunFormState = { error?: string } | undefined;
@@ -32,12 +33,15 @@ function monthBounds(monthIso: string): { start: string; end: string } {
 // What a tenancy owes in the reconciliation month. Mirrors the Rent Tracker's
 // dueForMonth: a tenancy in its starting month with a prorated first_month_rent
 // owes that, not a full month — otherwise it would falsely show as a mismatch.
+// Bills the rate in effect THAT month (tenancy_rent_history), so reconciling
+// an old month is unaffected by rent changes made since.
 function expectedForMonth(
   startDate: string,
   monthlyRent: number,
   firstMonthRent: number | null,
   monthStart: string,
   monthEnd: string,
+  rentChanges: RentChange[],
 ): number {
   if (startDate > monthEnd) return 0;
   if (
@@ -47,7 +51,7 @@ function expectedForMonth(
   ) {
     return firstMonthRent;
   }
-  return monthlyRent;
+  return rateForMonthISO(monthStart, monthlyRent, rentChanges);
 }
 
 type TenancyInfo = {
@@ -61,6 +65,7 @@ type TenancyInfo = {
   start_date: string;
   property_label: string | null;
   room_label: string | null;
+  rent_changes: RentChange[];
 };
 
 // Every tenancy that overlapped the reconciliation month — including ones that
@@ -104,6 +109,30 @@ async function loadMonthTenancies(
     .or(`move_out_date.is.null,move_out_date.gte.${monthStart}`)
     .returns<TenancyRow[]>();
   if (error) return { tenancies: [], error: error.message };
+
+  // Rent-rate history for these tenancies, so the month bills the rate that
+  // was in effect back then rather than today's monthly_rent. Accessed via
+  // `as any` because the table post-dates the generated types (rent-data.ts).
+  const ids = (data ?? []).map((t) => t.id);
+  const changesByTenancy = new Map<string, RentChange[]>();
+  if (ids.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    const { data: histRows } = await sb
+      .from("tenancy_rent_history")
+      .select("tenancy_id, effective_month, monthly_rent")
+      .in("tenancy_id", ids);
+    for (const r of histRows ?? []) {
+      const list = changesByTenancy.get(r.tenancy_id);
+      const change = {
+        effective_month: r.effective_month,
+        monthly_rent: r.monthly_rent,
+      };
+      if (list) list.push(change);
+      else changesByTenancy.set(r.tenancy_id, [change]);
+    }
+  }
+
   const tenancies = (data ?? [])
     .map((t): TenancyInfo | null => {
       const tenant = one(t.tenants);
@@ -124,6 +153,7 @@ async function loadMonthTenancies(
           ? `${property.building_name?.trim() || property.street_address} Apt ${property.unit_number}`
           : null,
         room_label: room?.room_number ?? null,
+        rent_changes: changesByTenancy.get(t.id) ?? [],
       };
     })
     .filter((t): t is TenancyInfo => t !== null);
@@ -184,6 +214,7 @@ function buildMatches(
       t.first_month_rent,
       monthStart,
       monthEnd,
+      t.rent_changes,
     );
     const actual =
       keyClaimedBy.get(rawKey) === t.id ? aggregate.get(rawKey) ?? 0 : 0;

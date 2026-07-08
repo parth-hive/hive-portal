@@ -94,7 +94,15 @@ function rateForMonth(
   t: LedgerTenancy,
   rentChanges: RentChange[],
 ): number {
-  let rate = num(t.monthly_rent);
+  return rateForMonthIdx(idx, num(t.monthly_rent), rentChanges);
+}
+
+function rateForMonthIdx(
+  idx: number,
+  currentRent: number,
+  rentChanges: RentChange[],
+): number {
+  let rate = currentRent;
   let best = -Infinity;
   for (const c of rentChanges) {
     const ci = monthIndex(c.effective_month);
@@ -104,6 +112,20 @@ function rateForMonth(
     }
   }
   return rate;
+}
+
+/**
+ * The monthly rate in effect for the month containing `monthISO` — for
+ * history-aware callers outside the ledger (reconciliation, reports,
+ * rent-status tools). Same resolution rule as the ledger: the latest
+ * rent-history row at or before the month, falling back to `currentRent`.
+ */
+export function rateForMonthISO(
+  monthISO: string,
+  currentRent: number | string,
+  rentChanges: RentChange[],
+): number {
+  return rateForMonthIdx(monthIndex(monthISO), num(currentRent), rentChanges);
 }
 
 /**

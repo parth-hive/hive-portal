@@ -15,6 +15,7 @@ import { sendSms } from "@/lib/sms";
 import { todayISO } from "@/lib/date";
 import { computeLedger, LEDGER_PAYMENT_CUTOFF } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
+import { recordRentChange } from "@/lib/rent-history";
 import { canEditLedger, LEDGER_ADMIN_ERROR } from "@/lib/access";
 
 // Accrual-affecting mutations (rent amounts, tenancy dates, deleting
@@ -336,39 +337,12 @@ export async function setTenancyRentAmount(
   // effective from the current month, backfilling the original rate as a
   // baseline the first time so past months keep billing what they billed.
   if (field === "monthly_rent") {
-    const { data: cur } = await supabase
-      .from("tenancies")
-      .select("monthly_rent, start_date")
-      .eq("id", tenancyId)
-      .single();
-    if (cur && Number(cur.monthly_rent) !== amount) {
-      const thisMonth = `${todayISO().slice(0, 7)}-01`;
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      const sb = supabase as any;
-      const { count } = await sb
-        .from("tenancy_rent_history")
-        .select("id", { count: "exact", head: true })
-        .eq("tenancy_id", tenancyId);
-      if (!count) {
-        const baseline = `${cur.start_date.slice(0, 7)}-01`;
-        if (baseline < thisMonth) {
-          await sb.from("tenancy_rent_history").insert({
-            tenancy_id: tenancyId,
-            effective_month: baseline,
-            monthly_rent: Number(cur.monthly_rent),
-          });
-        }
-      }
-      const { error: histErr } = await sb.from("tenancy_rent_history").upsert(
-        {
-          tenancy_id: tenancyId,
-          effective_month: thisMonth,
-          monthly_rent: amount,
-        },
-        { onConflict: "tenancy_id,effective_month" },
-      );
-      if (histErr) return { error: histErr.message };
-    }
+    const { error: histErr } = await recordRentChange(
+      supabase,
+      tenancyId,
+      amount as number,
+    );
+    if (histErr) return { error: histErr };
   }
 
   const { error } = await supabase

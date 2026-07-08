@@ -26,8 +26,9 @@ import {
 } from "@/lib/email";
 import { logEmail } from "@/lib/email-log";
 import { sendSms } from "@/lib/sms";
-import { computeLedger } from "@/lib/rent";
+import { computeLedger, rateForMonthISO } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
+import { recordRentChange } from "@/lib/rent-history";
 import {
   billMonth,
   isOverThreshold,
@@ -274,6 +275,25 @@ export async function listActiveTenants(args: {
     .eq("status", "active");
   if (error) throw new Error(error.message);
 
+  // Rent-rate history so a past month's due/balance uses the rate in effect
+  // that month, not today's monthly_rent. Table post-dates generated types.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const sb = supabase as any;
+  const { data: histRows } = await sb
+    .from("tenancy_rent_history")
+    .select("tenancy_id, effective_month, monthly_rent")
+    .in("tenancy_id", (data ?? []).map((t) => t.id));
+  const changesByTenancy = new Map<
+    string,
+    { effective_month: string; monthly_rent: number }[]
+  >();
+  for (const r of histRows ?? []) {
+    const list = changesByTenancy.get(r.tenancy_id);
+    if (list) list.push(r);
+    else changesByTenancy.set(r.tenancy_id, [r]);
+  }
+  const rentMonth = `${yyyymm}-01`;
+
   const rows = (data ?? []).map((t) => {
     const paid = (t.payments ?? [])
       .filter(
@@ -287,6 +307,11 @@ export async function listActiveTenants(args: {
     const tenant = one(t.tenants);
     const room = one(t.rooms);
     const property = one(room?.properties ?? null);
+    const rate = rateForMonthISO(
+      rentMonth,
+      t.monthly_rent,
+      changesByTenancy.get(t.id) ?? [],
+    );
     return {
       tenancy_id: t.id,
       tenant_id: tenant?.id ?? null,
@@ -295,9 +320,9 @@ export async function listActiveTenants(args: {
       phone: tenant?.phone ?? null,
       unit: property ? propertyLabel(property) : null,
       room: room?.room_number ?? null,
-      monthly_rent: Number(t.monthly_rent),
+      monthly_rent: rate,
       paid_this_month: paid,
-      balance_due: Number(t.monthly_rent) - paid,
+      balance_due: rate - paid,
     };
   });
 
@@ -826,10 +851,10 @@ export async function updateTenant(args: {
   return { ok: true, updated_fields: Object.keys(patch) };
 }
 
-// Patch tenancy money/date fields. The rent ledger recomputes from these on
-// every read, so changing monthly_rent or first_month_rent immediately
-// reprices the auto rent charges (first_month_rent only affects the calendar
-// month the tenancy starts in).
+// Patch tenancy money/date fields. A monthly_rent change is recorded in
+// tenancy_rent_history first, so it reprices the current month onward only —
+// past months keep billing the rate that was in effect back then
+// (first_month_rent only affects the calendar month the tenancy starts in).
 export async function updateTenancy(args: {
   tenancy_id: string;
   monthly_rent?: number;
@@ -867,6 +892,14 @@ export async function updateTenancy(args: {
   if (Object.keys(patch).length === 0) throw new Error("Nothing to update.");
 
   const supabase = admin();
+  if (args.monthly_rent !== undefined) {
+    const { error: histErr } = await recordRentChange(
+      supabase,
+      args.tenancy_id,
+      args.monthly_rent,
+    );
+    if (histErr) throw new Error(histErr);
+  }
   const { error } = await supabase
     .from("tenancies")
     .update(patch)
