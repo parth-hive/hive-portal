@@ -305,13 +305,16 @@ export async function setTenancyStartDate(
 }
 
 // Inline edits for the tenancy's rent amounts. The ledger recomputes from
-// these on every render, so changing them immediately reprices the auto
-// monthly charges (first_month_rent applies only to the starting month).
+// these on every render (first_month_rent applies only to the starting
+// month). A monthly-rent change is a lease renewal: it requires the new
+// lease's start and end dates, takes effect from the lease-start month, and
+// never touches rent already posted for past months.
 export async function setTenancyRentAmount(
   tenancyId: string,
   tenantId: string,
   field: "monthly_rent" | "first_month_rent" | "security_deposit",
   value: string | null,
+  newLease?: { start: string; end: string },
 ): Promise<{ ok: true } | { error: string }> {
   const raw = value?.trim() ?? "";
   let amount: number | null = null;
@@ -322,9 +325,28 @@ export async function setTenancyRentAmount(
   }
   if (field === "monthly_rent" && (amount === null || amount <= 0))
     return { error: "Monthly rent must be a number greater than 0." };
+
+  const isDate = (s: string) => /^\d{4}-\d{2}-\d{2}$/.test(s);
+  if (field === "monthly_rent") {
+    if (!newLease || !isDate(newLease.start) || !isDate(newLease.end))
+      return {
+        error:
+          "A rent change needs the new lease's start and end dates — the new rent takes effect from the lease start.",
+      };
+    if (newLease.end <= newLease.start)
+      return { error: "The new lease's end date must be after its start date." };
+  }
+
   const patch =
     field === "monthly_rent"
-      ? { monthly_rent: amount as number }
+      ? {
+          monthly_rent: amount as number,
+          // The renewal's end date replaces the old lease end and re-arms
+          // the lease-ending reminder crons (same as setTenancyLeaseEndDate).
+          lease_end_date: newLease!.end,
+          lease_end_reminded_at: null,
+          lease_end_reminded_30_at: null,
+        }
       : field === "first_month_rent"
         ? { first_month_rent: amount }
         : { security_deposit: amount };
@@ -333,14 +355,15 @@ export async function setTenancyRentAmount(
   const denied = await requireLedgerAdmin(supabase);
   if (denied) return { error: denied };
 
-  // A monthly-rent change applies to FUTURE months only: record the new rate
-  // effective from the current month, backfilling the original rate as a
-  // baseline the first time so past months keep billing what they billed.
+  // The new rate applies from the new lease's start month onward: recorded
+  // in tenancy_rent_history (backfilling the original rate as a baseline the
+  // first time), so months already billed keep billing what they billed.
   if (field === "monthly_rent") {
     const { error: histErr } = await recordRentChange(
       supabase,
       tenancyId,
       amount as number,
+      newLease!.start,
     );
     if (histErr) return { error: histErr };
   }

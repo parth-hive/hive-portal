@@ -2,9 +2,17 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { toast } from "sonner";
 import { setTenancyRentAmount } from "../actions";
 
-/** Inline editor for a tenancy's dollar amounts (monthly / prorated / deposit). */
+/**
+ * Inline editor for a tenancy's dollar amounts (monthly / prorated / deposit).
+ *
+ * Monthly rent is special: changing it is a lease renewal, so the editor asks
+ * for the new lease's start and end dates alongside the amount. The new rent
+ * takes effect from the lease-start month; rent already posted for past
+ * months stays exactly as billed.
+ */
 export function RentAmountEdit({
   field,
   tenancyId,
@@ -19,26 +27,121 @@ export function RentAmountEdit({
   const router = useRouter();
   const [editing, setEditing] = useState(false);
   const [pending, startTransition] = useTransition();
+  // Renewal fields (monthly rent only).
+  const [leaseStart, setLeaseStart] = useState("");
+  const [leaseEnd, setLeaseEnd] = useState("");
+  const [amount, setAmount] = useState("");
   // Monthly rent is required; the prorated amount and deposit may be
   // cleared (no proration / no deposit on file).
   const clearable = field !== "monthly_rent";
 
-  function commit(next: string) {
+  const open = () => {
+    setAmount(value !== null ? String(value) : "");
+    setLeaseStart("");
+    setLeaseEnd("");
+    setEditing(true);
+  };
+
+  function commit(next: string, newLease?: { start: string; end: string }) {
     const raw = next.trim();
     if (!clearable && raw === "") {
       setEditing(false);
       return;
     }
     startTransition(async () => {
-      await setTenancyRentAmount(
+      const r = await setTenancyRentAmount(
         tenancyId,
         tenantId,
         field,
         raw === "" ? null : raw,
+        newLease,
       );
+      if (r && "error" in r) {
+        toast.error(r.error);
+        return; // keep the editor open so the input isn't lost
+      }
       setEditing(false);
       router.refresh();
     });
+  }
+
+  if (editing && field === "monthly_rent") {
+    // A rent change is a lease renewal: new amount + new lease start/end.
+    // The new rent starts billing from the lease-start month.
+    const startPicked = /^\d{4}-\d{2}-\d{2}$/.test(leaseStart);
+    return (
+      <div className="flex w-fit flex-col gap-2 rounded-xl border border-accent bg-white p-3 shadow-sm">
+        <label className="flex items-center justify-between gap-3 text-xs text-muted">
+          New monthly rent
+          <span className="flex items-center gap-1 text-sm text-ink">
+            $
+            <input
+              type="number"
+              min="0"
+              step="1"
+              autoFocus
+              value={amount}
+              disabled={pending}
+              onChange={(e) => setAmount(e.target.value)}
+              className="w-24 rounded-lg border border-stone bg-white px-2 py-1 text-sm text-ink focus:border-accent focus:outline-none"
+            />
+          </span>
+        </label>
+        <label className="flex items-center justify-between gap-3 text-xs text-muted">
+          New lease start
+          <input
+            type="date"
+            value={leaseStart}
+            disabled={pending}
+            onChange={(e) => {
+              const start = e.target.value;
+              setLeaseStart(start);
+              // Convenience default: a one-year lease ending the day before
+              // the anniversary. Only fills an empty end date.
+              if (!leaseEnd && /^\d{4}-\d{2}-\d{2}$/.test(start)) {
+                const d = new Date(`${start}T12:00:00`);
+                d.setFullYear(d.getFullYear() + 1);
+                d.setDate(d.getDate() - 1);
+                setLeaseEnd(d.toISOString().slice(0, 10));
+              }
+            }}
+            className="rounded-lg border border-stone bg-white px-2 py-1 text-sm text-ink focus:border-accent focus:outline-none"
+          />
+        </label>
+        <label className="flex items-center justify-between gap-3 text-xs text-muted">
+          New lease end
+          <input
+            type="date"
+            value={leaseEnd}
+            min={startPicked ? leaseStart : undefined}
+            disabled={pending}
+            onChange={(e) => setLeaseEnd(e.target.value)}
+            className="rounded-lg border border-stone bg-white px-2 py-1 text-sm text-ink focus:border-accent focus:outline-none"
+          />
+        </label>
+        <p className="max-w-56 text-[11px] leading-snug text-muted">
+          The new rent starts billing from the lease-start month. Already
+          posted months keep the current rate.
+        </p>
+        <div className="flex items-center justify-end gap-2">
+          <button
+            type="button"
+            onClick={() => setEditing(false)}
+            className="text-xs text-muted hover:text-ink"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            disabled={pending || !amount || !leaseStart || !leaseEnd}
+            onClick={() => commit(amount, { start: leaseStart, end: leaseEnd })}
+            className="rounded-full bg-ink px-3 py-1 text-xs font-semibold text-white transition hover:bg-accent-dark disabled:opacity-50"
+          >
+            {pending ? "Saving…" : "Save"}
+          </button>
+        </div>
+      </div>
+    );
   }
 
   if (editing) {
@@ -67,7 +170,7 @@ export function RentAmountEdit({
   return (
     <button
       type="button"
-      onClick={() => setEditing(true)}
+      onClick={open}
       className={`-mx-1.5 -my-0.5 rounded px-1.5 py-0.5 text-left text-ink hover:bg-warm/60 focus:outline-none focus:ring-1 focus:ring-accent ${
         pending ? "opacity-60" : ""
       }`}

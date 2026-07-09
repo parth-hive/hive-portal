@@ -16,15 +16,19 @@ import { todayISO } from "@/lib/date";
 type AnySupabase = any;
 
 /**
- * Records a rent change effective the current month, backfilling the original
+ * Records a rent change effective the month of `effectiveFrom` (typically the
+ * renewed lease's start date; defaults to today), backfilling the original
  * rate as a baseline the first time so past months keep billing what they
- * billed. No-op when the rate isn't actually changing. Call BEFORE updating
- * `tenancies.monthly_rent` (the baseline reads the pre-change rate).
+ * billed. The effective month may never precede the current month — that
+ * would reprice rent already posted to the ledger. No-op when the rate isn't
+ * actually changing. Call BEFORE updating `tenancies.monthly_rent` (the
+ * baseline reads the pre-change rate).
  */
 export async function recordRentChange(
   supabase: AnySupabase,
   tenancyId: string,
   newRate: number,
+  effectiveFrom?: string,
 ): Promise<{ error?: string }> {
   const { data: cur } = await supabase
     .from("tenancies")
@@ -34,13 +38,20 @@ export async function recordRentChange(
   if (!cur || Number(cur.monthly_rent) === newRate) return {};
 
   const thisMonth = `${todayISO().slice(0, 7)}-01`;
+  const effectiveMonth = `${(effectiveFrom ?? todayISO()).slice(0, 7)}-01`;
+  if (effectiveMonth < thisMonth)
+    return {
+      error:
+        "The new rent can't start in a past month — rent already posted to the ledger would change.",
+    };
+
   const { count } = await supabase
     .from("tenancy_rent_history")
     .select("id", { count: "exact", head: true })
     .eq("tenancy_id", tenancyId);
   if (!count) {
     const baseline = `${cur.start_date.slice(0, 7)}-01`;
-    if (baseline < thisMonth) {
+    if (baseline < effectiveMonth) {
       await supabase.from("tenancy_rent_history").insert({
         tenancy_id: tenancyId,
         effective_month: baseline,
@@ -51,7 +62,7 @@ export async function recordRentChange(
   const { error } = await supabase.from("tenancy_rent_history").upsert(
     {
       tenancy_id: tenancyId,
-      effective_month: thisMonth,
+      effective_month: effectiveMonth,
       monthly_rent: newRate,
     },
     { onConflict: "tenancy_id,effective_month" },
