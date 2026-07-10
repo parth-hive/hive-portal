@@ -879,6 +879,9 @@ export async function updateTenancy(args: {
     if (args.lease_end_date <= args.new_lease_start)
       throw new Error("lease_end_date must be after new_lease_start.");
     patch.monthly_rent = args.monthly_rent;
+    // The renewal's start replaces the displayed lease start (NOT start_date,
+    // the move-in that anchors ledger accrual).
+    patch.lease_start_date = args.new_lease_start;
   } else if (args.new_lease_start !== undefined) {
     throw new Error("new_lease_start only applies when changing monthly_rent.");
   }

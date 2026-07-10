@@ -25,6 +25,7 @@ type Row = {
   monthly_rent: number;
   security_deposit: number | null;
   start_date: string;
+  lease_start_date: string | null;
   lease_end_date: string | null;
   tenants: TenantRel | TenantRel[] | null;
   rooms: RoomRel | RoomRel[] | null;
@@ -38,7 +39,7 @@ export default async function AgreementsPage() {
   const { data } = await supabase
     .from("tenancies")
     .select(
-      `id, monthly_rent, security_deposit, start_date, lease_end_date,
+      `id, monthly_rent, security_deposit, start_date, lease_start_date, lease_end_date,
        tenants(full_name),
        rooms(room_number, properties(building_name, street_address, unit_number, is_new_york))`,
     )
@@ -65,7 +66,7 @@ export default async function AgreementsPage() {
         propertyAddress: address,
         rent: String(row.monthly_rent),
         securityDeposit: row.security_deposit != null ? String(row.security_deposit) : "",
-        leaseStartDate: row.start_date,
+        leaseStartDate: row.lease_start_date ?? row.start_date,
         leaseEndDate: row.lease_end_date ?? "",
         isNewYork: property?.is_new_york ?? false,
       },

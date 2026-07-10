@@ -294,9 +294,22 @@ export async function setTenancyStartDate(
   const supabase = await createClient();
   const denied = await requireLedgerAdmin(supabase);
   if (denied) return { error: denied };
+  // The profile shows lease_start_date ?? start_date, so edit whichever is
+  // currently displayed. Before any renewal that's start_date (the move-in,
+  // which also anchors ledger accrual — pre-renewal they're the same lease);
+  // after a renewal it's lease_start_date, and accrual stays untouched.
+  const { data: cur } = await supabase
+    .from("tenancies")
+    .select("lease_start_date")
+    .eq("id", tenancyId)
+    .single();
   const { error } = await supabase
     .from("tenancies")
-    .update({ start_date: value })
+    .update(
+      cur?.lease_start_date
+        ? { lease_start_date: value }
+        : { start_date: value },
+    )
     .eq("id", tenancyId);
   if (error) return { error: error.message };
   revalidatePath("/tenants");
@@ -342,8 +355,11 @@ export async function setTenancyRentAmount(
     field === "monthly_rent"
       ? {
           monthly_rent: amount as number,
-          // The renewal's end date replaces the old lease end and re-arms
-          // the lease-ending reminder crons (same as setTenancyLeaseEndDate).
+          // The renewal's dates replace the displayed lease start/end. The
+          // start goes to lease_start_date — NOT start_date, which is the
+          // move-in anchoring ledger accrual — and the new end re-arms the
+          // lease-ending reminder crons (same as setTenancyLeaseEndDate).
+          lease_start_date: newLease!.start,
           lease_end_date: newLease!.end,
           lease_end_reminded_at: null,
           lease_end_reminded_30_at: null,

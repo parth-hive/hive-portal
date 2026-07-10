@@ -52,6 +52,7 @@ type Tenancy = {
   security_deposit: number | null;
   start_date: string;
   move_out_date: string | null;
+  lease_start_date: string | null;
   lease_end_date: string | null;
   status: "active" | "ended" | "upcoming";
   lease_pdf_path: string | null;
@@ -140,7 +141,7 @@ export default async function TenantDetailPage({
       supabase
         .from("tenancies")
         .select(
-          `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date, lease_end_date, status,
+          `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date, lease_start_date, lease_end_date, status,
            lease_pdf_path,
            rooms(id, room_number,
                  properties(id, building_name, street_address, unit_number))`,
@@ -333,10 +334,10 @@ export default async function TenantDetailPage({
                       field="start"
                       tenancyId={active.id}
                       tenantId={tenant.id}
-                      value={active.start_date}
+                      value={active.lease_start_date ?? active.start_date}
                     />
                   ) : (
-                    formatDate(active.start_date)
+                    formatDate(active.lease_start_date ?? active.start_date)
                   )}
                 </dd>
                 <dt className="text-muted">Lease End Date</dt>
