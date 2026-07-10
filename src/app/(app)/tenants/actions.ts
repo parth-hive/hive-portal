@@ -307,8 +307,9 @@ export async function setTenancyStartDate(
 // Inline edits for the tenancy's rent amounts. The ledger recomputes from
 // these on every render (first_month_rent applies only to the starting
 // month). A monthly-rent change is a lease renewal: it requires the new
-// lease's start and end dates, takes effect from the lease-start month, and
-// never touches rent already posted for past months.
+// lease's start and end dates and takes effect from the lease-start month —
+// which may be in the past for a renewal recorded late; months before the
+// lease start keep billing the old rate.
 export async function setTenancyRentAmount(
   tenancyId: string,
   tenantId: string,
@@ -357,7 +358,8 @@ export async function setTenancyRentAmount(
 
   // The new rate applies from the new lease's start month onward: recorded
   // in tenancy_rent_history (backfilling the original rate as a baseline the
-  // first time), so months already billed keep billing what they billed.
+  // first time), so months before the lease start keep billing what they
+  // billed.
   if (field === "monthly_rent") {
     const { error: histErr } = await recordRentChange(
       supabase,

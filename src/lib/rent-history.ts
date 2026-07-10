@@ -18,11 +18,12 @@ type AnySupabase = any;
 /**
  * Records a rent change effective the month of `effectiveFrom` (typically the
  * renewed lease's start date; defaults to today), backfilling the original
- * rate as a baseline the first time so past months keep billing what they
- * billed. The effective month may never precede the current month — that
- * would reprice rent already posted to the ledger. No-op when the rate isn't
- * actually changing. Call BEFORE updating `tenancies.monthly_rent` (the
- * baseline reads the pre-change rate).
+ * rate as a baseline the first time so months before the lease start keep
+ * billing what they billed. A past-dated lease start is allowed — a renewal
+ * recorded late reprices the already-billed months from that start onward,
+ * per the signed lease; months before it are untouched. No-op when the rate
+ * isn't actually changing. Call BEFORE updating `tenancies.monthly_rent`
+ * (the baseline reads the pre-change rate).
  */
 export async function recordRentChange(
   supabase: AnySupabase,
@@ -37,13 +38,7 @@ export async function recordRentChange(
     .single();
   if (!cur || Number(cur.monthly_rent) === newRate) return {};
 
-  const thisMonth = `${todayISO().slice(0, 7)}-01`;
   const effectiveMonth = `${(effectiveFrom ?? todayISO()).slice(0, 7)}-01`;
-  if (effectiveMonth < thisMonth)
-    return {
-      error:
-        "The new rent can't start in a past month — rent already posted to the ledger would change.",
-    };
 
   const { count } = await supabase
     .from("tenancy_rent_history")

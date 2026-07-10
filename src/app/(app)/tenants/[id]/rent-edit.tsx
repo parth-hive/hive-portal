@@ -120,8 +120,9 @@ export function RentAmountEdit({
           />
         </label>
         <p className="max-w-56 text-[11px] leading-snug text-muted">
-          The new rent starts billing from the lease-start month. Already
-          posted months keep the current rate.
+          The new rent bills from the lease-start month onward — including
+          already-billed months when the lease started in the past. Months
+          before the lease start keep the current rate.
         </p>
         <div className="flex items-center justify-end gap-2">
           <button

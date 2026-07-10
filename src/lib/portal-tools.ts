@@ -852,10 +852,11 @@ export async function updateTenant(args: {
 }
 
 // Patch tenancy money/date fields. A monthly_rent change is a lease renewal:
-// it requires new_lease_start + lease_end_date, is recorded in
-// tenancy_rent_history effective the lease-start month (never a past month),
-// and past months keep billing the rate that was in effect back then
-// (first_month_rent only affects the calendar month the tenancy starts in).
+// it requires new_lease_start + lease_end_date and is recorded in
+// tenancy_rent_history effective the lease-start month — which may be in the
+// past for a renewal recorded late. Months before the lease start keep
+// billing the rate that was in effect back then (first_month_rent only
+// affects the calendar month the tenancy starts in).
 export async function updateTenancy(args: {
   tenancy_id: string;
   monthly_rent?: number;
@@ -2120,8 +2121,9 @@ const rawTools = [
       "the tenancy starts in; null = full monthly rent), security_deposit " +
       "(informational), start_date, lease_end_date. Changing monthly_rent is " +
       "a lease renewal and REQUIRES new_lease_start and lease_end_date: the " +
-      "new rent takes effect from the lease-start month (never a past month) " +
-      "and rent already posted for past months is untouched. Use " +
+      "new rent takes effect from the lease-start month (a past start is " +
+      "allowed for a renewal recorded late and reprices those months); " +
+      "months before the lease start are untouched. Use " +
       "end_tenancy / cancel_move_out for move-outs.",
     inputSchema: z.object({
       tenancy_id: z.string(),
