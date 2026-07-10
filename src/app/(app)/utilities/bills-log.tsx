@@ -541,10 +541,7 @@ function ChargePreview({
       <div className="absolute inset-0 bg-ink/40 backdrop-blur-sm" onClick={onClose} />
       <div className="relative flex max-h-[85vh] w-full max-w-xl flex-col rounded-2xl bg-white shadow-xl">
         <div className="border-b border-stone/40 px-6 py-4">
-          <h2 className="text-lg font-medium text-ink">
-            Charge{" "}
-            <span className="font-display italic text-accent-text">tenants</span>
-          </h2>
+          <h2 className="text-lg font-medium text-ink">Charge tenants</h2>
           <p className="mt-0.5 text-sm text-muted">
             {preview.unit} · {preview.period}
           </p>
