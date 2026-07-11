@@ -5,16 +5,18 @@ import { useEffect, useState } from "react";
 import { usePathname } from "next/navigation";
 import { NavIcon, type NavIconName } from "./nav-icons";
 
-type NavItem = { href: string; label: string; icon: NavIconName; badge?: number };
+type NavItem = { href: string; label: string; icon: NavIconName };
 
 export function MobileNav({
   items,
-  userEmail,
-  userName,
+  badges,
+  userInfo,
 }: {
   items: NavItem[];
-  userEmail: string | null;
-  userName?: string | null;
+  // Server-rendered slots keyed by nav href / for the drawer footer, so the
+  // session-dependent bits stream in without making this shell dynamic.
+  badges?: Record<string, React.ReactNode>;
+  userInfo?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
@@ -119,23 +121,12 @@ export function MobileNav({
                   >
                     <NavIcon name={item.icon} className="shrink-0 text-accent" />
                     {item.label}
-                    {!!item.badge && (
-                      <span className="ml-auto rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white">
-                        {item.badge > 99 ? "99+" : item.badge}
-                      </span>
-                    )}
+                    {badges?.[item.href]}
                   </Link>
                 );
               })}
             </nav>
-            {(userName || userEmail) && (
-              <div className="mt-auto px-3 pt-6 text-xs text-ink/80">
-                {userName && (
-                  <p className="truncate font-medium text-ink">{userName}</p>
-                )}
-                {userEmail && <p className="truncate text-ink/60">{userEmail}</p>}
-              </div>
-            )}
+            {userInfo}
           </aside>
         </div>
       )}

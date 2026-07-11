@@ -1,19 +1,20 @@
+import { Suspense } from "react";
 import Link from "next/link";
-import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
-import { isMaster } from "@/lib/access";
 import { logout } from "../login/actions";
 import { MobileNav } from "./mobile-nav";
 import { CommandPalette } from "./command-palette";
-import { NamePrompt } from "./name-prompt";
 import { NavIcon, type NavIconName } from "./nav-icons";
+import {
+  AuthGate,
+  MobileUserInfo,
+  ProjectsBadge,
+  UserIdentity,
+} from "./session-slots";
 
 type NavItem = {
   href: string;
   label: string;
   icon: NavIconName;
-  masterOnly?: boolean;
-  badge?: number;
 };
 
 const NAV: NavItem[] = [
@@ -28,60 +29,34 @@ const NAV: NavItem[] = [
   { href: "/agreements", label: "Agreements", icon: "agreements" },
 ];
 
-export default async function AppLayout({
+// This layout must stay synchronous with no runtime data access (cookies,
+// auth, queries) — anything session-dependent streams in via the
+// <Suspense>-wrapped slots from session-slots.tsx. Otherwise every
+// navigation blocks on auth before `loading.tsx` can appear.
+export default function AppLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  // Defensive backup to the proxy: never render the app shell for an
-  // unauthenticated user, even if proxy.ts doesn't fire for any reason.
-  if (!user) {
-    redirect("/login");
-  }
-
-  const master = isMaster(user.email);
-
-  // Projects nav badge: for the admin, tasks awaiting review or flagged for
-  // attention; for members, their unseen ("New") assignments.
-  let projectsBadge = 0;
-  {
-    // board_tasks post-dates the generated types.
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const q = (supabase as any)
-      .from("board_tasks")
-      .select("id", { count: "exact", head: true });
-    const { count } = master
-      ? await q.or("status.eq.pending_review,needs_attention.eq.true")
-      : await q
-          .eq("assigned_to", user.id)
-          .eq("seen_by_assignee", false)
-          .neq("status", "completed");
-    projectsBadge = count ?? 0;
-  }
-
-  const navItems = NAV.map((item) =>
-    item.href === "/projects" ? { ...item, badge: projectsBadge } : item,
-  ).filter((item) => !item.masterOnly || master);
-
-  const displayName =
-    typeof user.user_metadata?.display_name === "string"
-      ? user.user_metadata.display_name.trim()
-      : typeof user.user_metadata?.full_name === "string"
-        ? user.user_metadata.full_name.trim()
-        : "";
-
   return (
     <div className="flex min-h-screen flex-col md:flex-row">
-      {!displayName && <NamePrompt />}
+      <Suspense>
+        <AuthGate />
+      </Suspense>
       <MobileNav
-        items={navItems}
-        userEmail={user.email ?? null}
-        userName={displayName || null}
+        items={NAV}
+        badges={{
+          "/projects": (
+            <Suspense>
+              <ProjectsBadge className="ml-auto rounded-full bg-red-600 px-1.5 py-0.5 text-[10px] font-bold leading-none text-white" />
+            </Suspense>
+          ),
+        }}
+        userInfo={
+          <Suspense>
+            <MobileUserInfo />
+          </Suspense>
+        }
       />
       <CommandPalette />
       <aside className="hidden w-64 shrink-0 flex-col border-r border-stone/60 bg-white/60 px-4 py-8 md:flex">
@@ -110,7 +85,7 @@ export default async function AppLayout({
           </span>
         </Link>
         <nav className="mt-10 flex flex-col gap-1 text-sm">
-          {navItems.map((item) => (
+          {NAV.map((item) => (
             <Link
               key={item.href}
               href={item.href}
@@ -118,10 +93,10 @@ export default async function AppLayout({
             >
               <NavIcon name={item.icon} className="shrink-0 text-accent" />
               {item.label}
-              {!!item.badge && (
-                <span className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white">
-                  {item.badge > 99 ? "99+" : item.badge}
-                </span>
+              {item.href === "/projects" && (
+                <Suspense>
+                  <ProjectsBadge className="inline-flex h-[18px] min-w-[18px] items-center justify-center rounded-full bg-red-600 px-1 text-[10px] font-bold leading-none text-white" />
+                </Suspense>
               )}
             </Link>
           ))}
@@ -139,12 +114,13 @@ export default async function AppLayout({
             <NavIcon name="settings" />
           </Link>
           <span className="h-5 w-px bg-stone/60" aria-hidden="true" />
-          <span
-            className="max-w-[200px] truncate text-sm text-ink"
-            title={displayName || user?.email || undefined}
+          <Suspense
+            fallback={
+              <span className="h-4 w-28 animate-pulse rounded bg-warm" />
+            }
           >
-            {displayName || user?.email || "—"}
-          </span>
+            <UserIdentity />
+          </Suspense>
           <form action={logout} className="flex">
             <button
               type="submit"
