@@ -313,18 +313,26 @@ export default async function ReconciliationRunPage({
             </tr>
           </thead>
           <tbody>
-            {filtered.map((m) => (
+            {filtered.map((m) => {
+              const flagged = m.status === "mismatch" || m.status === "missing";
+              return (
               <tr key={m.id} className="border-t border-stone/40">
                 <td className="px-5 py-4">
                   {m.tenant_id ? (
                     <Link
                       href={`/tenants/${m.tenant_id}?from=reconciliation`}
-                      className="text-ink hover:text-accent-text"
+                      className={
+                        flagged
+                          ? "text-red-700 hover:text-red-800"
+                          : "text-ink hover:text-accent-text"
+                      }
                     >
                       {m.tenant_name}
                     </Link>
                   ) : (
-                    <span className="text-ink">{m.tenant_name}</span>
+                    <span className={flagged ? "text-red-700" : "text-ink"}>
+                      {m.tenant_name}
+                    </span>
                   )}
                   <p className="text-xs text-muted">{m.pays_as}</p>
                 </td>
@@ -338,7 +346,9 @@ export default async function ReconciliationRunPage({
                 <td className="px-5 py-4 text-right text-ink">
                   {fmtMoney(m.actual_amount)}
                 </td>
-                <td className="px-5 py-4 text-right text-ink">
+                <td
+                  className={`px-5 py-4 text-right ${flagged ? "text-red-700" : "text-ink"}`}
+                >
                   {m.actual_amount === 0
                     ? "—"
                     : fmtMoney(m.difference)}
@@ -351,7 +361,8 @@ export default async function ReconciliationRunPage({
                   </span>
                 </td>
               </tr>
-            ))}
+              );
+            })}
             {filtered.length === 0 && (
               <tr>
                 <td colSpan={6} className="px-5 py-12 text-center text-sm text-muted">
