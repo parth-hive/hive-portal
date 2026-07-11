@@ -39,8 +39,13 @@ body {
 /* Page titles render in the Cormorant serif, bold, so the whole split-color
    heading shares one font: the base word upright, the gold `.font-display`
    accent italic. Page titles are h1; the "Hive Portal" logo (a span) opts in
-   with the `font-serif` utility. */
-h1 {
+   with the `font-serif` utility. Any lower-level heading that carries a
+   `.font-display` accent gets the same treatment — a heading must never mix
+   the sans base with the serif accent. */
+h1,
+h2:has(.font-display),
+h3:has(.font-display),
+h4:has(.font-display) {
   font-family: var(--font-serif);
   font-weight: 700;
 }
