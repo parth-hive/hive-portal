@@ -216,114 +216,127 @@ export default async function ReconciliationMatchPage({ params }: PageProps) {
         </div>
       </section>
 
-      <section className="mt-8 overflow-hidden rounded-2xl bg-white shadow-sm">
-        <div className="px-5 pt-5">
-          <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
-            Bank transactions ({deposits.length})
-          </h2>
-          <p className="mt-1 text-xs text-muted">
-            Deposits from the uploaded files that this run attributed to{" "}
-            {match.tenant_name}.
-          </p>
-        </div>
-        {deposits.length === 0 ? (
-          <p className="px-5 py-8 text-center text-sm text-muted">
-            No bank transactions were matched to this tenant in this run.
-          </p>
-        ) : (
-          <table className="mt-3 w-full text-sm">
-            <thead className="bg-warm text-left text-xs uppercase tracking-wide text-muted">
-              <tr>
-                <th className="px-5 py-2.5 font-medium">Date</th>
-                <th className="px-5 py-2.5 font-medium">Payer</th>
-                <th className="px-5 py-2.5 font-medium">Reference</th>
-                <th className="px-5 py-2.5 text-right font-medium">Amount</th>
-                <th className="px-5 py-2.5 font-medium">Posted</th>
-              </tr>
-            </thead>
-            <tbody>
-              {deposits.map((d) => (
-                <tr key={d.id} className="border-t border-stone/40">
-                  <td className="px-5 py-3 text-ink">
-                    {formatDate(d.deposit_date)}
-                  </td>
-                  <td className="px-5 py-3 text-ink">
-                    {d.raw_description
-                      ? bankPayerNameDisplay(d.raw_description)
-                      : d.payer_key}
-                  </td>
-                  <td className="max-w-48 truncate px-5 py-3 text-xs text-muted">
-                    {d.external_ref}
-                  </td>
-                  <td className="px-5 py-3 text-right tabular-nums text-ink">
-                    {fmtMoney(Number(d.amount))}
-                  </td>
-                  <td className="px-5 py-3 text-xs text-muted">
-                    {d.payment_id ? "In ledger" : "Not posted"}
-                  </td>
+      <section className="mt-10">
+        <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
+          Bank transactions ({deposits.length})
+        </h2>
+        <p className="mt-1 text-xs text-muted">
+          Deposits from the uploaded files that this run attributed to{" "}
+          {match.tenant_name}.
+        </p>
+        <div className="mt-4 overflow-hidden rounded-2xl bg-white shadow-sm">
+          {deposits.length === 0 ? (
+            <p className="px-5 py-10 text-center text-sm text-muted">
+              No bank transactions were matched to this tenant in this run.
+            </p>
+          ) : (
+            <table className="w-full text-sm">
+              <thead className="bg-warm text-left text-xs uppercase tracking-wide text-muted">
+                <tr>
+                  <th className="px-5 py-3 font-medium">Date</th>
+                  <th className="px-5 py-3 font-medium">Payer</th>
+                  <th className="px-5 py-3 font-medium">Reference</th>
+                  <th className="px-5 py-3 text-right font-medium">Amount</th>
+                  <th className="px-5 py-3 text-right font-medium">Posted</th>
                 </tr>
-              ))}
-              <tr className="border-t border-stone/40 bg-warm/40">
-                <td className="px-5 py-3 text-xs uppercase tracking-wide text-muted" colSpan={3}>
-                  Total
-                </td>
-                <td className="px-5 py-3 text-right font-medium tabular-nums text-ink">
-                  {fmtMoney(depositTotal)}
-                </td>
-                <td />
-              </tr>
-            </tbody>
-          </table>
-        )}
+              </thead>
+              <tbody>
+                {deposits.map((d) => (
+                  <tr key={d.id} className="border-t border-stone/40">
+                    <td className="whitespace-nowrap px-5 py-4 text-ink">
+                      {formatDate(d.deposit_date)}
+                    </td>
+                    <td className="px-5 py-4 text-ink">
+                      {d.raw_description
+                        ? bankPayerNameDisplay(d.raw_description)
+                        : d.payer_key}
+                    </td>
+                    <td className="px-5 py-4 text-xs text-muted">
+                      {d.external_ref}
+                    </td>
+                    <td className="px-5 py-4 text-right tabular-nums text-ink">
+                      {fmtMoney(Number(d.amount))}
+                    </td>
+                    <td className="whitespace-nowrap px-5 py-4 text-right">
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${
+                          d.payment_id
+                            ? "bg-green-100 text-green-900"
+                            : "bg-warm text-muted"
+                        }`}
+                      >
+                        {d.payment_id ? "In ledger" : "Not posted"}
+                      </span>
+                    </td>
+                  </tr>
+                ))}
+                <tr className="border-t border-stone/40 bg-warm/40">
+                  <td
+                    className="px-5 py-4 text-xs uppercase tracking-wide text-muted"
+                    colSpan={3}
+                  >
+                    Total
+                  </td>
+                  <td className="px-5 py-4 text-right font-medium tabular-nums text-ink">
+                    {fmtMoney(depositTotal)}
+                  </td>
+                  <td />
+                </tr>
+              </tbody>
+            </table>
+          )}
+        </div>
       </section>
 
       {recorded.length > 0 && (
-        <section className="mt-8 overflow-hidden rounded-2xl bg-white shadow-sm">
-          <div className="px-5 pt-5">
-            <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
-              Recorded payments ({recorded.length})
-            </h2>
-            <p className="mt-1 text-xs text-muted">
-              Rent recorded in the portal for {monthLabel(run.month)} outside a
-              bank posting (cash, manual entry, …) — counted toward the paid
-              total above.
-            </p>
-          </div>
-          <table className="mt-3 w-full text-sm">
-            <thead className="bg-warm text-left text-xs uppercase tracking-wide text-muted">
-              <tr>
-                <th className="px-5 py-2.5 font-medium">Date</th>
-                <th className="px-5 py-2.5 font-medium">Method</th>
-                <th className="px-5 py-2.5 font-medium">Notes</th>
-                <th className="px-5 py-2.5 text-right font-medium">Amount</th>
-              </tr>
-            </thead>
-            <tbody>
-              {recorded.map((p) => (
-                <tr key={p.id} className="border-t border-stone/40">
-                  <td className="px-5 py-3 text-ink">{formatDate(p.paid_on)}</td>
-                  <td className="px-5 py-3 text-ink">{p.method ?? "—"}</td>
-                  <td className="px-5 py-3 text-xs text-muted">
-                    {p.notes ?? ""}
+        <section className="mt-10">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
+            Recorded payments ({recorded.length})
+          </h2>
+          <p className="mt-1 text-xs text-muted">
+            Rent recorded in the portal for {monthLabel(run.month)} outside a
+            bank posting (cash, manual entry, …) — counted toward the paid
+            total above.
+          </p>
+          <div className="mt-4 overflow-hidden rounded-2xl bg-white shadow-sm">
+            <table className="w-full text-sm">
+              <thead className="bg-warm text-left text-xs uppercase tracking-wide text-muted">
+                <tr>
+                  <th className="px-5 py-3 font-medium">Date</th>
+                  <th className="px-5 py-3 font-medium">Method</th>
+                  <th className="px-5 py-3 font-medium">Notes</th>
+                  <th className="px-5 py-3 text-right font-medium">Amount</th>
+                </tr>
+              </thead>
+              <tbody>
+                {recorded.map((p) => (
+                  <tr key={p.id} className="border-t border-stone/40">
+                    <td className="whitespace-nowrap px-5 py-4 text-ink">
+                      {formatDate(p.paid_on)}
+                    </td>
+                    <td className="px-5 py-4 text-ink">{p.method ?? "—"}</td>
+                    <td className="px-5 py-4 text-xs text-muted">
+                      {p.notes ?? ""}
+                    </td>
+                    <td className="px-5 py-4 text-right tabular-nums text-ink">
+                      {fmtMoney(Number(p.amount))}
+                    </td>
+                  </tr>
+                ))}
+                <tr className="border-t border-stone/40 bg-warm/40">
+                  <td
+                    className="px-5 py-4 text-xs uppercase tracking-wide text-muted"
+                    colSpan={3}
+                  >
+                    Total
                   </td>
-                  <td className="px-5 py-3 text-right tabular-nums text-ink">
-                    {fmtMoney(Number(p.amount))}
+                  <td className="px-5 py-4 text-right font-medium tabular-nums text-ink">
+                    {fmtMoney(recordedTotal)}
                   </td>
                 </tr>
-              ))}
-              <tr className="border-t border-stone/40 bg-warm/40">
-                <td
-                  className="px-5 py-3 text-xs uppercase tracking-wide text-muted"
-                  colSpan={3}
-                >
-                  Total
-                </td>
-                <td className="px-5 py-3 text-right font-medium tabular-nums text-ink">
-                  {fmtMoney(recordedTotal)}
-                </td>
-              </tr>
-            </tbody>
-          </table>
+              </tbody>
+            </table>
+          </div>
         </section>
       )}
     </div>
