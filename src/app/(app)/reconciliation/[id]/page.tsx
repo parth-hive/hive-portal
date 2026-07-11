@@ -334,7 +334,6 @@ export default async function ReconciliationRunPage({
                       {m.tenant_name}
                     </span>
                   )}
-                  <p className="text-xs text-muted">{m.pays_as}</p>
                 </td>
                 <td className="px-5 py-4 text-ink">
                   {m.property_label ?? "—"}
