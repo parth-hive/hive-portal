@@ -306,6 +306,7 @@ export default async function ReconciliationRunPage({
             <tr>
               <th className="rounded-tl-2xl bg-warm px-5 py-3 font-medium">Tenant</th>
               <th className="bg-warm px-5 py-3 font-medium">Unit</th>
+              <th className="bg-warm px-5 py-3 font-medium">Room</th>
               <th className="bg-warm px-5 py-3 text-right font-medium">Expected</th>
               <th className="bg-warm px-5 py-3 text-right font-medium">Paid</th>
               <th className="bg-warm px-5 py-3 text-right font-medium">Difference</th>
@@ -329,10 +330,8 @@ export default async function ReconciliationRunPage({
                     {m.tenant_name}
                   </Link>
                 </td>
-                <td className="px-5 py-4 text-ink">
-                  {m.property_label ?? "—"}
-                  <p className="text-xs text-muted">{m.room_label ?? ""}</p>
-                </td>
+                <td className="px-5 py-4 text-ink">{m.property_label ?? "—"}</td>
+                <td className="px-5 py-4 text-ink">{m.room_label ?? "—"}</td>
                 <td className="px-5 py-4 text-right text-ink">
                   {fmtMoney(m.expected_rent)}
                 </td>
@@ -358,7 +357,7 @@ export default async function ReconciliationRunPage({
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={6} className="px-5 py-12 text-center text-sm text-muted">
+                <td colSpan={7} className="px-5 py-12 text-center text-sm text-muted">
                   No matches in this filter.{" "}
                   <Link
                     href={`/reconciliation/${run.id}`}
