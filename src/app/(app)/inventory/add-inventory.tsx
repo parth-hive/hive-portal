@@ -204,7 +204,7 @@ export function AddInventory({
                   <div className="flex flex-col gap-1 rounded-lg bg-warm/40 p-3">
                     <p className="text-sm text-ink">
                       {selected.tenantName ?? "This room"} currently occupies this
-                      room. Set a move-out date to end the tenancy and list it.
+                      room. Set a move-out date to move them out and list it.
                     </p>
                     <label className="mt-1 flex flex-col gap-1">
                       <span className="text-xs uppercase tracking-wide text-muted">
@@ -259,7 +259,7 @@ export function AddInventory({
                   {pending
                     ? "Working…"
                     : occupied
-                      ? "End tenancy & list"
+                      ? "Move out & list"
                       : "Add to inventory"}
                 </button>
               )}

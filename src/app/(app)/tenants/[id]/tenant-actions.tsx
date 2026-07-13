@@ -27,7 +27,7 @@ export function EndTenancyForm({
         onClick={() => setOpen(true)}
         className="rounded-full border border-stone bg-white px-4 py-2 text-sm font-medium text-ink shadow-sm transition hover:border-red-300 hover:bg-red-50 hover:text-red-700"
       >
-        End tenancy
+        Move out
       </button>
     );
   }
@@ -42,8 +42,8 @@ export function EndTenancyForm({
         const todayStr = todayISO();
         const isFuture = endDate > todayStr;
         const msg = isFuture
-          ? `End on ${endDate}? Tenant stays in the room until that date; the room will be listed as "Available from ${endDate}" on Inventory.`
-          : "End this tenancy now? The room will be marked Available.";
+          ? `Move out on ${endDate}? Tenant stays in the room until that date; the room will be listed as "Available from ${endDate}" on Inventory.`
+          : "Move out now? The room will be marked Available.";
         if (!confirm(msg)) {
           e.preventDefault();
         }
@@ -78,7 +78,7 @@ export function EndTenancyForm({
 export function ReactivateTenancyButton({
   tenancyId,
   tenantId,
-  label = "Undo end / reactivate",
+  label = "Cancel move out",
   variant = "subtle",
 }: {
   tenancyId: string;
