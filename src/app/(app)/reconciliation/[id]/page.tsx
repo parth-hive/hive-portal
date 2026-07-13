@@ -2,7 +2,9 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { canEditLedger, isMaster } from "@/lib/access";
-import { formatDate } from "@/lib/date";
+import { formatDate, todayISO } from "@/lib/date";
+import { computeLedger } from "@/lib/rent";
+import { fetchLedgerSidecars } from "@/lib/rent-data";
 import { recomputeRun } from "@/lib/reconciliation/matching";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { DeleteRunButton } from "./delete-run";
@@ -78,6 +80,25 @@ const STATUS_LABEL: Record<FilterKey, string> = {
   missing: "Missing",
 };
 
+// Carry-forward account balance once this statement is in: red when they'd
+// still owe, honey credit when overpaid, green when it settles them.
+function RunBalance({ n }: { n: number | undefined }) {
+  if (n === undefined) return <span className="text-muted">—</span>;
+  if (n > 0.005) return <span className="text-red-700">{fmtMoney(n)}</span>;
+  if (n < -0.005) {
+    return (
+      <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-accent-text">
+        Credit {fmtMoney(-n)}
+      </span>
+    );
+  }
+  return (
+    <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-green-800">
+      Paid
+    </span>
+  );
+}
+
 export default async function ReconciliationRunPage({
   params,
   searchParams,
@@ -133,6 +154,99 @@ export default async function ReconciliationRunPage({
   ]);
 
   if (!run) notFound();
+
+  // Two dynamic ledger figures per tenancy, from the same carry-forward math
+  // as the Rent Tracker:
+  //   Expected — everything owed BEFORE this statement: the running balance
+  //     with this run's already-posted deposits added back (and its unposted
+  //     ones simply not yet counted). Rent + utilities + fees, minus credit.
+  //   Balance — where they stand AFTER this statement: the running balance
+  //     minus this run's matched deposits that aren't posted as payments yet.
+  // Deposits whose external_ref already exists in payments (this run posted,
+  // or an overlapping statement did) are already inside the ledger — they are
+  // added back into Expected and not subtracted again from Balance.
+  const tenancyIds = Array.from(
+    new Set(
+      (matches ?? [])
+        .map((m) => m.tenancy_id)
+        .filter((x): x is string => !!x),
+    ),
+  );
+  const balanceAfter = new Map<string, number>();
+  const expectedBefore = new Map<string, number>();
+  if (tenancyIds.length > 0) {
+    type LedgerTenancyRow = {
+      id: string;
+      start_date: string;
+      move_out_date: string | null;
+      monthly_rent: number;
+      first_month_rent: number | null;
+      security_deposit: number | null;
+      payments: { amount: number; paid_on: string; payment_type: string }[];
+    };
+    const [{ data: tenancyRows }, sidecars, { data: runDeps }] =
+      await Promise.all([
+        supabase
+          .from("tenancies")
+          .select(
+            `id, start_date, move_out_date, monthly_rent, first_month_rent, security_deposit,
+             payments(amount, paid_on, payment_type)`,
+          )
+          .in("id", tenancyIds)
+          .returns<LedgerTenancyRow[]>(),
+        fetchLedgerSidecars(supabase),
+        supabase
+          .from("reconciliation_deposits")
+          .select("tenancy_id, amount, external_ref")
+          .eq("run_id", id)
+          .not("tenancy_id", "is", null),
+      ]);
+
+    const deps = (runDeps ?? []) as {
+      tenancy_id: string;
+      amount: number;
+      external_ref: string;
+    }[];
+    const postedRefs = new Set<string>();
+    if (deps.length > 0) {
+      const { data: postedRows } = await supabase
+        .from("payments")
+        .select("external_ref")
+        .in(
+          "external_ref",
+          deps.map((d) => d.external_ref),
+        );
+      for (const r of postedRows ?? []) {
+        if (r.external_ref) postedRefs.add(r.external_ref);
+      }
+    }
+    const pendingByTenancy = new Map<string, number>();
+    const postedByTenancy = new Map<string, number>();
+    for (const d of deps) {
+      const target = postedRefs.has(d.external_ref)
+        ? postedByTenancy
+        : pendingByTenancy;
+      target.set(d.tenancy_id, (target.get(d.tenancy_id) ?? 0) + Number(d.amount));
+    }
+
+    const cents = (n: number) => Math.round(n * 100) / 100;
+    const today = todayISO();
+    for (const t of tenancyRows ?? []) {
+      const { netBalance } = computeLedger(
+        t,
+        t.payments ?? [],
+        sidecars.charges.get(t.id) ?? [],
+        sidecars.allocations.get(t.id) ?? [],
+        today,
+        sidecars.rentChanges.get(t.id) ?? [],
+      );
+      expectedBefore.set(
+        t.id,
+        cents(netBalance + (postedByTenancy.get(t.id) ?? 0)),
+      );
+      balanceAfter.set(t.id, cents(netBalance - (pendingByTenancy.get(t.id) ?? 0)));
+    }
+  }
 
   const filtered = activeFilter
     ? (matches ?? []).filter((m) => m.status === activeFilter)
@@ -220,7 +334,7 @@ export default async function ReconciliationRunPage({
               </a>
             </>
           )}
-          {!run.posted_at && <AddStatementForm runId={run.id} />}
+          <AddStatementForm runId={run.id} posted={!!run.posted_at} />
           {canPost &&
             (run.posted_at ? (
               <form action={unpostPayments}>
@@ -323,9 +437,25 @@ export default async function ReconciliationRunPage({
               <th className="rounded-tl-2xl bg-warm px-5 py-3 font-medium">Tenant</th>
               <th className="bg-warm px-5 py-3 font-medium">Unit</th>
               <th className="bg-warm px-5 py-3 font-medium">Room</th>
-              <th className="bg-warm px-5 py-3 text-right font-medium">Expected</th>
+              <th
+                title="Monthly rent for this run's month"
+                className="bg-warm px-5 py-3 text-right font-medium"
+              >
+                Rent
+              </th>
+              <th
+                title="Everything owed before this statement — rent, utilities, and fees, minus any credit"
+                className="bg-warm px-5 py-3 text-right font-medium"
+              >
+                Expected
+              </th>
               <th className="bg-warm px-5 py-3 text-right font-medium">Paid</th>
-              <th className="bg-warm px-5 py-3 text-right font-medium">Difference</th>
+              <th
+                title="Total account balance once this statement's deposits are in the ledger"
+                className="bg-warm px-5 py-3 text-right font-medium"
+              >
+                Balance
+              </th>
               <th className="rounded-tr-2xl bg-warm px-5 py-3 font-medium">Status</th>
             </tr>
           </thead>
@@ -348,18 +478,31 @@ export default async function ReconciliationRunPage({
                 </td>
                 <td className="px-5 py-4 text-ink">{m.property_label ?? "—"}</td>
                 <td className="px-5 py-4 text-ink">{m.room_label ?? "—"}</td>
-                <td className="px-5 py-4 text-right text-ink">
+                <td className="px-5 py-4 text-right tabular-nums text-ink">
                   {fmtMoney(m.expected_rent)}
                 </td>
-                <td className="px-5 py-4 text-right text-ink">
+                <td className="px-5 py-4 text-right tabular-nums text-ink">
+                  {(() => {
+                    const exp = m.tenancy_id
+                      ? expectedBefore.get(m.tenancy_id)
+                      : undefined;
+                    if (exp === undefined) return "—";
+                    if (exp < -0.005)
+                      return (
+                        <span className="text-accent-text">
+                          Credit {fmtMoney(-exp)}
+                        </span>
+                      );
+                    return fmtMoney(exp);
+                  })()}
+                </td>
+                <td className="px-5 py-4 text-right tabular-nums text-ink">
                   {fmtMoney(m.actual_amount)}
                 </td>
-                <td
-                  className={`px-5 py-4 text-right ${flagged ? "text-red-700" : "text-ink"}`}
-                >
-                  {m.actual_amount === 0
-                    ? "—"
-                    : fmtMoney(m.difference)}
+                <td className="px-5 py-4 text-right tabular-nums">
+                  <RunBalance
+                    n={m.tenancy_id ? balanceAfter.get(m.tenancy_id) : undefined}
+                  />
                 </td>
                 <td className="px-5 py-4">
                   <span
@@ -373,7 +516,7 @@ export default async function ReconciliationRunPage({
             })}
             {filtered.length === 0 && (
               <tr>
-                <td colSpan={7} className="px-5 py-12 text-center text-sm text-muted">
+                <td colSpan={8} className="px-5 py-12 text-center text-sm text-muted">
                   No matches in this filter.{" "}
                   <Link
                     href={`/reconciliation/${run.id}`}

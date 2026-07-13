@@ -1,40 +1,41 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useRef, useState } from "react";
 import { toast } from "sonner";
 import { addStatementToRun, type AddStatementState } from "../actions";
 
 /**
- * "Add statement" disclosure for an unposted run: pick another bank export
- * (an overlapping or later download, a second account) and its deposits are
- * appended to this run — rows the run already has are skipped — then the
- * matches re-derive. Sits with the header actions; collapsed by default.
+ * "Add statement" disclosure: pick another bank export (an overlapping or
+ * later download, a second account) and its deposits are appended to this
+ * run — rows the run already has are skipped — then the matches re-derive.
+ * On an already-posted run the new matched deposits post to the ledger
+ * immediately. Sits with the header actions; collapsed by default.
  */
-export function AddStatementForm({ runId }: { runId: string }) {
+export function AddStatementForm({
+  runId,
+  posted = false,
+}: {
+  runId: string;
+  posted?: boolean;
+}) {
   const [open, setOpen] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
-  const [state, action, pending] = useActionState<AddStatementState, FormData>(
-    addStatementToRun,
+  // The wrapper toasts the outcome and closes on success inside the action
+  // dispatch itself, instead of watching pending/state from an effect.
+  const [, action, pending] = useActionState<AddStatementState, FormData>(
+    async (prev, formData) => {
+      const result = await addStatementToRun(prev, formData);
+      if (result?.error) {
+        toast.error(result.error);
+      } else {
+        toast.success(result?.success ?? "Statement added");
+        formRef.current?.reset();
+        setOpen(false);
+      }
+      return result;
+    },
     undefined,
   );
-
-  // Toast the dynamic outcome and close on success.
-  const submittedRef = useRef(false);
-  useEffect(() => {
-    if (pending) {
-      submittedRef.current = true;
-      return;
-    }
-    if (!submittedRef.current) return;
-    submittedRef.current = false;
-    if (state?.error) {
-      toast.error(state.error);
-    } else {
-      toast.success(state?.success ?? "Statement added");
-      formRef.current?.reset();
-      setOpen(false);
-    }
-  }, [pending, state]);
 
   return (
     <div className="relative">
@@ -56,6 +57,8 @@ export function AddStatementForm({ runId }: { runId: string }) {
           <p className="text-xs text-muted">
             Upload another bank export for this run. Deposits already in the
             run are skipped, everything else is matched in.
+            {posted &&
+              " This run is posted, so new matched deposits go straight to the ledger."}
           </p>
           <input
             type="file"

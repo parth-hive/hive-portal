@@ -280,11 +280,14 @@ export async function addStatementToRun(
       notes: string | null;
     }>();
   if (!run) return { error: "Run not found." };
+
+  // Adding to a POSTED run writes ledger payments (the auto-post below) —
+  // same operator-only gate as posting and assigning on a posted run.
   if (run.posted_at) {
-    return {
-      error:
-        "This run is already posted — unpost it before adding another statement.",
-    };
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+    if (!canEditLedger(user?.email)) return { error: LEDGER_ADMIN_ERROR };
   }
 
   let parsed;
@@ -385,13 +388,29 @@ export async function addStatementToRun(
     console.error("[recon] recompute after add-statement failed:", e);
   }
 
+  // On an already-posted run, credit the new matched deposits to the ledger
+  // right away (same as assigning a deposit on a posted run) — posting upserts
+  // on external_ref, so the run's earlier payments can't duplicate.
+  if (run.posted_at) {
+    try {
+      await postRunCore(supabase, runId);
+    } catch (e) {
+      return {
+        error:
+          `Added ${fresh.length} deposit${fresh.length === 1 ? "" : "s"}, but posting them failed: ` +
+          `${e instanceof Error ? e.message : String(e)}`,
+      };
+    }
+    revalidatePath("/tenants");
+  }
+
   revalidatePath("/reconciliation");
   revalidatePath(`/reconciliation/${runId}`);
   return {
     success:
       `Added ${fresh.length} deposit${fresh.length === 1 ? "" : "s"}` +
       (dupes > 0 ? ` (${dupes} duplicates skipped)` : "") +
-      ".",
+      (run.posted_at ? " and posted the matched ones to the ledger." : "."),
   };
 }
 
