@@ -1,7 +1,8 @@
 /**
  * Room-change notifications: when a room's status or listing_action changes,
  * email every enabled recipient in notification_recipients. Each change is
- * also logged in room_change_events so a daily cron can send a 24h follow-up.
+ * also logged in room_change_events for the audit trail. (The 24h "have you
+ * acted on it yet?" follow-up email these events used to drive was retired.)
  *
  * Call updateRoomsWithNotification() instead of the raw rooms.update() so
  * mutation sites stay centralized.
@@ -189,7 +190,6 @@ async function recordChangeAndEmail(
   const roomLabel = room?.room_number ?? "Room";
 
   const result = await sendChangeEmail({
-    kind: "immediate",
     to: recipients,
     unitLabel,
     roomLabel,
@@ -208,7 +208,6 @@ async function recordChangeAndEmail(
 }
 
 export type ChangeEmailInput = {
-  kind: "immediate" | "followup";
   to: string[];
   unitLabel: string;
   roomLabel: string;
@@ -225,28 +224,15 @@ export async function sendChangeEmail(
   const fLabel = fieldLabel(input.field);
 
   const unitRoom = `${input.unitLabel} · ${input.roomLabel}`;
-  const subject =
-    input.kind === "immediate"
-      ? `Room update — ${unitRoom}`
-      : `Reminder — ${unitRoom}`;
+  const subject = `Room update — ${unitRoom}`;
 
-  const text =
-    input.kind === "immediate"
-      ? `Hi,
+  const text = `Hi,
 
 Just letting you know that ${unitRoom} just had its ${fLabel.toLowerCase()} change from "${fromLabel}" to "${toLabel}". Please act on this.
 
-Thanks`
-      : `Hi,
-
-This is a follow-up on the change to ${unitRoom} from "${fromLabel}" to "${toLabel}" (${fLabel.toLowerCase()}) yesterday. Have you acted on it yet?
-
 Thanks`;
 
-  const intro =
-    input.kind === "immediate"
-      ? `Just letting you know that <strong>${unitRoom}</strong> just had its ${fLabel.toLowerCase()} change from <strong>${fromLabel}</strong> to <strong>${toLabel}</strong>. Please act on this.`
-      : `This is a follow-up on the change to <strong>${unitRoom}</strong> from <strong>${fromLabel}</strong> to <strong>${toLabel}</strong> (${fLabel.toLowerCase()}) yesterday. Have you acted on it yet?`;
+  const intro = `Just letting you know that <strong>${unitRoom}</strong> just had its ${fLabel.toLowerCase()} change from <strong>${fromLabel}</strong> to <strong>${toLabel}</strong>. Please act on this.`;
 
   const html = `<div style="font-family: 'DM Sans', Arial, sans-serif; color:#1a1a18; max-width:560px; line-height:1.5;">
   <p>Hi,</p>
