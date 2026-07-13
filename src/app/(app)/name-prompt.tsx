@@ -1,8 +1,9 @@
 "use client";
 
-import { useActionState, useEffect, useState } from "react";
+import { useActionState, useState } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
+import { useHydrated } from "@/lib/use-hydrated";
 import { setDisplayName, type NameFormState } from "./profile-actions";
 
 /**
@@ -12,21 +13,19 @@ import { setDisplayName, type NameFormState } from "./profile-actions";
  */
 export function NamePrompt() {
   const router = useRouter();
-  const [mounted, setMounted] = useState(false);
+  const mounted = useHydrated();
   const [done, setDone] = useState(false);
   const [state, action, pending] = useActionState<NameFormState, FormData>(
-    setDisplayName,
+    async (prev, formData) => {
+      const result = await setDisplayName(prev, formData);
+      if (result?.success) {
+        setDone(true);
+        router.refresh();
+      }
+      return result;
+    },
     undefined,
   );
-
-  useEffect(() => setMounted(true), []);
-
-  useEffect(() => {
-    if (state?.success) {
-      setDone(true);
-      router.refresh();
-    }
-  }, [state, router]);
 
   if (!mounted || done) return null;
 

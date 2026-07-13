@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
 import { createClient } from "@/lib/supabase/client";
+import { useHydrated } from "@/lib/use-hydrated";
 
 type Item = {
   id: string;
@@ -56,10 +57,8 @@ export function CommandPalette() {
   const [activeIdx, setActiveIdx] = useState(0);
   const [dynamic, setDynamic] = useState<Item[]>([]);
   const [loaded, setLoaded] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useHydrated();
   const inputRef = useRef<HTMLInputElement>(null);
-
-  useEffect(() => setMounted(true), []);
 
   // Hotkey: Cmd-K / Ctrl-K toggles. Esc closes.
   useEffect(() => {
@@ -67,6 +66,7 @@ export function CommandPalette() {
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
         e.preventDefault();
         setOpen((o) => !o);
+        setActiveIdx(0);
         return;
       }
       if (e.key === "Escape" && open) {
@@ -147,10 +147,6 @@ export function CommandPalette() {
       .map((x) => x.it);
   }, [all, query]);
 
-  useEffect(() => {
-    setActiveIdx(0);
-  }, [query, open]);
-
   function go(item: Item) {
     setOpen(false);
     setQuery("");
@@ -190,7 +186,10 @@ export function CommandPalette() {
             ref={inputRef}
             type="text"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setActiveIdx(0);
+            }}
             onKeyDown={handleKey}
             placeholder="Search tenants, properties, rooms…"
             className="flex-1 bg-transparent py-3 text-sm text-ink placeholder:text-muted focus:outline-none"

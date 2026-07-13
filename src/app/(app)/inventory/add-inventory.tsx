@@ -1,8 +1,9 @@
 "use client";
 
-import { useEffect, useState, useTransition } from "react";
+import { useState, useTransition } from "react";
 import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
+import { useHydrated } from "@/lib/use-hydrated";
 import { makeRoomAvailable } from "./actions";
 import { endTenancy } from "../tenants/actions";
 
@@ -31,15 +32,13 @@ export function AddInventory({
 }) {
   const router = useRouter();
   const [open, setOpen] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useHydrated();
   const [roomId, setRoomId] = useState("");
   const [query, setQuery] = useState("");
   const [listOpen, setListOpen] = useState(false);
   const [date, setDate] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
-
-  useEffect(() => setMounted(true), []);
 
   const selected = rooms.find((r) => r.id === roomId) ?? null;
   // A "filled" room we must vacate before it can be listed.

@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { useHydrated } from "@/lib/use-hydrated";
 
 type Props = {
   trigger: React.ReactNode;
@@ -26,10 +27,8 @@ export function ConfirmModal({
 }: Props) {
   const [open, setOpen] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [mounted, setMounted] = useState(false);
+  const mounted = useHydrated();
   const confirmRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => setMounted(true), []);
 
   useEffect(() => {
     if (!open) return;

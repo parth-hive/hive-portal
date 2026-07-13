@@ -21,10 +21,13 @@ export function MobileNav({
   const [open, setOpen] = useState(false);
   const pathname = usePathname();
 
-  // Close drawer on route change.
-  useEffect(() => {
+  // Close drawer on route change — render-time state adjustment (see
+  // react.dev "Adjusting some state when a prop changes").
+  const [lastPathname, setLastPathname] = useState(pathname);
+  if (lastPathname !== pathname) {
+    setLastPathname(pathname);
     setOpen(false);
-  }, [pathname]);
+  }
 
   // Lock body scroll while drawer is open.
   useEffect(() => {

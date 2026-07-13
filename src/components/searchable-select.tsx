@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useId, useMemo, useState } from "react";
 
 export type SelectOption = { id: string; label: string };
 
@@ -32,6 +32,7 @@ export function SearchableSelect({
   const [query, setQuery] = useState("");
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
+  const listId = useId();
 
   const filtered = useMemo(() => {
     const tokens = query.toLowerCase().split(/\s+/).filter(Boolean);
@@ -57,6 +58,7 @@ export function SearchableSelect({
         type="text"
         role="combobox"
         aria-expanded={open}
+        aria-controls={listId}
         disabled={disabled}
         placeholder={selected ? selected.label : placeholder}
         value={open ? query : selected?.label ?? ""}
@@ -91,7 +93,11 @@ export function SearchableSelect({
         className="w-full rounded-lg border border-stone bg-white px-3 py-1.5 text-sm text-ink placeholder:text-ink focus:border-accent focus:outline-none disabled:opacity-50"
       />
       {open && (
-        <ul className="absolute z-10 mt-1 max-h-64 w-full min-w-[220px] overflow-y-auto rounded-lg border border-stone bg-white py-1 shadow-lg">
+        <ul
+          id={listId}
+          role="listbox"
+          className="absolute z-10 mt-1 max-h-64 w-full min-w-[220px] overflow-y-auto rounded-lg border border-stone bg-white py-1 shadow-lg"
+        >
           {filtered.length === 0 && (
             <li className="px-3 py-2 text-sm text-muted">No matches.</li>
           )}

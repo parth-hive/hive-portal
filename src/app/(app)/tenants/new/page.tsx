@@ -37,7 +37,7 @@ export default async function NewTenantPage({ searchParams }: PageProps) {
   // currently occupied but with a future end-date so the tenant slot is
   // about to open up. Also include the explicitly-requested room (via
   // ?room_id=) so the form can pre-select it even if it doesn't match.
-  let q = supabase
+  const q = supabase
     .from("rooms")
     .select(
       "id, room_number, total_rent, status, available_from, properties(building_name, street_address, unit_number)",

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { toast } from "sonner";
+import { useHydrated } from "@/lib/use-hydrated";
 import type { BoardStatus } from "@/lib/board";
 import type { TaskWithComments } from "./page";
 import {
@@ -160,20 +161,26 @@ export function ProjectsBoard({
 
   // Admin heads-up popups, once per browser session on opening the tab:
   // flagged tasks first, then pending reviews after that one is dismissed.
+  // Initialized on the first post-hydration render (a guarded render-time
+  // state adjustment); the session mark itself is written in the effect.
+  const hydrated = useHydrated();
   const [popup, setPopup] = useState<"attention" | "review" | null>(null);
   const [popupQueue, setPopupQueue] = useState<"review" | null>(null);
-  useEffect(() => {
-    if (!admin) return;
-    if (sessionStorage.getItem("hive-projects-popups")) return;
-    sessionStorage.setItem("hive-projects-popups", "1");
-    if (attentionCount > 0) {
-      setPopup("attention");
-      if (pendingCount > 0) setPopupQueue("review");
-    } else if (pendingCount > 0) {
-      setPopup("review");
+  const [popupsInitialized, setPopupsInitialized] = useState(false);
+  if (hydrated && !popupsInitialized) {
+    setPopupsInitialized(true);
+    if (admin && !sessionStorage.getItem("hive-projects-popups")) {
+      if (attentionCount > 0) {
+        setPopup("attention");
+        if (pendingCount > 0) setPopupQueue("review");
+      } else if (pendingCount > 0) {
+        setPopup("review");
+      }
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }
+  useEffect(() => {
+    if (hydrated && admin) sessionStorage.setItem("hive-projects-popups", "1");
+  }, [hydrated, admin]);
   const dismissPopup = () => {
     setPopup(popupQueue);
     setPopupQueue(null);

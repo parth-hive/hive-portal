@@ -4,6 +4,45 @@ import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
+type VerifyResult =
+  | { ok: true; email: string | null }
+  | { ok: false; error: string };
+
+// Pull #access_token/#refresh_token off the recovery link, start the session,
+// and clean the URL. Fully async so the page paints "Verifying…" first and
+// every state update lands in the effect's completion callback.
+async function verifyRecoveryLink(
+  supabase: ReturnType<typeof createClient>,
+): Promise<VerifyResult> {
+  const hash = window.location.hash.startsWith("#")
+    ? window.location.hash.slice(1)
+    : window.location.hash;
+  const params = new URLSearchParams(hash);
+  const access_token = params.get("access_token");
+  const refresh_token = params.get("refresh_token");
+  const hashErr = params.get("error_description") || params.get("error");
+
+  if (hashErr) return { ok: false, error: decodeURIComponent(hashErr) };
+  if (!access_token || !refresh_token) {
+    return {
+      ok: false,
+      error:
+        "This link is missing the session tokens. Open the most recent reset email and click the button again.",
+    };
+  }
+
+  const { error: setErr } = await supabase.auth.setSession({
+    access_token,
+    refresh_token,
+  });
+  if (setErr) return { ok: false, error: setErr.message };
+
+  const { data } = await supabase.auth.getUser();
+  // Clean the URL so the tokens don't sit in the address bar.
+  window.history.replaceState({}, "", "/auth/reset-password");
+  return { ok: true, email: data.user?.email ?? null };
+}
+
 export default function ResetPasswordPage() {
   const supabase = createClient();
   const router = useRouter();
@@ -19,41 +58,20 @@ export default function ResetPasswordPage() {
   // Supabase's recovery link comes back with #access_token=...&refresh_token=...&type=recovery
   // We pull those out of the URL hash and start a session so the user can set a new password.
   useEffect(() => {
-    const hash = window.location.hash.startsWith("#")
-      ? window.location.hash.slice(1)
-      : window.location.hash;
-    const params = new URLSearchParams(hash);
-    const access_token = params.get("access_token");
-    const refresh_token = params.get("refresh_token");
-    const hashErr = params.get("error_description") || params.get("error");
-
-    if (hashErr) {
-      setError(decodeURIComponent(hashErr));
-      setPhase("error");
-      return;
-    }
-    if (!access_token || !refresh_token) {
-      setError(
-        "This link is missing the session tokens. Open the most recent reset email and click the button again.",
-      );
-      setPhase("error");
-      return;
-    }
-
-    supabase.auth
-      .setSession({ access_token, refresh_token })
-      .then(async ({ error: setErr }) => {
-        if (setErr) {
-          setError(setErr.message);
-          setPhase("error");
-          return;
-        }
-        const { data } = await supabase.auth.getUser();
-        setEmail(data.user?.email ?? null);
-        // Clean the URL so the tokens don't sit in the address bar.
-        window.history.replaceState({}, "", "/auth/reset-password");
+    let cancelled = false;
+    verifyRecoveryLink(supabase).then((res) => {
+      if (cancelled) return;
+      if (res.ok) {
+        setEmail(res.email);
         setPhase("ready");
-      });
+      } else {
+        setError(res.error);
+        setPhase("error");
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
   }, [supabase]);
 
   async function submit(e: React.FormEvent) {

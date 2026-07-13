@@ -78,6 +78,115 @@ function propertyLabel(p: {
   return `${p.building_name?.trim() || p.street_address} Apt ${p.unit_number}`;
 }
 
+// ---------- row shapes ----------
+// The service-role client here is untyped (no generated DB types in this
+// package), so each query's result shape is declared where it's consumed.
+
+/** PostgREST join: object or array depending on relationship cardinality. */
+type Rel<T> = T | T[] | null;
+
+type PropertyRef = {
+  building_name: string | null;
+  street_address: string;
+  unit_number: string;
+};
+
+type PropertySummaryRow = PropertyRef & {
+  id: string;
+  neighborhood: string | null;
+  bedrooms: number | null;
+  leaseholders: Rel<{ name: string }>;
+  rooms: { id: string; status: string }[] | null;
+};
+
+type RoomDetailRow = {
+  id: string;
+  room_number: string | null;
+  has_ac: boolean | null;
+  has_private_bathroom: boolean | null;
+  base_rent: number | null;
+  bundle_fee: number | null;
+  total_rent: number | null;
+  status: string;
+  available_from: string | null;
+  listing_action: string | null;
+  tenancies:
+    | {
+        id: string;
+        status: string;
+        monthly_rent: number | null;
+        start_date: string | null;
+        end_date: string | null;
+        tenants: Rel<{
+          id: string;
+          full_name: string;
+          email: string | null;
+          phone: string | null;
+        }>;
+      }[]
+    | null;
+};
+
+type InventoryRoomRow = {
+  id: string;
+  room_number: string | null;
+  total_rent: number | null;
+  available_from: string | null;
+  status: string;
+  listing_action: string | null;
+  ad_url: string | null;
+  ad_boosted: boolean | null;
+  has_ac: boolean | null;
+  has_private_bathroom: boolean | null;
+  marketing_description: string | null;
+  photos_url: string | null;
+  properties: Rel<
+    PropertyRef & {
+      id: string;
+      neighborhood: string | null;
+      has_gym: boolean | null;
+      has_elevator: boolean | null;
+      has_parking: boolean | null;
+      has_doorman: boolean | null;
+      laundry_in_building: boolean | null;
+      in_unit_laundry: boolean | null;
+    }
+  >;
+};
+
+type TenancyRentRow = {
+  id: string;
+  monthly_rent: number | string;
+  tenant_id: string | null;
+  tenants: Rel<{
+    id: string;
+    full_name: string;
+    email: string | null;
+    phone: string | null;
+  }>;
+  rooms: Rel<{
+    room_number: string | null;
+    properties: Rel<PropertyRef & { id: string }>;
+  }>;
+  payments:
+    | { amount: number | string; paid_on: string; payment_type: string }[]
+    | null;
+};
+
+type CredentialRow = {
+  id: string;
+  category: string;
+  service_name: string;
+  property_id: string | null;
+  username: string | null;
+  password: string | null;
+  login_url: string | null;
+  account_number: string | null;
+  owner_label: string | null;
+  notes: string | null;
+  properties: Rel<PropertyRef>;
+};
+
 // ---------- server ----------
 
 const server = new McpServer({
@@ -108,7 +217,7 @@ server.registerTool(
       .order("street_address");
     if (error) return err(error.message);
 
-    const result = (data ?? []).map((p: any) => ({
+    const result = ((data ?? []) as PropertySummaryRow[]).map((p) => ({
       id: p.id,
       name: propertyLabel(p),
       neighborhood: p.neighborhood,
@@ -116,7 +225,7 @@ server.registerTool(
       leaseholder: unwrapOne(p.leaseholders)?.name ?? null,
       rooms_total: p.rooms?.length ?? 0,
       rooms_available:
-        p.rooms?.filter((r: any) => r.status === "available").length ?? 0,
+        p.rooms?.filter((r) => r.status === "available").length ?? 0,
     }));
     return ok(result);
   },
@@ -157,10 +266,8 @@ server.registerTool(
       .eq("property_id", id);
     if (rErr) return err(rErr.message);
 
-    const enriched = (rooms ?? []).map((r: any) => {
-      const active = (r.tenancies ?? []).find(
-        (t: any) => t.status === "active",
-      );
+    const enriched = ((rooms ?? []) as RoomDetailRow[]).map((r) => {
+      const active = (r.tenancies ?? []).find((t) => t.status === "active");
       const tenant = active ? unwrapOne(active.tenants) : null;
       return {
         id: r.id,
@@ -171,7 +278,7 @@ server.registerTool(
         has_ac: r.has_ac,
         has_private_bathroom: r.has_private_bathroom,
         available_from: r.available_from,
-        current_tenant: tenant
+        current_tenant: active && tenant
           ? {
               id: tenant.id,
               full_name: tenant.full_name,
@@ -239,7 +346,7 @@ server.registerTool(
       .order("available_from", { ascending: true, nullsFirst: true });
     if (error) return err(error.message);
 
-    const result = (data ?? []).map((r: any) => {
+    const result = ((data ?? []) as InventoryRoomRow[]).map((r) => {
       const p = unwrapOne(r.properties);
       return {
         id: r.id,
@@ -309,15 +416,15 @@ server.registerTool(
       .eq("status", "active");
     if (error) return err(error.message);
 
-    const rows = (data ?? []).map((t: any) => {
+    const rows = ((data ?? []) as TenancyRentRow[]).map((t) => {
       const paid = (t.payments ?? [])
         .filter(
-          (p: any) =>
+          (p) =>
             p.payment_type === "rent" &&
             p.paid_on >= start &&
             p.paid_on <= end,
         )
-        .reduce((sum: number, p: any) => sum + Number(p.amount), 0);
+        .reduce((sum, p) => sum + Number(p.amount), 0);
       const tenant = unwrapOne(t.tenants);
       const room = unwrapOne(t.rooms);
       const property = unwrapOne(room?.properties ?? null);
@@ -461,7 +568,7 @@ server.registerTool(
     const { data, error } = await q;
     if (error) return err(error.message);
     return ok(
-      (data ?? []).map((c: any) => ({
+      ((data ?? []) as CredentialRow[]).map((c) => ({
         id: c.id,
         category: c.category,
         service_name: c.service_name,

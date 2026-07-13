@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useRef, useState } from "react";
 import {
   createCredential,
   type CredentialFormState,
@@ -15,25 +15,21 @@ export function AddCredential({
 }) {
   const [open, setOpen] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
-  const submitting = useRef(false);
 
+  // Wrapping the server action lets the success path (state stays undefined →
+  // reset the form and close) run inside the dispatch instead of a
+  // state-watching effect.
   const [state, action, pending] = useActionState<
     CredentialFormState,
     FormData
-  >(createCredential, undefined);
-
-  // After a real submit completes successfully (state stays undefined),
-  // reset the form and close. The ref prevents closing on the initial mount
-  // when state is also undefined.
-  useEffect(() => {
-    if (submitting.current && !pending) {
-      submitting.current = false;
-      if (state === undefined) {
-        formRef.current?.reset();
-        setOpen(false);
-      }
+  >(async (prev, formData) => {
+    const result = await createCredential(prev, formData);
+    if (result === undefined) {
+      formRef.current?.reset();
+      setOpen(false);
     }
-  }, [pending, state]);
+    return result;
+  }, undefined);
 
   if (!open) {
     return (
@@ -51,9 +47,6 @@ export function AddCredential({
     <form
       ref={formRef}
       action={action}
-      onSubmit={() => {
-        submitting.current = true;
-      }}
       className="rounded-2xl bg-white p-6 shadow-sm"
     >
       <p className="text-xs uppercase tracking-wide text-muted">

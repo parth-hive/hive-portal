@@ -56,6 +56,7 @@ export function RoomCombobox({
         type="text"
         role="combobox"
         aria-expanded={open}
+        aria-controls="room-combobox-list"
         aria-autocomplete="list"
         placeholder={
           rooms.length ? "Search by building, address, or room…" : "— none —"
@@ -103,6 +104,8 @@ export function RoomCombobox({
       {open && (
         <ul
           ref={listRef}
+          id="room-combobox-list"
+          role="listbox"
           className="absolute z-10 mt-1 max-h-64 w-full overflow-y-auto rounded-lg border border-stone bg-white py-1 shadow-lg"
         >
           {filtered.length === 0 && (

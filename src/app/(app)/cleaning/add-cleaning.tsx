@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useRef, useState } from "react";
 import { addCleaning, type CleaningFormState } from "./actions";
 import { todayISO } from "@/lib/date";
 
@@ -24,23 +24,21 @@ export function AddCleaning({
 }) {
   const [open, setOpen] = useState(false);
   const formRef = useRef<HTMLFormElement>(null);
-  const submitting = useRef(false);
   const today = todayISO();
 
+  // Wrapping the server action lets the success path (reset + close) run
+  // inside the dispatch instead of a state-watching effect.
   const [state, action, pending] = useActionState<
     CleaningFormState,
     FormData
-  >(addCleaning, undefined);
-
-  useEffect(() => {
-    if (submitting.current && !pending) {
-      submitting.current = false;
-      if (state === undefined) {
-        formRef.current?.reset();
-        setOpen(false);
-      }
+  >(async (prev, formData) => {
+    const result = await addCleaning(prev, formData);
+    if (result === undefined) {
+      formRef.current?.reset();
+      setOpen(false);
     }
-  }, [pending, state]);
+    return result;
+  }, undefined);
 
   if (!open) {
     return (
@@ -58,9 +56,6 @@ export function AddCleaning({
     <form
       ref={formRef}
       action={action}
-      onSubmit={() => {
-        submitting.current = true;
-      }}
       className="rounded-2xl bg-white p-6 shadow-sm"
     >
       <p className="text-xs uppercase tracking-wide text-muted">New cleaning</p>

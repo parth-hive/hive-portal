@@ -65,10 +65,6 @@ export function AssignDepositForm({
     return () => document.removeEventListener("mousedown", onDown);
   }, [open]);
 
-  // Reset/clamp the highlighted row whenever the filtered list changes.
-  useEffect(() => {
-    setActiveIndex(0);
-  }, [query, open]);
 
   // Keep the highlighted row visible while arrow-keying through a long list.
   useEffect(() => {
@@ -88,6 +84,7 @@ export function AssignDepositForm({
       e.preventDefault();
       if (!open) {
         setOpen(true);
+        setActiveIndex(0);
         return;
       }
       setActiveIndex((i) => Math.min(i + 1, filtered.length - 1));
@@ -140,9 +137,13 @@ export function AssignDepositForm({
           value={open ? query : selectedLabel}
           onChange={(e) => {
             setQuery(e.target.value);
+            setActiveIndex(0); // new filter → highlight back to the top row
             if (!open) setOpen(true);
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            setOpen(true);
+            setActiveIndex(0);
+          }}
           onKeyDown={onKeyDown}
           disabled={pending}
           placeholder="Assign to…"
