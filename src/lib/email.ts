@@ -3,6 +3,7 @@ import { sendGmailMessage } from "./google-mail";
 import { sendViaResend, type SendResult } from "./resend-quota";
 import { formatDate } from "./date";
 import type { CleanerCleaning } from "./cleaner-schedule";
+import type { BalanceDetail } from "./balance-detail";
 
 export type { SendResult };
 
@@ -286,13 +287,132 @@ export async function sendRentReminderGmailBulk(
   return res;
 }
 
+// ----------------------------------------------------------------------------
+// Balance-reminder breakdown — the "mini ledger". Every line of the tenant's
+// open balance (built by buildBalanceDetail) rendered for email, plus signed
+// links to any utility statement behind an overcharge in that window. The SMS
+// channel deliberately stays on the short balanceReminderText copy.
+// ----------------------------------------------------------------------------
+
+// Ledger lines are cent-precision; show cents only when they exist.
+function fmtLedgerAmount(n: number): string {
+  const hasCents = Math.round(n * 100) % 100 !== 0;
+  return `$${n.toLocaleString(undefined, {
+    minimumFractionDigits: hasCents ? 2 : 0,
+    maximumFractionDigits: 2,
+  })}`;
+}
+
+/** Plain-text breakdown, shared by the Resend text part and the Gmail body. */
+function balanceBreakdownText(detail: BalanceDetail, amountDue: number): string {
+  const lines: string[] = ["Here's what makes up this balance:", ""];
+  if (detail.broughtForward !== null) {
+    lines.push(`  Balance brought forward: ${fmtLedgerAmount(detail.broughtForward)}`);
+  }
+  for (const l of detail.lines) {
+    const amount =
+      l.charge > 0
+        ? fmtLedgerAmount(l.charge)
+        : `-${fmtLedgerAmount(l.payment)}`;
+    lines.push(`  ${formatDate(l.date)}  ${l.description}: ${amount}`);
+  }
+  lines.push(`  Total due: ${fmtLedgerAmount(amountDue)}`);
+  if (detail.utilityLinks.length > 0) {
+    lines.push("");
+    lines.push(
+      detail.utilityLinks.length === 1
+        ? "This balance includes a utility charge — the statement is here:"
+        : "This balance includes utility charges — the statements are here:",
+    );
+    for (const u of detail.utilityLinks) lines.push(`  ${u.label}: ${u.url}`);
+  }
+  return lines.join("\n");
+}
+
+/** Branded HTML breakdown table + statement links for the Resend send. */
+function balanceBreakdownHtml(detail: BalanceDetail, amountDue: number): string {
+  const row = (date: string, desc: string, amount: string, color: string) =>
+    `<tr>
+      <td style="padding:7px 0; font-size:13px; color:#8a8378; white-space:nowrap; vertical-align:top;">${date}</td>
+      <td style="padding:7px 10px; font-size:14px; color:#1a1a18;">${escapeHtml(desc)}</td>
+      <td style="padding:7px 0; font-size:14px; color:${color}; text-align:right; white-space:nowrap; vertical-align:top;">${amount}</td>
+    </tr>`;
+
+  const rows: string[] = [];
+  if (detail.broughtForward !== null) {
+    rows.push(
+      row("", "Balance brought forward", fmtLedgerAmount(detail.broughtForward), "#1a1a18"),
+    );
+  }
+  for (const l of detail.lines) {
+    rows.push(
+      l.charge > 0
+        ? row(formatDate(l.date), l.description, fmtLedgerAmount(l.charge), "#1a1a18")
+        : row(formatDate(l.date), l.description, `−${fmtLedgerAmount(l.payment)}`, "#1e7d3c"),
+    );
+  }
+
+  const links =
+    detail.utilityLinks.length > 0
+      ? `<p style="margin:16px 0 0; font-size:14px; color:#1a1a18; line-height:1.5;">
+          ${detail.utilityLinks.length === 1 ? "This balance includes a utility charge — you can view the statement here:" : "This balance includes utility charges — you can view the statements here:"}
+        </p>
+        ${detail.utilityLinks
+          .map(
+            (u) =>
+              `<p style="margin:8px 0 0;"><a href="${u.url}" style="font-size:14px; color:#9a6f08; font-weight:600;">${escapeHtml(u.label)} →</a></p>`,
+          )
+          .join("")}`
+      : "";
+
+  return `<div style="margin:20px 0 0;">
+    <p style="margin:0 0 8px; font-size:12px; text-transform:uppercase; letter-spacing:0.06em; color:#8a8378;">What this balance covers</p>
+    <table role="presentation" cellpadding="0" cellspacing="0" style="width:100%; border-collapse:collapse; border-top:1px solid #e8e3db;">
+      ${rows.join("")}
+      <tr>
+        <td style="padding:9px 0 0; border-top:1px solid #e8e3db;"></td>
+        <td style="padding:9px 10px 0; border-top:1px solid #e8e3db; font-size:14px; font-weight:600; color:#1a1a18;">Total due</td>
+        <td style="padding:9px 0 0; border-top:1px solid #e8e3db; font-size:14px; font-weight:600; color:#1a1a18; text-align:right;">${fmtLedgerAmount(amountDue)}</td>
+      </tr>
+    </table>
+    ${links}
+  </div>`;
+}
+
+/** The NY (personal Gmail, unbranded, plain-text) balance-reminder body. */
+export function balanceReminderGmailEmail(
+  amountDue: number,
+  monthLabel: string,
+  detail?: BalanceDetail,
+): { subject: string; text: string } {
+  const subject = `Rent balance due — ${monthLabel}`;
+  const amount = `$${Math.round(amountDue).toLocaleString()}`;
+  const text = detail
+    ? `Hi,
+
+My records show an outstanding balance of ${amount} as of ${monthLabel}.
+
+${balanceBreakdownText(detail, amountDue)}
+
+Please submit payment as soon as possible to avoid a $50 late fee.
+
+Thanks
+Vinny`
+    : balanceReminderText(amountDue, monthLabel);
+  return { subject, text };
+}
+
 export async function sendBalanceReminderGmail(
   to: string,
   amountDue: number,
   monthLabel: string,
+  detail?: BalanceDetail,
 ): Promise<SendResult> {
-  const subject = `Rent balance due — ${monthLabel}`;
-  const text = balanceReminderText(amountDue, monthLabel);
+  const { subject, text } = balanceReminderGmailEmail(
+    amountDue,
+    monthLabel,
+    detail,
+  );
   const result = await sendGmailMessage({ to, subject, text });
   await logEmail({
     type: "rent_balance",
@@ -358,15 +478,27 @@ ${opts.tenantName}'s tenancy at ${opts.unitLabel} is ending in ${opts.daysUntil}
 }
 
 // Balance-specific reminder: sent manually to a tenant who still owes rent for
-// the month, with the outstanding amount called out. Mobile-first card.
-export async function sendBalanceReminder(
-  to: string,
+// the month, with the outstanding amount called out. Mobile-first card. When a
+// BalanceDetail is provided the card carries the mini ledger (and statement
+// links) so the tenant can see exactly what the balance is for.
+export function balanceReminderEmail(
   amountDue: number,
   monthLabel: string,
-): Promise<SendResult> {
+  detail?: BalanceDetail,
+): { subject: string; text: string; html: string } {
   const amount = `$${Math.round(amountDue).toLocaleString()}`;
   const subject = `Rent balance due — ${monthLabel}`;
-  const text = `Hi,
+  const text = detail
+    ? `Hi,
+
+Our records show an outstanding balance of ${amount} as of ${monthLabel}.
+
+${balanceBreakdownText(detail, amountDue)}
+
+Please submit payment as soon as possible to avoid a $50 late fee. If you've already paid, please disregard this message.
+
+Thanks`
+    : `Hi,
 
 Our records show an outstanding rent balance of ${amount} for ${monthLabel}. Please submit payment as soon as possible to avoid a $50 late fee. If you've already paid, please disregard this message.
 
@@ -380,13 +512,27 @@ Thanks`;
       <div style="margin:20px 0; background:#f5f2ed; border-radius:12px; padding:16px 18px;">
         <p style="margin:0; font-size:12px; text-transform:uppercase; letter-spacing:0.06em; color:#8a8378;">Outstanding balance</p>
         <p style="margin:4px 0 0; font-size:24px; font-weight:600; color:#1a1a18;">${amount}</p>
-      </div>
-      <p style="margin:0; font-size:15px; color:#1a1a18; line-height:1.5;">Please submit payment as soon as possible to avoid a <strong>$50 late fee</strong>. If you&rsquo;ve already paid, please disregard this message.</p>
+      </div>${detail ? balanceBreakdownHtml(detail, amountDue) : ""}
+      <p style="margin:20px 0 0; font-size:15px; color:#1a1a18; line-height:1.5;">Please submit payment as soon as possible to avoid a <strong>$50 late fee</strong>. If you&rsquo;ve already paid, please disregard this message.</p>
       <p style="margin:16px 0 0; font-size:15px; color:#1a1a18;">Thanks</p>
     </div>
   </div>
 </div>`;
 
+  return { subject, text, html };
+}
+
+export async function sendBalanceReminder(
+  to: string,
+  amountDue: number,
+  monthLabel: string,
+  detail?: BalanceDetail,
+): Promise<SendResult> {
+  const { subject, text, html } = balanceReminderEmail(
+    amountDue,
+    monthLabel,
+    detail,
+  );
   return sendViaResend(
     { to, from: resendFrom(), replyTo: process.env.RESEND_REPLY_TO, subject, text, html },
     { type: "rent_balance", context: monthLabel },

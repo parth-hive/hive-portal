@@ -15,6 +15,7 @@ import { sendSms } from "@/lib/sms";
 import { todayISO } from "@/lib/date";
 import { computeLedger, LEDGER_PAYMENT_CUTOFF } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
+import { buildBalanceDetail, type BalanceDetail } from "@/lib/balance-detail";
 import { recordRentChange } from "@/lib/rent-history";
 import { canEditLedger, LEDGER_ADMIN_ERROR } from "@/lib/access";
 
@@ -825,7 +826,13 @@ export async function sendBalanceReminders(
       | { properties: { is_new_york: boolean } | { is_new_york: boolean }[] | null }
       | { properties: { is_new_york: boolean } | { is_new_york: boolean }[] | null }[]
       | null;
-    payments: { amount: number; paid_on: string; payment_type: string }[];
+    payments: {
+      id: string;
+      amount: number;
+      paid_on: string;
+      payment_type: string;
+      notes: string | null;
+    }[];
   };
 
   const { data, error } = await supabase
@@ -834,7 +841,7 @@ export async function sendBalanceReminders(
       `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date,
        tenants(full_name, email, phone),
        rooms(properties(is_new_york)),
-       payments(amount, paid_on, payment_type)`,
+       payments(id, amount, paid_on, payment_type, notes)`,
     )
     .eq("status", "active")
     .returns<ReminderTenancy[]>();
@@ -870,12 +877,27 @@ export async function sendBalanceReminders(
     processed++;
 
     if (doEmail) {
+      // Mini ledger: the open lines behind the balance, plus statement links
+      // for any utility charge in it. Best-effort — a breakdown failure never
+      // blocks the reminder itself.
+      let detail: BalanceDetail | undefined;
+      try {
+        detail = await buildBalanceDetail(supabase, {
+          tenancy: row,
+          payments: row.payments ?? [],
+          charges: charges.get(row.id) ?? [],
+          rentChanges: rentChanges.get(row.id) ?? [],
+          today,
+        });
+      } catch (e) {
+        console.error("[balance-reminders] breakdown failed:", e);
+      }
       // New York tenants get a plain, unbranded reminder from Vineet's personal
       // Gmail; everyone else goes through the default Resend sender.
       const isNewYork = one(one(row.rooms)?.properties)?.is_new_york ?? false;
       const res = isNewYork
-        ? await sendBalanceReminderGmail(email, netBalance, monthLabel)
-        : await sendBalanceReminder(email, netBalance, monthLabel);
+        ? await sendBalanceReminderGmail(email, netBalance, monthLabel, detail)
+        : await sendBalanceReminder(email, netBalance, monthLabel, detail);
       if (res.ok) {
         if ("queued" in res) queued++;
         else sent++;

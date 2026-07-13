@@ -13,8 +13,21 @@ import type { LedgerAllocation, LedgerCharge, RentChange } from "@/lib/rent";
 
 type SupabaseServer = Awaited<ReturnType<typeof createClient>>;
 
+/**
+ * Full charge row: the extra columns beyond what {@link computeLedger} needs
+ * let callers also build line-by-line ledger entries (balance-reminder
+ * breakdowns) and trace a utility overcharge back to its uploaded bill.
+ */
+export type LedgerChargeRow = LedgerCharge & {
+  id: string;
+  tenancy_id: string;
+  charged_on: string;
+  note: string | null;
+  bill_id: string | null;
+};
+
 export type LedgerSidecars = {
-  charges: Map<string, LedgerCharge[]>;
+  charges: Map<string, LedgerChargeRow[]>;
   allocations: Map<string, LedgerAllocation[]>;
   /** Rent-rate changes per tenancy — rent edits reprice future months only. */
   rentChanges: Map<string, RentChange[]>;
@@ -39,14 +52,16 @@ export async function fetchLedgerSidecars(
   const sb = supabase as any;
   const [{ data: charges }, { data: allocations }, { data: rentChanges }] =
     await Promise.all([
-      sb.from("tenancy_charges").select("tenancy_id, kind, amount"),
+      sb
+        .from("tenancy_charges")
+        .select("id, tenancy_id, kind, amount, charged_on, note, bill_id"),
       sb.from("credit_allocations").select("tenancy_id, kind, amount"),
       sb
         .from("tenancy_rent_history")
         .select("tenancy_id, effective_month, monthly_rent"),
     ]);
   return {
-    charges: groupByTenancy<LedgerCharge & { tenancy_id: string }>(charges),
+    charges: groupByTenancy<LedgerChargeRow>(charges),
     allocations: groupByTenancy<LedgerAllocation & { tenancy_id: string }>(
       allocations,
     ),

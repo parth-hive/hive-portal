@@ -28,6 +28,7 @@ import { logEmail } from "@/lib/email-log";
 import { sendSms } from "@/lib/sms";
 import { computeLedger, rateForMonthISO } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
+import { buildBalanceDetail, type BalanceDetail } from "@/lib/balance-detail";
 import { recordRentChange } from "@/lib/rent-history";
 import {
   billMonth,
@@ -1569,7 +1570,13 @@ export async function sendBalanceReminders(args: {
       | { properties: PropertyRel | PropertyRel[] | null }
       | { properties: PropertyRel | PropertyRel[] | null }[]
       | null;
-    payments: { amount: number; paid_on: string; payment_type: string }[];
+    payments: {
+      id: string;
+      amount: number;
+      paid_on: string;
+      payment_type: string;
+      notes: string | null;
+    }[];
   };
 
   let query = supabase
@@ -1578,7 +1585,7 @@ export async function sendBalanceReminders(args: {
       `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date,
        tenants(full_name, email, phone),
        rooms(properties(is_new_york)),
-       payments(amount, paid_on, payment_type)`,
+       payments(id, amount, paid_on, payment_type, notes)`,
     )
     .eq("status", "active");
   if (args.tenancy_id) query = query.eq("id", args.tenancy_id);
@@ -1620,10 +1627,23 @@ export async function sendBalanceReminders(args: {
     let delivered = false;
 
     if (doEmail && email) {
+      // Mini ledger + utility statement links; best-effort, never blocks the send.
+      let detail: BalanceDetail | undefined;
+      try {
+        detail = await buildBalanceDetail(supabase, {
+          tenancy: row,
+          payments: row.payments ?? [],
+          charges: charges.get(row.id) ?? [],
+          rentChanges: rentChanges.get(row.id) ?? [],
+          today,
+        });
+      } catch (e) {
+        console.error("[balance-reminders] breakdown failed:", e);
+      }
       const isNewYork = one(one(row.rooms)?.properties ?? null)?.is_new_york ?? false;
       const res = isNewYork
-        ? await sendBalanceReminderGmail(email, netBalance, monthLabel)
-        : await sendBalanceReminder(email, netBalance, monthLabel);
+        ? await sendBalanceReminderGmail(email, netBalance, monthLabel, detail)
+        : await sendBalanceReminder(email, netBalance, monthLabel, detail);
       if (res.ok) {
         emailed++;
         delivered = true;
