@@ -415,6 +415,7 @@ export default async function InventoryPage({ searchParams }: PageProps) {
           <table className="w-full min-w-[1400px] text-sm">
             <thead className="sticky top-0 z-10 bg-warm/60 text-center text-xs uppercase tracking-wide text-muted">
               <tr className="divide-x divide-stone/40">
+                <th className="w-10 px-2 py-2 font-medium">#</th>
                 <th className="w-10" />
                 <th className="w-1.5" />
                 <SortHeader
@@ -472,7 +473,12 @@ export default async function InventoryPage({ searchParams }: PageProps) {
             </thead>
             <tbody>
               {filtered.map((r, i) => (
-                <InventoryRow key={r.id} room={r} striped={i % 2 === 1} />
+                <InventoryRow
+                  key={r.id}
+                  room={r}
+                  index={i + 1}
+                  striped={i % 2 === 1}
+                />
               ))}
             </tbody>
           </table>
@@ -528,9 +534,11 @@ function SortHeader({
 
 function InventoryRow({
   room,
+  index,
   striped,
 }: {
   room: Row;
+  index: number;
   striped: boolean;
 }) {
   const p = one(room.properties);
@@ -558,6 +566,9 @@ function InventoryRow({
           : ACTION_TINT[room.listing_action]
       } hover:bg-warm/30`}
     >
+      <td className="px-2 py-2.5 text-center align-middle tabular-nums text-xs text-muted">
+        {index}
+      </td>
       <td className="px-2 py-2.5 text-center align-middle">
         <DeleteListingButton
           roomId={room.id}
