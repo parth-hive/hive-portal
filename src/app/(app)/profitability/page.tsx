@@ -135,11 +135,6 @@ export default async function ProfitabilityPage({ searchParams }: PageProps) {
             Unit{" "}
             <span className="font-display text-accent-text">profitability</span>
           </h1>
-          <p className="mt-1 text-sm text-muted">
-            Units by month, one grid per metric — profit is revenue collected
-            minus rent paid, utilities, internet, cleaning, amenity, misc, and
-            insurance.
-          </p>
         </div>
         <div className="flex items-center gap-2">
           <Link
@@ -321,12 +316,6 @@ export default async function ProfitabilityPage({ searchParams }: PageProps) {
               </div>
             </div>
           </section>
-          <p className="mt-4 max-w-4xl text-xs text-muted">
-            Unit figures come from the metric tabs (utility months without a
-            bill use similar-unit averages). Manual line items are yearly
-            amounts and count toward the totals and net profit here; the
-            monthly charts show unit-derived figures only.
-          </p>
         </>
       )}
 
