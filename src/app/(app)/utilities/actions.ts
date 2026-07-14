@@ -9,6 +9,10 @@ import { one } from "@/lib/relations";
 import { todayISO } from "@/lib/date";
 import { canEditLedger, LEDGER_ADMIN_ERROR } from "@/lib/access";
 import {
+  sendUtilityChargeNotice,
+  sendUtilityChargeNoticeGmail,
+} from "@/lib/email";
+import {
   billMonth,
   isOverThreshold,
   monthLabel,
@@ -380,6 +384,8 @@ export type OverageChargeResult = {
   movedOut: { name: string; amount: number }[];
   /** Overage dollars falling on days no eligible tenant was living there. */
   uncovered: number;
+  /** Charged occupants emailed a "pay it with next month's rent" notice. */
+  notified?: number;
 };
 
 type SessionClient = Awaited<ReturnType<typeof createClient>>;
@@ -696,7 +702,86 @@ async function chargeOverageCore(
   result.charged = charged.map(({ name, amount }) => ({ name, amount }));
   result.movedOut = movedOut.map(({ name, amount }) => ({ name, amount }));
   result.uncovered = Math.round(unassigned * 100) / 100;
+
+  // Tell each charged current occupant right away, asking them to add the
+  // share to next month's rent. Best-effort: a notification failure never
+  // blocks (or rolls back) the charge itself. Moved-out tenants aren't
+  // emailed — their share surfaces as an operator alert instead.
+  try {
+    result.notified = await notifyOverageCharged(sb, b, result, charged);
+  } catch (e) {
+    console.error("[utilities] overage notices failed:", e);
+  }
+
   return result;
+}
+
+/** Email every charged occupant their share; returns how many were sent. */
+async function notifyOverageCharged(
+  sb: SessionClient,
+  bill: BillRow,
+  result: OverageChargeResult,
+  charged: { tenancyId: string; name: string; amount: number }[],
+): Promise<number> {
+  if (charged.length === 0) return 0;
+
+  type NoticeRow = {
+    id: string;
+    tenants: { email: string | null } | { email: string | null }[] | null;
+    rooms:
+      | { properties: { is_new_york: boolean } | { is_new_york: boolean }[] | null }
+      | { properties: { is_new_york: boolean } | { is_new_york: boolean }[] | null }[]
+      | null;
+  };
+  const { data: tenancyRows } = await sb
+    .from("tenancies")
+    .select("id, tenants(email), rooms(properties(is_new_york))")
+    .in(
+      "id",
+      charged.map((c) => c.tenancyId),
+    )
+    .returns<NoticeRow[]>();
+  const rowById = new Map((tenancyRows ?? []).map((r) => [r.id, r]));
+
+  // One signed statement link shared by every notice (30 days, same TTL as
+  // the balance-reminder links).
+  let statementUrl: string | null = null;
+  const path = (bill as BillRow & { statement_path?: string | null })
+    .statement_path;
+  if (path) {
+    const { data: signed } = await sb.storage
+      .from("utilities")
+      .createSignedUrl(path, 60 * 60 * 24 * 30);
+    statementUrl = signed?.signedUrl ?? null;
+  }
+
+  // "Include it with your <August> rent" — the month after today.
+  const [y, m] = todayISO().slice(0, 7).split("-").map(Number);
+  const nextMonthLabel = new Date(Date.UTC(y, m, 1)).toLocaleString("en-US", {
+    month: "long",
+    timeZone: "UTC",
+  });
+
+  let sent = 0;
+  for (const c of charged) {
+    const row = rowById.get(c.tenancyId);
+    const email = one(row?.tenants ?? null)?.email?.trim();
+    if (!email) continue;
+    const isNewYork =
+      one(one(row?.rooms ?? null)?.properties ?? null)?.is_new_york ?? false;
+    const notice = {
+      amount: c.amount,
+      period: result.period,
+      unitLabel: result.unit,
+      nextMonthLabel,
+      statementUrl,
+    };
+    const res = isNewYork
+      ? await sendUtilityChargeNoticeGmail(email, notice)
+      : await sendUtilityChargeNotice(email, notice);
+    if (res.ok) sent++;
+  }
+  return sent;
 }
 
 const deniedResult = (billId: string, error: string): OverageChargeResult => ({

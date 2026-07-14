@@ -427,6 +427,87 @@ export async function sendBalanceReminderGmail(
   return result;
 }
 
+// ----------------------------------------------------------------------------
+// Utility-charge notice: sent to a tenant the moment their share of a unit's
+// over-allowance utility bill is posted to their ledger, asking them to add
+// it to next month's rent. Branded via Resend for non-NY; plain unbranded
+// Gmail for NY.
+// ----------------------------------------------------------------------------
+
+export type UtilityChargeNotice = {
+  /** Their share, e.g. 43.75 */
+  amount: number;
+  /** e.g. "June 2026 · electric (ConEd)" */
+  period: string;
+  unitLabel: string;
+  /** The rent month to include it with, e.g. "August" */
+  nextMonthLabel: string;
+  /** Signed link to the original bill statement, when available. */
+  statementUrl: string | null;
+};
+
+function utilityChargeText(n: UtilityChargeNotice, signoff: string): string {
+  const amount = `$${n.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  return `Hi,
+
+Your unit's utility usage went over the monthly allowance, and your share of the bill comes to ${amount} (${n.period}, ${n.unitLabel}). This has been added to your account.
+
+Please include it with your ${n.nextMonthLabel} rent payment.${
+    n.statementUrl ? `\n\nYou can see the bill here: ${n.statementUrl}` : ""
+  }
+
+${signoff}`;
+}
+
+export async function sendUtilityChargeNotice(
+  to: string,
+  n: UtilityChargeNotice,
+): Promise<SendResult> {
+  const amount = `$${n.amount.toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+  const subject = `Utility charge — please include with your ${n.nextMonthLabel} rent`;
+  const text = utilityChargeText(n, "Thanks");
+  const html = `<div style="margin:0; padding:20px 12px; background:#f5f2ed; font-family:'DM Sans',Arial,Helvetica,sans-serif;">
+  <div style="max-width:480px; margin:0 auto; background:#fefdfb; border:1px solid #e8e3db; border-radius:16px; overflow:hidden;">
+    <div style="height:6px; background:#d4920b;"></div>
+    <div style="padding:24px 20px;">
+      <h1 style="margin:0 0 4px; font-size:22px; line-height:1.25; color:#1a1a18; font-weight:600;">Utility charge</h1>
+      <p style="margin:0; font-size:15px; color:#8a8378;">${escapeHtml(n.period)} · ${escapeHtml(n.unitLabel)}</p>
+      <div style="margin:20px 0; background:#f5f2ed; border-radius:12px; padding:16px 18px;">
+        <p style="margin:0; font-size:12px; text-transform:uppercase; letter-spacing:0.06em; color:#8a8378;">Your share</p>
+        <p style="margin:4px 0 0; font-size:24px; font-weight:600; color:#1a1a18;">${amount}</p>
+      </div>
+      <p style="margin:0; font-size:15px; color:#1a1a18; line-height:1.5;">Your unit&rsquo;s utility usage went over the monthly allowance, and this is your share of the bill. It has been added to your account &mdash; please include it with your <strong>${escapeHtml(n.nextMonthLabel)} rent payment</strong>.</p>
+      ${n.statementUrl ? `<p style="margin:16px 0 0;"><a href="${n.statementUrl}" style="font-size:14px; color:#9a6f08; font-weight:600;">View the bill statement →</a></p>` : ""}
+      <p style="margin:16px 0 0; font-size:15px; color:#1a1a18;">Thanks</p>
+    </div>
+  </div>
+</div>`;
+  return sendViaResend(
+    { to, from: resendFrom(), replyTo: process.env.RESEND_REPLY_TO, subject, text, html },
+    { type: "utility_charge", context: `${n.unitLabel} · ${n.period}` },
+  );
+}
+
+export async function sendUtilityChargeNoticeGmail(
+  to: string,
+  n: UtilityChargeNotice,
+): Promise<SendResult> {
+  const subject = `Utility charge — please include with your ${n.nextMonthLabel} rent`;
+  const text = utilityChargeText(n, "Thanks\nVinny");
+  const result = await sendGmailMessage({ to, subject, text });
+  await logEmail({
+    type: "utility_charge",
+    recipient: to,
+    subject,
+    context: `${n.unitLabel} · ${n.period} · new_york_gmail`,
+    channel: "gmail",
+    status: result.ok ? "sent" : "failed",
+    error: result.ok ? null : result.error,
+    resend_id: result.ok ? result.id || null : null,
+  });
+  return result;
+}
+
 // Internal heads-up to the operator that a tenant's lease is ending soon (45
 // days out by default). Not sent to the tenant.
 export async function sendLeaseEndReminder(

@@ -722,6 +722,12 @@ function ChargeResults({
                       charged.
                     </li>
                   )}
+                  {(r.notified ?? 0) > 0 && (
+                    <li className="text-xs text-muted">
+                      {r.notified} tenant{r.notified === 1 ? "" : "s"} emailed —
+                      asked to include the charge with next month&apos;s rent.
+                    </li>
+                  )}
                 </ul>
               )}
             </div>
