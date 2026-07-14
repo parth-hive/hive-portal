@@ -52,7 +52,7 @@ export function SearchInput({
       />
       <span
         aria-hidden="true"
-        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-muted"
+        className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 -scale-x-100 text-muted"
       >
         ⌕
       </span>
