@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { toast } from "sonner";
-import { assignUnmatchedDeposit } from "../actions";
+import { assignUnmatchedDeposit, ignoreUnmatchedPayer } from "../actions";
 
 export type AssignTenantOption = { tenancyId: string; label: string };
 
@@ -120,6 +120,17 @@ export function AssignDepositForm({
     });
   }
 
+  function ignore() {
+    const fd = new FormData();
+    fd.set("run_id", runId);
+    fd.set("payer_key", payerKey);
+    startTransition(async () => {
+      const res = await ignoreUnmatchedPayer(undefined, fd);
+      if (res?.error) toast.error(res.error);
+      else toast.success(res?.success ?? "Marked not-rent.");
+    });
+  }
+
   const dateLabel = fmtDate(date);
 
   return (
@@ -203,6 +214,15 @@ export function AssignDepositForm({
         className="shrink-0 rounded-full bg-ink px-3 py-1.5 text-xs font-medium text-white shadow-sm transition hover:bg-accent-dark disabled:opacity-50"
       >
         {pending ? "Assigning…" : "Assign"}
+      </button>
+      <button
+        type="button"
+        onClick={ignore}
+        disabled={pending}
+        title="Not rent — hide this payer from every run's unmatched list (undo from the Ignored payers list below)"
+        className="shrink-0 rounded-full border border-stone bg-white px-3 py-1.5 text-xs font-medium text-muted shadow-sm transition hover:bg-warm hover:text-ink disabled:opacity-50"
+      >
+        Not rent
       </button>
     </li>
   );

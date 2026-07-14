@@ -564,6 +564,27 @@ export type Database = {
         }
         Relationships: []
       }
+      ignored_payers: {
+        Row: {
+          created_at: string
+          created_by: string | null
+          display_name: string
+          payer_key: string
+        }
+        Insert: {
+          created_at?: string
+          created_by?: string | null
+          display_name: string
+          payer_key: string
+        }
+        Update: {
+          created_at?: string
+          created_by?: string | null
+          display_name?: string
+          payer_key?: string
+        }
+        Relationships: []
+      }
       leaseholders: {
         Row: {
           active: boolean

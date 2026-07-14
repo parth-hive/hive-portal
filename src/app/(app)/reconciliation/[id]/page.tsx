@@ -12,7 +12,7 @@ import { AddStatementForm } from "./add-statement-form";
 import { LedgerQuickAdd } from "./ledger-quick-add";
 import { AssignDepositForm, type AssignTenantOption } from "./assign-deposit-form";
 import { one } from "@/lib/relations";
-import { postPayments, unpostPayments } from "../actions";
+import { postPayments, unpostPayments, unignorePayer } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -170,6 +170,13 @@ export default async function ReconciliationRunPage({
   ]);
 
   if (!run) notFound();
+
+  // Known not-rent payers, shown (with undo) whenever any exist.
+  const { data: ignoredData } = await supabase
+    .from("ignored_payers")
+    .select("payer_key, display_name")
+    .order("display_name");
+  const ignoredPayers = ignoredData ?? [];
 
   // Balance — where each tenant stands AFTER this statement, from the same
   // carry-forward ledger math as the Rent Tracker: the running balance minus
@@ -548,6 +555,8 @@ export default async function ReconciliationRunPage({
             match any tenant&apos;s <code>pays as</code>. Assign one to a tenant and
             we&apos;ll save the bank&apos;s payer name as their <code>pays as</code>{" "}
             alias — crediting it now and matching it automatically next time.
+            Mark a payer <em>Not rent</em> (a personal transfer, another
+            venture) and their deposits stay out of every run.
           </p>
           <ul className="mt-4 flex flex-col gap-1.5">
             {run.unmatched_deposits.map((d, i) => (
@@ -560,6 +569,39 @@ export default async function ReconciliationRunPage({
                 date={d.date ?? null}
                 tenants={assignTenants}
               />
+            ))}
+          </ul>
+        </section>
+      )}
+
+      {ignoredPayers.length > 0 && (
+        <section className="mt-6 rounded-2xl bg-white p-6 shadow-sm">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
+            Ignored payers ({ignoredPayers.length})
+          </h2>
+          <p className="mt-1 text-xs text-muted">
+            Deposits from these payers are treated as not-rent and excluded
+            from every run&apos;s unmatched list.
+          </p>
+          <ul className="mt-3 flex flex-wrap gap-2">
+            {ignoredPayers.map((p) => (
+              <li
+                key={p.payer_key}
+                className="flex items-center gap-2 rounded-full bg-warm/60 py-1 pl-3 pr-1 text-sm text-ink"
+              >
+                {p.display_name}
+                <form action={unignorePayer}>
+                  <input type="hidden" name="payer_key" value={p.payer_key} />
+                  <input type="hidden" name="run_id" value={run.id} />
+                  <button
+                    type="submit"
+                    title="Un-ignore — show this payer in unmatched lists again"
+                    className="rounded-full bg-white px-2 py-0.5 text-xs text-muted shadow-sm hover:text-ink"
+                  >
+                    Undo
+                  </button>
+                </form>
+              </li>
             ))}
           </ul>
         </section>

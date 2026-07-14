@@ -223,15 +223,29 @@ function keysOf(t: TenancyInfo): string[] {
   return [...new Set([tenantKey(t.pays_as, t.full_name), ...t.alias_keys])];
 }
 
+/** Payer keys marked "not rent" (personal transfers, other ventures) —
+ *  excluded from every run's unmatched list. */
+export async function loadIgnoredPayerKeys(
+  supabase: SupabaseClient,
+): Promise<Set<string>> {
+  const { data } = await supabase.from("ignored_payers").select("payer_key");
+  return new Set(
+    ((data ?? []) as { payer_key: string }[]).map((r) => r.payer_key),
+  );
+}
+
 // Pure matcher shared by the initial run and by recompute-after-assign. Sums
 // deposits by payer key — plus rent recorded outside a bank posting — and
-// lines the total up against each tenancy's expected rent.
+// lines the total up against each tenancy's expected rent. Ignored payer
+// keys are left out of the unmatched list (they never match a tenant, and
+// they aren't rent — so they aren't "waiting for assignment" either).
 export function buildMatches(
   deposits: Deposit[],
   tenancies: TenancyInfo[],
   monthStart: string,
   monthEnd: string,
   runId: string,
+  ignoredKeys: Set<string> = new Set(),
 ) {
   const aggregate = aggregateByDescription(deposits);
   const matches: MatchRow[] = [];
@@ -310,7 +324,10 @@ export function buildMatches(
     });
   }
 
-  const unmatched = unmatchedDeposits(deposits, claimedKeys);
+  const unmatched = unmatchedDeposits(
+    deposits,
+    new Set([...claimedKeys, ...ignoredKeys]),
+  );
   return {
     matches,
     tenancyByKey,
@@ -389,12 +406,14 @@ export async function recomputeRun(supabase: SupabaseClient, runId: string) {
   );
   if (tErr) throw new Error(`Failed to load tenancies: ${tErr}`);
 
+  const ignoredKeys = await loadIgnoredPayerKeys(supabase);
   const { matches, tenancyByKey, unmatched, totals } = buildMatches(
     deposits,
     tenancies,
     start,
     end,
     runId,
+    ignoredKeys,
   );
 
   // Re-point deposits whose tenancy mapping changed (an assign, a pays_as
