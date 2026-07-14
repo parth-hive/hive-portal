@@ -19,6 +19,14 @@ type ParsedForm = {
   is_new_york: boolean;
   bedrooms: number | null;
   bathrooms: number | null;
+  unit_rent: number | null;
+  unit_lease_start: string | null;
+  unit_lease_end: string | null;
+  amenity_fees_yearly: number | null;
+  misc_fees_yearly: number | null;
+  internet_monthly: number | null;
+  cleaning_fee_monthly: number | null;
+  insurance_monthly: number | null;
   unit_amenities: string[];
   building_amenities: string[];
   amenities_notes: string | null;
@@ -33,6 +41,12 @@ function parseForm(formData: FormData): ParsedForm | { error: string } {
 
   if (!street_address) return { error: "Street address is required." };
   if (!unit_number) return { error: "Unit number is required." };
+
+  const lease_start = String(formData.get("unit_lease_start") ?? "").trim();
+  const lease_end = String(formData.get("unit_lease_end") ?? "").trim();
+  if (lease_start && lease_end && lease_end < lease_start) {
+    return { error: "Unit lease end date is before the start date." };
+  }
 
   const numOrNull = (k: string) => {
     const v = String(formData.get(k) ?? "").trim();
@@ -54,6 +68,14 @@ function parseForm(formData: FormData): ParsedForm | { error: string } {
     is_new_york: formData.get("is_new_york") === "on",
     bedrooms: numOrNull("bedrooms"),
     bathrooms: numOrNull("bathrooms"),
+    unit_rent: numOrNull("unit_rent"),
+    unit_lease_start: lease_start || null,
+    unit_lease_end: lease_end || null,
+    amenity_fees_yearly: numOrNull("amenity_fees_yearly"),
+    misc_fees_yearly: numOrNull("misc_fees_yearly"),
+    internet_monthly: numOrNull("internet_monthly"),
+    cleaning_fee_monthly: numOrNull("cleaning_fee_monthly"),
+    insurance_monthly: numOrNull("insurance_monthly"),
     unit_amenities: normalizeUnitAmenities(
       formData.getAll("unit_amenities").map((v) => String(v)),
     ),

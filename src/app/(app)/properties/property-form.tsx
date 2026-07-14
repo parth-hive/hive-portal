@@ -13,6 +13,14 @@ type InitialValues = {
   is_new_york: boolean;
   bedrooms: number | null;
   bathrooms: number | null;
+  unit_rent: number | null;
+  unit_lease_start: string | null;
+  unit_lease_end: string | null;
+  amenity_fees_yearly: number | null;
+  misc_fees_yearly: number | null;
+  internet_monthly: number | null;
+  cleaning_fee_monthly: number | null;
+  insurance_monthly: number | null;
   unit_amenities: string[];
   building_amenities: string[];
   amenities_notes: string | null;
@@ -234,6 +242,97 @@ export function PropertyForm({
           Lease &amp; notes
         </h2>
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
+          <label className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>Unit rent ($ / month)</span>
+            <input
+              type="number"
+              name="unit_rent"
+              min="0"
+              step="0.01"
+              defaultValue={v.unit_rent ?? ""}
+              placeholder="e.g. 6500"
+              className={fieldInput}
+            />
+          </label>
+          <div className="hidden sm:block" />
+          <label className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>Unit lease start</span>
+            <input
+              type="date"
+              name="unit_lease_start"
+              defaultValue={v.unit_lease_start ?? ""}
+              className={fieldInput}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>Unit lease end</span>
+            <input
+              type="date"
+              name="unit_lease_end"
+              defaultValue={v.unit_lease_end ?? ""}
+              className={fieldInput}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>Amenity fees ($ / year)</span>
+            <input
+              type="number"
+              name="amenity_fees_yearly"
+              min="0"
+              step="0.01"
+              defaultValue={v.amenity_fees_yearly ?? ""}
+              placeholder="e.g. 1200"
+              className={fieldInput}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>Misc fees ($ / year)</span>
+            <input
+              type="number"
+              name="misc_fees_yearly"
+              min="0"
+              step="0.01"
+              placeholder="e.g. 300"
+              defaultValue={v.misc_fees_yearly ?? ""}
+              className={fieldInput}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>Internet ($ / month)</span>
+            <input
+              type="number"
+              name="internet_monthly"
+              min="0"
+              step="0.01"
+              placeholder="e.g. 60"
+              defaultValue={v.internet_monthly ?? ""}
+              className={fieldInput}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>Cleaning ($ / month)</span>
+            <input
+              type="number"
+              name="cleaning_fee_monthly"
+              min="0"
+              step="0.01"
+              placeholder="e.g. 60"
+              defaultValue={v.cleaning_fee_monthly ?? ""}
+              className={fieldInput}
+            />
+          </label>
+          <label className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>Insurance ($ / month)</span>
+            <input
+              type="number"
+              name="insurance_monthly"
+              min="0"
+              step="0.01"
+              placeholder="e.g. 20"
+              defaultValue={v.insurance_monthly ?? ""}
+              className={fieldInput}
+            />
+          </label>
           <label className="flex flex-col gap-1.5">
             <span className={fieldLabel}>Leaseholder (whose name the lease is in)</span>
             <input

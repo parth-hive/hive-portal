@@ -27,6 +27,23 @@ type PageProps = {
   params: Promise<{ id: string }>;
 };
 
+function fmtMoney(n: number | null): string {
+  if (n === null || n === undefined) return "—";
+  return `$${Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
+}
+
+// Pill for the unit-lease end date: red once past, orange inside 90 days.
+function leaseEndPill(endIso: string, todayIso: string) {
+  const days = Math.round(
+    (Date.parse(endIso) - Date.parse(todayIso)) / 86_400_000,
+  );
+  if (days < 0)
+    return { label: `Ended ${Math.abs(days)}d ago`, cls: "bg-red-100 text-red-900" };
+  if (days <= 90)
+    return { label: `Ends in ${days}d`, cls: "bg-orange-100 text-orange-900" };
+  return null;
+}
+
 export default async function PropertyDetailPage({ params }: PageProps) {
   const { id } = await params;
   const supabase = await createClient();
@@ -49,6 +66,9 @@ export default async function PropertyDetailPage({ params }: PageProps) {
       .select(
         `id, building_name, street_address, unit_number, cross_street,
          neighborhood, bedrooms, bathrooms,
+         unit_rent, unit_lease_start, unit_lease_end,
+         amenity_fees_yearly, misc_fees_yearly,
+         internet_monthly, cleaning_fee_monthly, insurance_monthly,
          unit_amenities, building_amenities,
          amenities_notes, notes,
          leaseholders(id, name)`,
@@ -201,6 +221,67 @@ export default async function PropertyDetailPage({ params }: PageProps) {
             <dd className="text-ink">{property.bathrooms ?? "—"}</dd>
             <dt className="text-muted">Leaseholder</dt>
             <dd className="text-ink">{leaseholder?.name ?? "—"}</dd>
+          </dl>
+        </div>
+
+        <div className="rounded-2xl bg-white p-6 shadow-sm">
+          <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
+            Unit lease
+          </h2>
+          <dl className="mt-4 grid grid-cols-2 gap-y-3 text-sm">
+            <dt className="text-muted">Rent</dt>
+            <dd className="text-ink tabular-nums">
+              {property.unit_rent !== null
+                ? `${fmtMoney(property.unit_rent)} / mo`
+                : "—"}
+            </dd>
+            <dt className="text-muted">Lease start</dt>
+            <dd className="text-ink">{formatDate(property.unit_lease_start)}</dd>
+            <dt className="text-muted">Lease end</dt>
+            <dd className="flex flex-wrap items-center gap-2 text-ink">
+              {formatDate(property.unit_lease_end)}
+              {property.unit_lease_end &&
+                (() => {
+                  const pill = leaseEndPill(property.unit_lease_end, todayISO());
+                  return pill ? (
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${pill.cls}`}
+                    >
+                      {pill.label}
+                    </span>
+                  ) : null;
+                })()}
+            </dd>
+            <dt className="text-muted">Amenity fees</dt>
+            <dd className="text-ink tabular-nums">
+              {property.amenity_fees_yearly !== null
+                ? `${fmtMoney(property.amenity_fees_yearly)} / yr`
+                : "—"}
+            </dd>
+            <dt className="text-muted">Misc fees</dt>
+            <dd className="text-ink tabular-nums">
+              {property.misc_fees_yearly !== null
+                ? `${fmtMoney(property.misc_fees_yearly)} / yr`
+                : "—"}
+            </dd>
+            <dt className="text-muted">Internet</dt>
+            <dd className="text-ink tabular-nums">
+              {property.internet_monthly !== null
+                ? `${fmtMoney(property.internet_monthly)} / mo`
+                : "—"}
+            </dd>
+            <dt className="text-muted">Cleaning</dt>
+            <dd className="text-ink tabular-nums">
+              {property.cleaning_fee_monthly !== null
+                ? `${fmtMoney(property.cleaning_fee_monthly)} / mo`
+                : "—"}
+            </dd>
+            <dt className="text-muted">Insurance</dt>
+            <dd className="text-ink tabular-nums">
+              {property.insurance_monthly !== null
+                ? `${fmtMoney(property.insurance_monthly)} / mo`
+                : "—"}
+            </dd>
           </dl>
         </div>
 

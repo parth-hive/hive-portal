@@ -754,56 +754,80 @@ export type Database = {
       properties: {
         Row: {
           amenities_notes: string | null
+          amenity_fees_yearly: number | null
           bathrooms: number | null
           bedrooms: number | null
           building_amenities: string[]
           building_name: string | null
+          cleaning_fee_monthly: number | null
           created_at: string
           cross_street: string | null
           id: string
+          insurance_monthly: number | null
+          internet_monthly: number | null
           is_new_york: boolean
           leaseholder_id: string | null
+          misc_fees_yearly: number | null
           neighborhood: string | null
           notes: string | null
           street_address: string
           unit_amenities: string[]
+          unit_lease_end: string | null
+          unit_lease_start: string | null
           unit_number: string
+          unit_rent: number | null
           updated_at: string
         }
         Insert: {
           amenities_notes?: string | null
+          amenity_fees_yearly?: number | null
           bathrooms?: number | null
           bedrooms?: number | null
           building_amenities?: string[]
           building_name?: string | null
+          cleaning_fee_monthly?: number | null
           created_at?: string
           cross_street?: string | null
           id?: string
+          insurance_monthly?: number | null
+          internet_monthly?: number | null
           is_new_york?: boolean
           leaseholder_id?: string | null
+          misc_fees_yearly?: number | null
           neighborhood?: string | null
           notes?: string | null
           street_address: string
           unit_amenities?: string[]
+          unit_lease_end?: string | null
+          unit_lease_start?: string | null
           unit_number: string
+          unit_rent?: number | null
           updated_at?: string
         }
         Update: {
           amenities_notes?: string | null
+          amenity_fees_yearly?: number | null
           bathrooms?: number | null
           bedrooms?: number | null
           building_amenities?: string[]
           building_name?: string | null
+          cleaning_fee_monthly?: number | null
           created_at?: string
           cross_street?: string | null
           id?: string
+          insurance_monthly?: number | null
+          internet_monthly?: number | null
           is_new_york?: boolean
           leaseholder_id?: string | null
+          misc_fees_yearly?: number | null
           neighborhood?: string | null
           notes?: string | null
           street_address?: string
           unit_amenities?: string[]
+          unit_lease_end?: string | null
+          unit_lease_start?: string | null
           unit_number?: string
+          unit_rent?: number | null
           updated_at?: string
         }
         Relationships: [
@@ -1637,6 +1661,38 @@ export type Database = {
             isOneToOne: false
             referencedRelation: "v_room_occupancy"
             referencedColumns: ["tenancy_id"]
+          },
+        ]
+      }
+      tenant_payer_aliases: {
+        Row: {
+          created_at: string
+          display_name: string | null
+          id: string
+          payer_key: string
+          tenant_id: string
+        }
+        Insert: {
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          payer_key: string
+          tenant_id: string
+        }
+        Update: {
+          created_at?: string
+          display_name?: string | null
+          id?: string
+          payer_key?: string
+          tenant_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "tenant_payer_aliases_tenant_id_fkey"
+            columns: ["tenant_id"]
+            isOneToOne: false
+            referencedRelation: "tenants"
+            referencedColumns: ["id"]
           },
         ]
       }

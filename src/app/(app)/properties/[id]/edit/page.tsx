@@ -22,6 +22,14 @@ type PropertyRecord = {
   is_new_york: boolean;
   bedrooms: number | null;
   bathrooms: number | null;
+  unit_rent: number | null;
+  unit_lease_start: string | null;
+  unit_lease_end: string | null;
+  amenity_fees_yearly: number | null;
+  misc_fees_yearly: number | null;
+  internet_monthly: number | null;
+  cleaning_fee_monthly: number | null;
+  insurance_monthly: number | null;
   unit_amenities: string[];
   building_amenities: string[];
   amenities_notes: string | null;
@@ -44,6 +52,9 @@ export default async function EditPropertyPage({ params }: PageProps) {
       .select(
         `id, building_name, street_address, unit_number, cross_street,
            neighborhood, is_new_york, bedrooms, bathrooms,
+           unit_rent, unit_lease_start, unit_lease_end,
+           amenity_fees_yearly, misc_fees_yearly,
+           internet_monthly, cleaning_fee_monthly, insurance_monthly,
            unit_amenities, building_amenities,
            amenities_notes, notes,
            leaseholders(name)`,
@@ -115,6 +126,14 @@ export default async function EditPropertyPage({ params }: PageProps) {
             is_new_york: property.is_new_york,
             bedrooms: property.bedrooms,
             bathrooms: property.bathrooms,
+            unit_rent: property.unit_rent,
+            unit_lease_start: property.unit_lease_start,
+            unit_lease_end: property.unit_lease_end,
+            amenity_fees_yearly: property.amenity_fees_yearly,
+            misc_fees_yearly: property.misc_fees_yearly,
+            internet_monthly: property.internet_monthly,
+            cleaning_fee_monthly: property.cleaning_fee_monthly,
+            insurance_monthly: property.insurance_monthly,
             unit_amenities: property.unit_amenities,
             building_amenities: property.building_amenities,
             amenities_notes: property.amenities_notes,
