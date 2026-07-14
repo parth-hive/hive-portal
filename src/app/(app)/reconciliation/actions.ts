@@ -6,6 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { canEditLedger, isMaster, LEDGER_ADMIN_ERROR } from "@/lib/access";
 import { one } from "@/lib/relations";
 import { todayISO } from "@/lib/date";
+import { LEDGER_PAYMENT_CUTOFF } from "@/lib/rent";
 import {
   parseBankFile,
   parseOtherFile,
@@ -15,6 +16,7 @@ import {
 import {
   monthBounds,
   loadMonthTenancies,
+  loadIgnoredPayerKeys,
   buildMatches,
   recomputeRun,
 } from "@/lib/reconciliation/matching";
@@ -183,13 +185,16 @@ export async function runReconciliation(
     }
   }
 
-  // 5) Build per-tenant matches.
+  // 5) Build per-tenant matches (known non-rent payers stay out of the
+  //    unmatched list).
+  const ignoredKeys = await loadIgnoredPayerKeys(supabase);
   const { matches, tenancyByKey, unmatched, totals } = buildMatches(
     allDeposits,
     tenancyRows,
     start,
     end,
     runId,
+    ignoredKeys,
   );
 
   if (matches.length > 0) {
@@ -690,6 +695,19 @@ export async function recordManualPayments(
 ): Promise<BulkPaymentState> {
   const paid_on = String(formData.get("paid_on") ?? "").trim();
   if (!paid_on) return { error: "Pick a payment date." };
+  // Same date guards as the single-payment form — one shared date governs
+  // every row here, so a typo would misdate the whole batch at once.
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(paid_on))
+    return { error: "Payment date must be YYYY-MM-DD." };
+  if (paid_on > todayISO())
+    return { error: "Payment date can't be in the future." };
+  // Rent dated before the ledger cutoff is silently excluded from every
+  // balance (pre-ledger months are treated as settled) — recording it would
+  // create invisible money, so refuse the batch outright.
+  if (paid_on < LEDGER_PAYMENT_CUTOFF)
+    return {
+      error: `Rent payments must be dated ${LEDGER_PAYMENT_CUTOFF} or later — earlier dates predate the ledger and wouldn't count toward any balance.`,
+    };
 
   const rows: {
     tenancy_id: string;
@@ -735,6 +753,87 @@ export async function recordManualPayments(
 // that tenant's pays_as alias (so it auto-matches now and forever after).
 // ---------------------------------------------------------------------------
 
+
+// ---------------------------------------------------------------------------
+// Ignore a payer: their deposits are not rent (personal transfers, other
+// ventures), so they drop out of every run's unmatched list — remembered
+// globally, the mirror image of the assign flow's payer alias. Un-ignore
+// brings them back everywhere (runs re-derive on view).
+// ---------------------------------------------------------------------------
+
+export type IgnorePayerState = { error?: string; success?: string } | undefined;
+
+export async function ignoreUnmatchedPayer(
+  _prev: IgnorePayerState,
+  formData: FormData,
+): Promise<IgnorePayerState> {
+  const runId = String(formData.get("run_id") ?? "");
+  const payerKey = String(formData.get("payer_key") ?? "");
+  if (!runId || !payerKey) return { error: "Missing payer." };
+
+  const supabase = await createClient();
+  // Hiding money from the books is a ledger-level decision — same gate as
+  // assigning and posting.
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!canEditLedger(user?.email)) return { error: LEDGER_ADMIN_ERROR };
+
+  // Prefer the bank's original casing for display.
+  const { data: dep } = await supabase
+    .from("reconciliation_deposits")
+    .select("raw_description")
+    .eq("run_id", runId)
+    .eq("payer_key", payerKey)
+    .limit(1)
+    .maybeSingle<{ raw_description: string | null }>();
+  const display = dep?.raw_description
+    ? bankPayerNameDisplay(dep.raw_description)
+    : payerKey;
+
+  const { error } = await supabase
+    .from("ignored_payers")
+    .upsert(
+      { payer_key: payerKey, display_name: display, created_by: user?.email ?? null },
+      { onConflict: "payer_key" },
+    );
+  if (error) return { error: error.message };
+
+  try {
+    await recomputeRun(supabase, runId);
+  } catch (e) {
+    console.error("[recon] recompute after ignore failed:", e);
+  }
+
+  revalidatePath("/reconciliation");
+  revalidatePath(`/reconciliation/${runId}`);
+  return {
+    success: `"${display}" marked not-rent — their deposits stay out of every run.`,
+  };
+}
+
+export async function unignorePayer(formData: FormData) {
+  const payerKey = String(formData.get("payer_key") ?? "");
+  const runId = String(formData.get("run_id") ?? "");
+  if (!payerKey) return;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!canEditLedger(user?.email)) throw new Error(LEDGER_ADMIN_ERROR);
+
+  await supabase.from("ignored_payers").delete().eq("payer_key", payerKey);
+  if (runId) {
+    try {
+      await recomputeRun(supabase, runId);
+    } catch (e) {
+      console.error("[recon] recompute after unignore failed:", e);
+    }
+    revalidatePath(`/reconciliation/${runId}`);
+  }
+  revalidatePath("/reconciliation");
+}
 
 export type AssignState = { error?: string; success?: string } | undefined;
 
@@ -796,6 +895,9 @@ export async function assignUnmatchedDeposit(
       { onConflict: "payer_key" },
     );
   if (upErr) return { error: `Failed to remember the payer: ${upErr.message}` };
+
+  // Assigning affirms this payer IS rent — clear any stale not-rent flag.
+  await supabase.from("ignored_payers").delete().eq("payer_key", payerKey);
 
   try {
     await recomputeRun(supabase, runId);
