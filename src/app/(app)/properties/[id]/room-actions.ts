@@ -117,6 +117,13 @@ export async function deleteRoom(formData: FormData) {
   if (!roomId || !propertyId) return;
 
   const supabase = await createClient();
-  await supabase.from("rooms").delete().eq("id", roomId);
+  const { error } = await supabase.from("rooms").delete().eq("id", roomId);
+  if (error) {
+    throw new Error(
+      error.code === "23503"
+        ? "This room has tenancies with payment history, which can't be deleted. The room must stay for the books."
+        : `Failed to delete room: ${error.message}`,
+    );
+  }
   revalidatePath(`/properties/${propertyId}`);
 }

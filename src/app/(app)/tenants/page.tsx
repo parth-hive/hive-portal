@@ -15,8 +15,9 @@ import {
 import { computeLedger } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
 import { todayISO, currentRentCycle } from "@/lib/date";
-import { isMaster } from "@/lib/access";
+import { canEditLedger, isMaster } from "@/lib/access";
 import { OverageAlertsPopup, type OverageAlert } from "./overage-alerts";
+import { FormerTenants, type FormerTenantRow } from "./former-tenants";
 
 export const dynamic = "force-dynamic";
 // sendBalanceReminders (see actions.ts) sends an email + SMS per owing tenant,
@@ -137,10 +138,82 @@ export default async function TenantsPage({ searchParams }: PageProps) {
     .from("properties")
     .select("id, building_name, street_address, unit_number");
 
+  // Ended tenancies — their outstanding balances feed the "Moved out with
+  // balance" section so departed debt stays visible until dismissed.
+  const { data: endedData } = await supabase
+    .from("tenancies")
+    .select(
+      `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date,
+       balance_dismissed_at,
+       tenants(id, full_name),
+       rooms(room_number,
+             properties(building_name, street_address, unit_number)),
+       payments(amount, paid_on, payment_type)`,
+    )
+    .eq("status", "ended")
+    .order("move_out_date", { ascending: false });
+
   // Ad-hoc charges + credit allocations feed the running ledger balance.
   const { charges, allocations, rentChanges } =
     await fetchLedgerSidecars(supabase);
   const today = todayISO();
+
+  // Departed tenants who still owe: same ledger math as the active rows.
+  type EndedRow = {
+    id: string;
+    monthly_rent: number;
+    first_month_rent: number | null;
+    security_deposit: number | null;
+    start_date: string;
+    move_out_date: string | null;
+    balance_dismissed_at: string | null;
+    tenants: { id: string; full_name: string } | { id: string; full_name: string }[] | null;
+    rooms:
+      | {
+          room_number: string | null;
+          properties:
+            | { building_name: string | null; street_address: string; unit_number: string }
+            | { building_name: string | null; street_address: string; unit_number: string }[]
+            | null;
+        }
+      | {
+          room_number: string | null;
+          properties:
+            | { building_name: string | null; street_address: string; unit_number: string }
+            | { building_name: string | null; street_address: string; unit_number: string }[]
+            | null;
+        }[]
+      | null;
+    payments: { amount: number; paid_on: string; payment_type: string }[];
+  };
+  const formerRows: FormerTenantRow[] = ((endedData ?? []) as EndedRow[])
+    .map((t) => {
+      const { netBalance } = computeLedger(
+        t,
+        t.payments ?? [],
+        charges.get(t.id) ?? [],
+        allocations.get(t.id) ?? [],
+        today,
+        rentChanges.get(t.id) ?? [],
+      );
+      const tenant = one(t.tenants);
+      const room = one(t.rooms);
+      const property = one(room?.properties ?? null);
+      return {
+        tenancyId: t.id,
+        tenantId: tenant?.id ?? "",
+        name: tenant?.full_name ?? "—",
+        unitLabel: property
+          ? `${property.building_name?.trim() || property.street_address} Apt ${property.unit_number}`
+          : null,
+        roomLabel: room?.room_number ?? null,
+        movedOut: t.move_out_date,
+        balance: netBalance,
+        dismissed: !!t.balance_dismissed_at,
+      };
+    })
+    .filter((r) => r.tenantId && r.balance > 0.005)
+    .sort((a, b) => b.balance - a.balance);
 
   // Per row we keep the *this-month* operational figures (Due / Paid, mirrored
   // by the portfolio KPIs and progress bar) but the Balance column now shows
@@ -439,6 +512,8 @@ export default async function TenantsPage({ searchParams }: PageProps) {
           </section>
         );
       })()}
+
+      <FormerTenants rows={formerRows} canDismiss={canEditLedger(user?.email)} />
 
       <div className="mt-6 flex flex-wrap items-center gap-3">
         <SearchInput

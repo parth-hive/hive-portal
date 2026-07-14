@@ -1597,6 +1597,8 @@ export type Database = {
       }
       tenancies: {
         Row: {
+          balance_dismissed_at: string | null
+          balance_dismissed_by: string | null
           created_at: string
           first_month_rent: number | null
           id: string
@@ -1616,6 +1618,8 @@ export type Database = {
           updated_at: string
         }
         Insert: {
+          balance_dismissed_at?: string | null
+          balance_dismissed_by?: string | null
           created_at?: string
           first_month_rent?: number | null
           id?: string
@@ -1635,6 +1639,8 @@ export type Database = {
           updated_at?: string
         }
         Update: {
+          balance_dismissed_at?: string | null
+          balance_dismissed_by?: string | null
           created_at?: string
           first_month_rent?: number | null
           id?: string

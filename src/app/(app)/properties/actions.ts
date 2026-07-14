@@ -216,7 +216,11 @@ export async function deleteProperty(formData: FormData) {
   const supabase = await createClient();
   const { error } = await supabase.from("properties").delete().eq("id", id);
   if (error) {
-    throw new Error(`Failed to delete property: ${error.message}`);
+    throw new Error(
+      error.code === "23503"
+        ? "This property has tenancies with payment history, which can't be deleted. The property must stay for the books."
+        : `Failed to delete property: ${error.message}`,
+    );
   }
   revalidatePath("/properties");
   redirect("/properties");

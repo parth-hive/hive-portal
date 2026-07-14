@@ -608,7 +608,8 @@ export async function deleteTenant(formData: FormData) {
   if (!id) return;
 
   const supabase = await createClient();
-  // Cascades destroy the tenant's payments/charges history — operator-only.
+  // Deleting a tenant is operator-only; payment history blocks it entirely
+  // (payments are on delete RESTRICT — the books outlive the tenant).
   if (await requireLedgerAdmin(supabase)) return;
 
   // Free up any rooms that were occupied by this tenant
@@ -618,7 +619,16 @@ export async function deleteTenant(formData: FormData) {
     .eq("tenant_id", id)
     .eq("status", "active");
 
-  await supabase.from("tenants").delete().eq("id", id);
+  const { error } = await supabase.from("tenants").delete().eq("id", id);
+  if (error) {
+    // 23503 = the payments FK (on delete restrict): financial history is
+    // never deleted with its tenant.
+    throw new Error(
+      error.code === "23503"
+        ? "This tenant has payment history, which can't be deleted. Move them out instead — the tenancy ends but the books keep their record."
+        : `Failed to delete tenant: ${error.message}`,
+    );
+  }
 
   if (rooms && rooms.length > 0) {
     const roomIds = rooms.map((r) => r.room_id).filter(Boolean) as string[];
@@ -632,6 +642,48 @@ export async function deleteTenant(formData: FormData) {
   revalidatePath("/tenants");
   revalidatePath("/inventory");
   redirect("/tenants");
+}
+
+// ----- Dismiss a moved-out tenant's outstanding balance -----
+// Hides the tenancy from the Rent Tracker's "Moved out with balance" list
+// (debt collected outside the system, offset, or written off). The ledger
+// itself is untouched and the dismissal is reversible.
+
+export async function dismissEndedBalance(formData: FormData) {
+  const tenancy_id = String(formData.get("tenancy_id") ?? "");
+  if (!tenancy_id) return;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!canEditLedger(user?.email)) throw new Error(LEDGER_ADMIN_ERROR);
+
+  await supabase
+    .from("tenancies")
+    .update({
+      balance_dismissed_at: new Date().toISOString(),
+      balance_dismissed_by: user?.email ?? null,
+    })
+    .eq("id", tenancy_id);
+  revalidatePath("/tenants");
+}
+
+export async function undismissEndedBalance(formData: FormData) {
+  const tenancy_id = String(formData.get("tenancy_id") ?? "");
+  if (!tenancy_id) return;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!canEditLedger(user?.email)) throw new Error(LEDGER_ADMIN_ERROR);
+
+  await supabase
+    .from("tenancies")
+    .update({ balance_dismissed_at: null, balance_dismissed_by: null })
+    .eq("id", tenancy_id);
+  revalidatePath("/tenants");
 }
 
 // ----- Record a payment against a tenancy -----
