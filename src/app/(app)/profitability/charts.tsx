@@ -162,9 +162,29 @@ export function RevenueExpenseChart({
   );
 }
 
-/** Net profit by month — bars anchored at zero, green up / red down. */
+const CUMULATIVE = "#1a1a18";
+
+/**
+ * Net profit by month — bars anchored at zero (green up / red down) with a
+ * cumulative year-to-date line over them. Same dollar axis for both.
+ */
 export function NetProfitChart({ net }: { net: (number | null)[] }) {
-  const values = net.filter((v): v is number => v !== null);
+  // Running YTD total, only through months that have data.
+  const cumulative: (number | null)[] = [];
+  let running = 0;
+  for (const v of net) {
+    if (v === null) {
+      cumulative.push(null);
+      continue;
+    }
+    running += v;
+    cumulative.push(running);
+  }
+
+  const values = [
+    ...net.filter((v): v is number => v !== null),
+    ...cumulative.filter((v): v is number => v !== null),
+  ];
   const max = Math.max(1, ...values, 0);
   const min = Math.min(0, ...values);
   const step = niceStep(max - min, 4);
@@ -177,14 +197,35 @@ export function NetProfitChart({ net }: { net: (number | null)[] }) {
 
   const slot = PLOT_W / 12;
   const barW = Math.min(24, slot - 14);
+  const xCenter = (m: number) => PAD.left + (m + 0.5) * slot;
+
+  const linePoints = cumulative
+    .map((v, m) => (v === null ? null : { m, v }))
+    .filter((p): p is { m: number; v: number } => p !== null);
+  const linePath = linePoints
+    .map((p, i) => `${i === 0 ? "M" : "L"}${xCenter(p.m)},${yFor(p.v)}`)
+    .join(" ");
 
   return (
     <figure>
+      <div className="flex items-center gap-4 text-xs text-ink">
+        <span className="flex items-center gap-1.5">
+          <span className="h-2.5 w-2.5 rounded-sm" style={{ background: POSITIVE }} />
+          Monthly net
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span
+            className="h-0.5 w-4 rounded-full"
+            style={{ background: CUMULATIVE }}
+          />
+          Cumulative (YTD)
+        </span>
+      </div>
       <Frame yTicks={ticks} yFor={yFor}>
         {MONTHS.map((mo, m) => {
           const v = net[m];
           if (v === null) return null;
-          const x = PAD.left + (m + 0.5) * slot - barW / 2;
+          const x = xCenter(m) - barW / 2;
           return (
             <path
               key={mo}
@@ -195,6 +236,29 @@ export function NetProfitChart({ net }: { net: (number | null)[] }) {
             </path>
           );
         })}
+        {linePoints.length > 1 && (
+          <path
+            d={linePath}
+            fill="none"
+            stroke={CUMULATIVE}
+            strokeWidth="2"
+            strokeLinejoin="round"
+            strokeLinecap="round"
+          />
+        )}
+        {linePoints.map((p) => (
+          <circle
+            key={p.m}
+            cx={xCenter(p.m)}
+            cy={yFor(p.v)}
+            r="3.5"
+            fill={CUMULATIVE}
+            stroke="#fefdfb"
+            strokeWidth="2"
+          >
+            <title>{`${MONTHS[p.m]}: cumulative ${fmtFull(p.v)}`}</title>
+          </circle>
+        ))}
       </Frame>
     </figure>
   );
