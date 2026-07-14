@@ -7,6 +7,7 @@ import { computeLedger } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
 import { recomputeRun } from "@/lib/reconciliation/matching";
 import { AutoRefresh } from "@/components/auto-refresh";
+import { SearchInput } from "@/components/search-input";
 import { DeleteRunButton } from "./delete-run";
 import { AddStatementForm } from "./add-statement-form";
 import { LedgerQuickAdd } from "./ledger-quick-add";
@@ -19,7 +20,7 @@ export const dynamic = "force-dynamic";
 
 type PageProps = {
   params: Promise<{ id: string }>;
-  searchParams: Promise<{ filter?: string }>;
+  searchParams: Promise<{ filter?: string; q?: string }>;
 };
 
 type FilterKey = "match" | "mismatch" | "missing";
@@ -118,14 +119,21 @@ export default async function ReconciliationRunPage({
   const { id } = await params;
   const sp = await searchParams;
   const activeFilters = parseFilters(sp.filter);
-  // Toggle one token in/out of the filter set, preserving the others.
+  const query = (sp.q ?? "").trim().toLowerCase();
+  // Toggle one token in/out of the filter set, preserving the others and
+  // any active search query.
+  const hrefWith = (filters: Set<FilterToken>) => {
+    const params = new URLSearchParams();
+    if (filters.size > 0) params.set("filter", [...filters].join(","));
+    if (query) params.set("q", (sp.q ?? "").trim());
+    const qs = params.toString();
+    return qs ? `/reconciliation/${id}?${qs}` : `/reconciliation/${id}`;
+  };
   const toggleHref = (key: FilterToken) => {
     const next = new Set(activeFilters);
     if (next.has(key)) next.delete(key);
     else next.add(key);
-    return next.size === 0
-      ? `/reconciliation/${id}`
-      : `/reconciliation/${id}?filter=${[...next].join(",")}`;
+    return hrefWith(next);
   };
 
   const supabase = await createClient();
@@ -337,10 +345,18 @@ export default async function ReconciliationRunPage({
   const newOnly = activeFilters.has("new");
   const isNewRow = (m: Match) =>
     !!m.tenancy_id && newTenancyIds.has(m.tenancy_id);
+  const matchesQuery = (m: Match) =>
+    !query ||
+    [m.tenant_name, m.pays_as, m.property_label, m.room_label]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase()
+      .includes(query);
   const filtered = (matches ?? []).filter(
     (m) =>
       (statusFilters.size === 0 || statusFilters.has(m.status)) &&
-      (!newOnly || isNewRow(m)),
+      (!newOnly || isNewRow(m)) &&
+      matchesQuery(m),
   );
 
   // Row order: settled matches first, then matches still owing, then matches
@@ -492,7 +508,7 @@ export default async function ReconciliationRunPage({
           <KpiCard
             label="Expected"
             value={fmtMoney(run.total_expected)}
-            href={`/reconciliation/${run.id}`}
+            href={hrefWith(new Set())}
             active={activeFilters.size === 0}
           />
         )}
@@ -500,7 +516,7 @@ export default async function ReconciliationRunPage({
           <KpiCard
             label="Collected"
             value={fmtMoney(run.total_actual)}
-            href={`/reconciliation/${run.id}`}
+            href={hrefWith(new Set())}
             active={false}
           />
         )}
@@ -536,7 +552,14 @@ export default async function ReconciliationRunPage({
         )}
       </section>
 
-      <section className="mt-8 rounded-2xl bg-white shadow-sm">
+      <div className="mt-6">
+        <SearchInput
+          placeholder="Search by tenant, payer, unit, or room…"
+          ariaLabel="Search reconciliation rows"
+        />
+      </div>
+
+      <section className="mt-4 rounded-2xl bg-white shadow-sm">
         <table className="w-full text-sm">
           <thead className="sticky top-0 z-10 bg-warm text-left text-xs uppercase tracking-wide text-muted shadow-sm md:top-14">
             <tr>
