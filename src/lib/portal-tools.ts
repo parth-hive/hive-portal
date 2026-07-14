@@ -272,7 +272,8 @@ export async function listActiveTenants(args: {
   const { data, error } = await supabase
     .from("tenancies")
     .select(
-      `id, monthly_rent, tenant_id,
+      `id, monthly_rent, first_month_rent, security_deposit, start_date,
+       move_out_date, tenant_id,
        tenants(id, full_name, email, phone),
        rooms(room_number,
              properties(id, building_name, street_address, unit_number)),
@@ -281,42 +282,35 @@ export async function listActiveTenants(args: {
     .eq("status", "active");
   if (error) throw new Error(error.message);
 
-  // Rent-rate history so a past month's due/balance uses the rate in effect
-  // that month, not today's monthly_rent. Table post-dates generated types.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const sb = supabase as any;
-  const { data: histRows } = await sb
-    .from("tenancy_rent_history")
-    .select("tenancy_id, effective_month, monthly_rent")
-    .in("tenancy_id", (data ?? []).map((t) => t.id));
-  const changesByTenancy = new Map<
-    string,
-    { effective_month: string; monthly_rent: number }[]
-  >();
-  for (const r of histRows ?? []) {
-    const list = changesByTenancy.get(r.tenancy_id);
-    if (list) list.push(r);
-    else changesByTenancy.set(r.tenancy_id, [r]);
-  }
+  // Ledger sidecars (ad-hoc charges, credit allocations, rent-rate history).
+  // The history also reprices a past cycle's due figure to the rate in effect
+  // that month, not today's monthly_rent.
+  const { charges, allocations, rentChanges } =
+    await fetchLedgerSidecars(supabase);
   const rentMonth = `${yyyymm}-01`;
+  const today = todayISO();
 
   const rows = (data ?? []).map((t) => {
     const paid = (t.payments ?? [])
       .filter(
-        (p: { payment_type: string; paid_on: string }) =>
-          p.payment_type === "rent" && p.paid_on >= start && p.paid_on <= end,
+        (p) => p.payment_type === "rent" && p.paid_on >= start && p.paid_on <= end,
       )
-      .reduce(
-        (sum: number, p: { amount: number | string }) => sum + Number(p.amount),
-        0,
-      );
+      .reduce((sum, p) => sum + Number(p.amount), 0);
     const tenant = one(t.tenants);
     const room = one(t.rooms);
     const property = one(room?.properties ?? null);
-    const rate = rateForMonthISO(
-      rentMonth,
-      t.monthly_rent,
-      changesByTenancy.get(t.id) ?? [],
+    const tenancyChanges = rentChanges.get(t.id) ?? [];
+    const rate = rateForMonthISO(rentMonth, t.monthly_rent, tenancyChanges);
+    // Carry-forward ledger balance — what the tenant owes overall right now,
+    // prior months and non-rent charges included. This is the number to quote
+    // when asked for someone's balance; cycle_balance is this cycle only.
+    const { netBalance } = computeLedger(
+      t,
+      t.payments ?? [],
+      charges.get(t.id) ?? [],
+      allocations.get(t.id) ?? [],
+      today,
+      tenancyChanges,
     );
     return {
       tenancy_id: t.id,
@@ -327,17 +321,18 @@ export async function listActiveTenants(args: {
       unit: property ? propertyLabel(property) : null,
       room: room?.room_number ?? null,
       monthly_rent: rate,
-      paid_this_month: paid,
-      balance_due: rate - paid,
+      paid_this_cycle: paid,
+      cycle_balance: rate - paid,
+      net_balance: netBalance,
     };
   });
 
-  // unpaid_only: no rent payment dated in this month (by transaction date),
-  // regardless of whether they're paid ahead. only_overdue: still owes a
-  // balance. unpaid_only takes precedence when both are set.
+  // unpaid_only: no rent payment dated in this cycle (by transaction date),
+  // regardless of whether they're paid ahead. only_overdue: still owes on the
+  // running ledger. unpaid_only takes precedence when both are set.
   let tenants = rows;
-  if (args.unpaid_only) tenants = tenants.filter((r) => r.paid_this_month === 0);
-  else if (args.only_overdue) tenants = tenants.filter((r) => r.balance_due > 0);
+  if (args.unpaid_only) tenants = tenants.filter((r) => r.paid_this_cycle === 0);
+  else if (args.only_overdue) tenants = tenants.filter((r) => r.net_balance > 0);
 
   return { month: yyyymm, tenants };
 }
@@ -1876,12 +1871,19 @@ const rawTools = [
     name: "list_active_tenants",
     description:
       "Active tenants with monthly rent, paid-this-cycle amount (by payment " +
-      "transaction date), and balance. Rent is collected on a 27th→26th cycle " +
-      "(tenants pay from the 27th), so 'this month' = the 27th of the prior " +
-      "month through the 26th. Defaults to the current cycle. Pass only_overdue: " +
-      "true to filter to balance_due > 0. Pass unpaid_only: true to list tenants " +
-      "who have made NO rent payment dated in the cycle (paid = 0) — i.e. who " +
-      "hasn't paid anything this month, regardless of whether they're paid ahead.",
+      "transaction date), and balances. net_balance is the carry-forward " +
+      "ledger balance — everything the tenant owes overall right now, prior " +
+      "months and non-rent charges included (negative = account credit / paid " +
+      "ahead). ALWAYS quote net_balance when asked what someone owes or their " +
+      "balance. cycle_balance is this cycle's rent minus this cycle's payments " +
+      "only — use it solely for 'how does this cycle look' questions. Rent is " +
+      "collected on a 27th→26th cycle (tenants pay from the 27th), so 'this " +
+      "month' = the 27th of the prior month through the 26th. Defaults to the " +
+      "current cycle (net_balance is always as of today regardless of month). " +
+      "Pass only_overdue: true to filter to net_balance > 0. Pass unpaid_only: " +
+      "true to list tenants who have made NO rent payment dated in the cycle " +
+      "(paid = 0) — i.e. who hasn't paid anything this month, regardless of " +
+      "whether they're paid ahead.",
     inputSchema: z.object({
       month: z
         .string()
