@@ -9,6 +9,7 @@ import { recomputeRun } from "@/lib/reconciliation/matching";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { DeleteRunButton } from "./delete-run";
 import { AddStatementForm } from "./add-statement-form";
+import { LedgerQuickAdd } from "./ledger-quick-add";
 import { AssignDepositForm, type AssignTenantOption } from "./assign-deposit-form";
 import { one } from "@/lib/relations";
 import { postPayments, unpostPayments } from "../actions";
@@ -21,8 +22,14 @@ type PageProps = {
 };
 
 type FilterKey = "match" | "mismatch" | "missing";
-function isFilterParam(v: string | undefined): v is FilterKey {
+function isFilterKey(v: string): v is FilterKey {
   return v === "match" || v === "mismatch" || v === "missing";
+}
+
+// Filters are multi-select: `?filter=mismatch,missing` keeps both applied,
+// and clicking an active card removes just that one.
+function parseFilters(param: string | undefined): Set<FilterKey> {
+  return new Set((param ?? "").split(",").filter(isFilterKey));
 }
 
 type Run = {
@@ -81,13 +88,13 @@ const STATUS_LABEL: Record<FilterKey, string> = {
 };
 
 // Carry-forward account balance once this statement is in: red when they'd
-// still owe, honey credit when overpaid, green when it settles them.
+// still owe, green when overpaid (credit) or settled.
 function RunBalance({ n }: { n: number | undefined }) {
   if (n === undefined) return <span className="text-muted">—</span>;
   if (n > 0.005) return <span className="text-red-700">{fmtMoney(n)}</span>;
   if (n < -0.005) {
     return (
-      <span className="rounded-full bg-accent/15 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-accent-text">
+      <span className="rounded-full bg-green-100 px-2 py-0.5 text-xs font-semibold uppercase tracking-wide text-green-800">
         Credit {fmtMoney(-n)}
       </span>
     );
@@ -105,7 +112,16 @@ export default async function ReconciliationRunPage({
 }: PageProps) {
   const { id } = await params;
   const sp = await searchParams;
-  const activeFilter = isFilterParam(sp.filter) ? sp.filter : null;
+  const activeFilters = parseFilters(sp.filter);
+  // Toggle one status in/out of the filter set, preserving the others.
+  const toggleHref = (key: FilterKey) => {
+    const next = new Set(activeFilters);
+    if (next.has(key)) next.delete(key);
+    else next.add(key);
+    return next.size === 0
+      ? `/reconciliation/${id}`
+      : `/reconciliation/${id}?filter=${[...next].join(",")}`;
+  };
 
   const supabase = await createClient();
   // The Expected/Collected money totals are admin-only; the run itself, the
@@ -155,16 +171,12 @@ export default async function ReconciliationRunPage({
 
   if (!run) notFound();
 
-  // Two dynamic ledger figures per tenancy, from the same carry-forward math
-  // as the Rent Tracker:
-  //   Expected — everything owed BEFORE this statement: the running balance
-  //     with this run's already-posted deposits added back (and its unposted
-  //     ones simply not yet counted). Rent + utilities + fees, minus credit.
-  //   Balance — where they stand AFTER this statement: the running balance
-  //     minus this run's matched deposits that aren't posted as payments yet.
-  // Deposits whose external_ref already exists in payments (this run posted,
-  // or an overlapping statement did) are already inside the ledger — they are
-  // added back into Expected and not subtracted again from Balance.
+  // Balance — where each tenant stands AFTER this statement, from the same
+  // carry-forward ledger math as the Rent Tracker: the running balance minus
+  // this run's matched deposits that aren't posted as payments yet. Deposits
+  // whose external_ref already exists in payments (this run posted, or an
+  // overlapping statement did) are already inside the ledger and are not
+  // subtracted again.
   const tenancyIds = Array.from(
     new Set(
       (matches ?? [])
@@ -173,7 +185,6 @@ export default async function ReconciliationRunPage({
     ),
   );
   const balanceAfter = new Map<string, number>();
-  const expectedBefore = new Map<string, number>();
   if (tenancyIds.length > 0) {
     type LedgerTenancyRow = {
       id: string;
@@ -221,12 +232,12 @@ export default async function ReconciliationRunPage({
       }
     }
     const pendingByTenancy = new Map<string, number>();
-    const postedByTenancy = new Map<string, number>();
     for (const d of deps) {
-      const target = postedRefs.has(d.external_ref)
-        ? postedByTenancy
-        : pendingByTenancy;
-      target.set(d.tenancy_id, (target.get(d.tenancy_id) ?? 0) + Number(d.amount));
+      if (postedRefs.has(d.external_ref)) continue;
+      pendingByTenancy.set(
+        d.tenancy_id,
+        (pendingByTenancy.get(d.tenancy_id) ?? 0) + Number(d.amount),
+      );
     }
 
     const cents = (n: number) => Math.round(n * 100) / 100;
@@ -240,17 +251,28 @@ export default async function ReconciliationRunPage({
         today,
         sidecars.rentChanges.get(t.id) ?? [],
       );
-      expectedBefore.set(
-        t.id,
-        cents(netBalance + (postedByTenancy.get(t.id) ?? 0)),
-      );
       balanceAfter.set(t.id, cents(netBalance - (pendingByTenancy.get(t.id) ?? 0)));
     }
   }
 
-  const filtered = activeFilter
-    ? (matches ?? []).filter((m) => m.status === activeFilter)
-    : matches ?? [];
+  const filtered =
+    activeFilters.size > 0
+      ? (matches ?? []).filter((m) => activeFilters.has(m.status))
+      : matches ?? [];
+
+  // Row order: settled matches first, then matches still owing, then matches
+  // in credit, then mismatches, then missing — tenant name within each group.
+  const groupOf = (m: Match): number => {
+    if (m.status === "mismatch") return 3;
+    if (m.status === "missing") return 4;
+    const b = m.tenancy_id ? balanceAfter.get(m.tenancy_id) : undefined;
+    if (b === undefined) return 2;
+    if (Math.abs(b) <= 0.005) return 0;
+    return b > 0.005 ? 1 : 2;
+  };
+  const sorted = [...filtered].sort(
+    (a, b) => groupOf(a) - groupOf(b) || a.tenant_name.localeCompare(b.tenant_name),
+  );
 
   // Active tenancies to choose from when assigning an unmatched deposit.
   const hasUnmatched =
@@ -384,7 +406,7 @@ export default async function ReconciliationRunPage({
             label="Expected"
             value={fmtMoney(run.total_expected)}
             href={`/reconciliation/${run.id}`}
-            active={activeFilter === null}
+            active={activeFilters.size === 0}
           />
         )}
         {admin && (
@@ -398,34 +420,22 @@ export default async function ReconciliationRunPage({
         <KpiCard
           label="Match"
           value={run.match_count ?? 0}
-          href={
-            activeFilter === "match"
-              ? `/reconciliation/${run.id}`
-              : `/reconciliation/${run.id}?filter=match`
-          }
-          active={activeFilter === "match"}
+          href={toggleHref("match")}
+          active={activeFilters.has("match")}
           accent="bg-green-100 text-green-900"
         />
         <KpiCard
           label="Mismatch"
           value={run.mismatch_count ?? 0}
-          href={
-            activeFilter === "mismatch"
-              ? `/reconciliation/${run.id}`
-              : `/reconciliation/${run.id}?filter=mismatch`
-          }
-          active={activeFilter === "mismatch"}
+          href={toggleHref("mismatch")}
+          active={activeFilters.has("mismatch")}
           accent="bg-orange-100 text-orange-900"
         />
         <KpiCard
           label="Missing"
           value={run.missing_count ?? 0}
-          href={
-            activeFilter === "missing"
-              ? `/reconciliation/${run.id}`
-              : `/reconciliation/${run.id}?filter=missing`
-          }
-          active={activeFilter === "missing"}
+          href={toggleHref("missing")}
+          active={activeFilters.has("missing")}
           accent="bg-red-100 text-red-900"
         />
       </section>
@@ -443,12 +453,6 @@ export default async function ReconciliationRunPage({
               >
                 Rent
               </th>
-              <th
-                title="Everything owed before this statement — rent, utilities, and fees, minus any credit"
-                className="bg-warm px-5 py-3 text-right font-medium"
-              >
-                Expected
-              </th>
               <th className="bg-warm px-5 py-3 text-right font-medium">Paid</th>
               <th
                 title="Total account balance once this statement's deposits are in the ledger"
@@ -456,11 +460,12 @@ export default async function ReconciliationRunPage({
               >
                 Balance
               </th>
-              <th className="rounded-tr-2xl bg-warm px-5 py-3 font-medium">Status</th>
+              <th className="bg-warm px-5 py-3 font-medium">Status</th>
+              <th className="rounded-tr-2xl bg-warm px-5 py-3 font-medium" />
             </tr>
           </thead>
           <tbody>
-            {filtered.map((m) => {
+            {sorted.map((m) => {
               const flagged = m.status === "mismatch" || m.status === "missing";
               return (
               <tr key={m.id} className="border-t border-stone/40">
@@ -482,21 +487,6 @@ export default async function ReconciliationRunPage({
                   {fmtMoney(m.expected_rent)}
                 </td>
                 <td className="px-5 py-4 text-right tabular-nums text-ink">
-                  {(() => {
-                    const exp = m.tenancy_id
-                      ? expectedBefore.get(m.tenancy_id)
-                      : undefined;
-                    if (exp === undefined) return "—";
-                    if (exp < -0.005)
-                      return (
-                        <span className="text-accent-text">
-                          Credit {fmtMoney(-exp)}
-                        </span>
-                      );
-                    return fmtMoney(exp);
-                  })()}
-                </td>
-                <td className="px-5 py-4 text-right tabular-nums text-ink">
                   {fmtMoney(m.actual_amount)}
                 </td>
                 <td className="px-5 py-4 text-right tabular-nums">
@@ -510,6 +500,22 @@ export default async function ReconciliationRunPage({
                   >
                     {STATUS_LABEL[m.status]}
                   </span>
+                </td>
+                <td className="px-3 py-4 text-right">
+                  {flagged && m.tenancy_id && m.tenant_id && (
+                    <LedgerQuickAdd
+                      tenancyId={m.tenancy_id}
+                      tenantId={m.tenant_id}
+                      tenantName={m.tenant_name}
+                      suggestedAmount={Math.max(
+                        0,
+                        Math.round(
+                          (Number(m.expected_rent) - Number(m.actual_amount)) * 100,
+                        ) / 100,
+                      )}
+                      canCharge={canPost}
+                    />
+                  )}
                 </td>
               </tr>
               );
