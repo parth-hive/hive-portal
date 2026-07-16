@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import ExcelJS from "exceljs";
 import { createClient } from "@/lib/supabase/server";
-import { isMaster } from "@/lib/access";
+import { canEditLedger } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 // Building the workbook scales with match count; lift the ceiling off Vercel's
@@ -51,7 +51,7 @@ export async function GET(req: Request, context: RouteContext) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!isMaster(user?.email)) {
+  if (!canEditLedger(user?.email)) {
     return NextResponse.json({ error: "Not authorized" }, { status: 403 });
   }
   const [{ data: run }, { data: matches }] = await Promise.all([

@@ -80,11 +80,15 @@ function easternParts(): { year: number; month: number; day: number; hour: numbe
 
 export async function GET(req: NextRequest) {
   const expected = process.env.CRON_SECRET;
-  if (expected) {
-    const auth = req.headers.get("authorization") ?? "";
-    if (auth !== `Bearer ${expected}`) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
+  if (!expected) {
+    return NextResponse.json(
+      { error: "CRON_SECRET is not configured" },
+      { status: 503 },
+    );
+  }
+  const auth = req.headers.get("authorization") ?? "";
+  if (auth !== `Bearer ${expected}`) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   // Gate: only send at 11 AM ET on the last day of the month (?force=1 skips
@@ -117,7 +121,7 @@ export async function GET(req: NextRequest) {
   const { data: tenancies, error } = await supabase
     .from("tenancies")
     .select(
-      `id, tenant_id, move_out_date, status,
+      `id, tenant_id, start_date, move_out_date, status,
        tenants!inner(id, email, phone),
        rooms!inner(properties!inner(is_new_york))`,
     )
@@ -148,6 +152,7 @@ export async function GET(req: NextRequest) {
   type Row = {
     id: string;
     tenant_id: string;
+    start_date: string;
     move_out_date: string | null;
     tenants:
       | { id: string; email: string | null; phone: string | null }
@@ -179,7 +184,7 @@ export async function GET(req: NextRequest) {
   for (const row of (tenancies ?? []) as Row[]) {
     const tenant = Array.isArray(row.tenants) ? row.tenants[0] : row.tenants;
     const email = tenant?.email?.trim();
-    if (!email || row.move_out_date) {
+    if (!email || row.move_out_date || row.start_date > todayISO()) {
       skipped++;
       continue;
     }

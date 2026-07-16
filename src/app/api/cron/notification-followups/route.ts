@@ -16,6 +16,7 @@ import { runCleaningSchedule } from "@/lib/cleaning-reminders";
 import { flushEmailQueue } from "@/lib/resend-quota";
 import { processBoardDeadlines } from "@/lib/board";
 import { applyMonthlyLateFees } from "@/lib/late-fees";
+import { processExpiredTenancies } from "@/lib/tenancy-lifecycle";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -30,14 +31,22 @@ function admin() {
 
 export async function GET(req: NextRequest) {
   const expected = process.env.CRON_SECRET;
-  if (expected) {
-    const auth = req.headers.get("authorization") ?? "";
-    if (auth !== `Bearer ${expected}`) {
-      return NextResponse.json({ error: "unauthorized" }, { status: 401 });
-    }
+  if (!expected) {
+    return NextResponse.json(
+      { error: "CRON_SECRET is not configured" },
+      { status: 503 },
+    );
+  }
+  const auth = req.headers.get("authorization") ?? "";
+  if (auth !== `Bearer ${expected}`) {
+    return NextResponse.json({ error: "unauthorized" }, { status: 401 });
   }
 
   const supabase = admin();
+
+  // Scheduled move-outs are finalized here, never as a GET-page render side
+  // effect. This keeps reads read-only and makes the actor explicit (cron).
+  const tenancyLifecycle = await processExpiredTenancies(supabase);
 
   // Drain any Resend emails deferred on earlier days FIRST, so backlog gets
   // first claim on today's free-tier budget (FIFO). Today's own sends below run
@@ -67,5 +76,12 @@ export async function GET(req: NextRequest) {
     error: e instanceof Error ? e.message : "late fees failed",
   }));
 
-  return NextResponse.json({ lease, cleaningSchedule, flush, board, lateFees });
+  return NextResponse.json({
+    tenancyLifecycle,
+    lease,
+    cleaningSchedule,
+    flush,
+    board,
+    lateFees,
+  });
 }

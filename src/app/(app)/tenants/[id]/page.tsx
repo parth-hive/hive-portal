@@ -308,7 +308,7 @@ export default async function TenantDetailPage({
                     "—"
                   )}
                 </dd>
-                <dt className="text-muted">Deposit</dt>
+                <dt className="text-muted">Deposit (lease reference)</dt>
                 <dd className="col-span-2 text-ink">
                   {ledgerAdmin ? (
                     <RentAmountEdit
@@ -326,6 +326,9 @@ export default async function TenantDetailPage({
                   ) : (
                     "—"
                   )}
+                  <p className="mt-1 text-[11px] text-muted">
+                    Ledger amount is controlled by security-deposit charges.
+                  </p>
                 </dd>
                 <dt className="text-muted">Lease Start Date</dt>
                 <dd className="col-span-2 text-ink">

@@ -149,11 +149,13 @@ export default async function Dashboard() {
     if (list) list.push(pmt);
     else paymentsByTenancy.set(pmt.tenancy_id, [pmt]);
     if (
-      pmt.payment_type === "rent" &&
+      (pmt.payment_type === "rent" || pmt.payment_type === "refund") &&
       pmt.paid_on >= tm.start &&
-      pmt.paid_on <= tm.end
+      pmt.paid_on <= tm.end &&
+      pmt.paid_on <= today
     ) {
-      collectedThisMonth += Number(pmt.amount);
+      collectedThisMonth +=
+        (pmt.payment_type === "refund" ? -1 : 1) * Number(pmt.amount);
     }
   }
 

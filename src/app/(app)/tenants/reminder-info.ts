@@ -42,10 +42,6 @@ function fmtWhen(iso: string | null): string | null {
 export async function getReminderInfo(
   supabase: SupabaseServer,
 ): Promise<ReminderInfo> {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = now.getMonth();
-  const monthEnd = new Date(y, m + 1, 0).toISOString().slice(0, 10);
   const today = todayISO();
 
   type ReminderTenancy = {
@@ -92,7 +88,7 @@ export async function getReminderInfo(
   let outstandingCount = 0;
   for (const row of tenancies ?? []) {
     if (row.move_out_date && row.move_out_date <= today) continue;
-    if (row.start_date > monthEnd) continue;
+    if (row.start_date > today) continue;
     const { netBalance } = computeLedger(
       row,
       row.payments ?? [],

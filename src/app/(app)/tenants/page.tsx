@@ -6,13 +6,12 @@ import { BalanceFilter } from "./balance-filter";
 import { BalanceSort } from "./balance-sort";
 import { RentReminderButton } from "./rent-reminder-button";
 import { getReminderInfo } from "./reminder-info";
-import { processExpiredTenancies } from "./actions";
 import {
   TenantGroups,
   type DisplayGroup,
   type DisplayRow,
 } from "./tenant-groups";
-import { computeLedger } from "@/lib/rent";
+import { computeLedger, rateForMonthISO } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
 import { todayISO, currentRentCycle } from "@/lib/date";
 import { canEditLedger, isMaster } from "@/lib/access";
@@ -81,8 +80,9 @@ function dueForMonth(
   firstMonthRent: number | null,
   monthStart: string,
   monthEnd: string,
+  today: string,
 ): number {
-  if (startDate > monthEnd) return 0;
+  if (startDate > monthEnd || startDate > today) return 0;
   const isStartingMonth = startDate >= monthStart && startDate <= monthEnd;
   if (isStartingMonth && firstMonthRent !== null) {
     return firstMonthRent;
@@ -103,9 +103,6 @@ export default async function TenantsPage({ searchParams }: PageProps) {
     owingOnly && (sort === "balance_desc" || sort === "balance_asc")
       ? sort
       : null;
-
-  // Finalize any tenancies whose move_out_date has passed since the last visit.
-  await processExpiredTenancies();
 
   const supabase = await createClient();
   const {
@@ -222,17 +219,28 @@ export default async function TenantsPage({ searchParams }: PageProps) {
     const paidThisMonth = (row.payments ?? [])
       .filter(
         (p) =>
-          p.payment_type === "rent" &&
+          (p.payment_type === "rent" || p.payment_type === "refund") &&
           p.paid_on >= monthStart &&
-          p.paid_on <= monthEnd,
+          p.paid_on <= monthEnd &&
+          p.paid_on <= today,
       )
-      .reduce((sum, p) => sum + Number(p.amount), 0);
+      .reduce(
+        (sum, p) =>
+          sum + (p.payment_type === "refund" ? -1 : 1) * Number(p.amount),
+        0,
+      );
+    const effectiveRate = rateForMonthISO(
+      monthEnd,
+      row.monthly_rent,
+      rentChanges.get(row.id) ?? [],
+    );
     const due = dueForMonth(
       row.start_date,
-      Number(row.monthly_rent),
+      effectiveRate,
       row.first_month_rent !== null ? Number(row.first_month_rent) : null,
       monthStart,
       monthEnd,
+      today,
     );
     const ledger = computeLedger(
       row,

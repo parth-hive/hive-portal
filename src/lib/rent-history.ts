@@ -1,14 +1,12 @@
 /**
  * Recording rent-rate changes in `tenancy_rent_history` — the mechanism that
  * makes a monthly-rent edit apply to FUTURE months only. Every code path that
- * writes `tenancies.monthly_rent` must call {@link recordRentChange} first, or
- * the ledger (and everything downstream) retroactively reprices past months.
+ * writes `tenancies.monthly_rent` must use {@link updateTenancyRent}, or the
+ * ledger (and everything downstream) can retroactively reprice past months.
  *
  * Accessed via `as any` because the table post-dates the generated Supabase
  * types (same pattern as rent-data.ts).
  */
-
-import { todayISO } from "@/lib/date";
 
 // Accepts either the user-scoped server client or the service-role admin
 // client — both expose the same query builder surface.
@@ -16,51 +14,24 @@ import { todayISO } from "@/lib/date";
 type AnySupabase = any;
 
 /**
- * Records a rent change effective the month of `effectiveFrom` (typically the
- * renewed lease's start date; defaults to today), backfilling the original
- * rate as a baseline the first time so months before the lease start keep
- * billing what they billed. A past-dated lease start is allowed — a renewal
- * recorded late reprices the already-billed months from that start onward,
- * per the signed lease; months before it are untouched. No-op when the rate
- * isn't actually changing. Call BEFORE updating `tenancies.monthly_rent`
- * (the baseline reads the pre-change rate).
+ * Atomically records the effective rate and updates the tenancy's current
+ * lease terms. Use this for every monthly-rent edit; unlike the legacy helper,
+ * it cannot leave rent history and `tenancies.monthly_rent` out of sync.
  */
-export async function recordRentChange(
+export async function updateTenancyRent(
   supabase: AnySupabase,
   tenancyId: string,
   newRate: number,
-  effectiveFrom?: string,
+  effectiveFrom: string,
+  leaseStart: string,
+  leaseEnd: string,
 ): Promise<{ error?: string }> {
-  const { data: cur } = await supabase
-    .from("tenancies")
-    .select("monthly_rent, start_date")
-    .eq("id", tenancyId)
-    .single();
-  if (!cur || Number(cur.monthly_rent) === newRate) return {};
-
-  const effectiveMonth = `${(effectiveFrom ?? todayISO()).slice(0, 7)}-01`;
-
-  const { count } = await supabase
-    .from("tenancy_rent_history")
-    .select("id", { count: "exact", head: true })
-    .eq("tenancy_id", tenancyId);
-  if (!count) {
-    const baseline = `${cur.start_date.slice(0, 7)}-01`;
-    if (baseline < effectiveMonth) {
-      await supabase.from("tenancy_rent_history").insert({
-        tenancy_id: tenancyId,
-        effective_month: baseline,
-        monthly_rent: Number(cur.monthly_rent),
-      });
-    }
-  }
-  const { error } = await supabase.from("tenancy_rent_history").upsert(
-    {
-      tenancy_id: tenancyId,
-      effective_month: effectiveMonth,
-      monthly_rent: newRate,
-    },
-    { onConflict: "tenancy_id,effective_month" },
-  );
+  const { error } = await supabase.rpc("update_tenancy_rent", {
+    p_tenancy_id: tenancyId,
+    p_new_rate: newRate,
+    p_effective_from: effectiveFrom,
+    p_lease_start: leaseStart,
+    p_lease_end: leaseEnd,
+  });
   return error ? { error: error.message } : {};
 }

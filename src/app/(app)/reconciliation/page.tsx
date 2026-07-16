@@ -4,7 +4,9 @@ import { formatDate, todayISO, currentRentCycle } from "@/lib/date";
 import { one } from "@/lib/relations";
 import { RunRow } from "./run-row";
 import { BulkPaymentForm, type BulkTenant } from "./bulk-payment-form";
-import { isMaster } from "@/lib/access";
+import { canEditLedger } from "@/lib/access";
+import { fetchLedgerSidecars } from "@/lib/rent-data";
+import { rateForMonthISO } from "@/lib/rent";
 
 export const dynamic = "force-dynamic";
 // runReconciliation (spreadsheet parse + two storage uploads) and postPayments
@@ -40,9 +42,14 @@ export default async function ReconciliationListPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  // Runs stay visible to everyone; the Expected/Collected totals within them
-  // and the per-tenant "paid this month" hint are admin-only.
-  const admin = isMaster(user?.email);
+  const admin = canEditLedger(user?.email);
+  if (!admin) {
+    return (
+      <div className="mx-auto w-full max-w-3xl rounded-2xl bg-white px-6 py-12 text-center text-sm text-muted shadow-sm">
+        Bank reconciliation is restricted to the financial operators.
+      </div>
+    );
+  }
   const { data, error } = await supabase
     .from("reconciliation_runs")
     .select(
@@ -83,6 +90,8 @@ export default async function ReconciliationListPage() {
     .eq("status", "active")
     .returns<TenancyRow[]>();
 
+  const { rentChanges } = await fetchLedgerSidecars(supabase);
+  const today = todayISO();
   const bulkTenants: BulkTenant[] = (tenancyData ?? [])
     .map((t) => {
       const tenant = one(t.tenants);
@@ -94,17 +103,26 @@ export default async function ReconciliationListPage() {
       const paid = (t.payments ?? [])
         .filter(
           (p) =>
-            p.payment_type === "rent" &&
+            (p.payment_type === "rent" || p.payment_type === "refund") &&
             p.paid_on >= cycle.start &&
-            p.paid_on <= cycle.end,
+            p.paid_on <= cycle.end &&
+            p.paid_on <= today,
         )
-        .reduce((s, p) => s + Number(p.amount), 0);
+        .reduce(
+          (s, p) =>
+            s + (p.payment_type === "refund" ? -1 : 1) * Number(p.amount),
+          0,
+        );
       return {
         tenancy_id: t.id,
         name: tenant?.full_name ?? "—",
         unit,
         room: room?.room_number ?? null,
-        monthly_rent: Number(t.monthly_rent),
+        monthly_rent: rateForMonthISO(
+          cycle.end,
+          t.monthly_rent,
+          rentChanges.get(t.id) ?? [],
+        ),
         paid_this_month: paid,
       };
     })
@@ -135,7 +153,7 @@ export default async function ReconciliationListPage() {
 
       <BulkPaymentForm
         tenants={bulkTenants}
-        defaultDate={todayISO()}
+        defaultDate={today}
         admin={admin}
       />
 

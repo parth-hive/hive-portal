@@ -2,7 +2,6 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { one } from "@/lib/relations";
 import { todayISO } from "@/lib/date";
-import { processExpiredTenancies } from "../tenants/actions";
 import { CopyListing } from "./copy-listing";
 import { ListingActionSelector } from "./listing-action";
 import {
@@ -103,7 +102,6 @@ function inventoryHref(
 }
 
 export default async function InventoryPage({ searchParams }: PageProps) {
-  await processExpiredTenancies();
 
   const params = await searchParams;
   const sortKey = isSortKey(params.sort) ? params.sort : DEFAULT_SORT;
@@ -701,4 +699,3 @@ function Amenities({
     <span className="text-xs text-ink">{tags.join(", ")}</span>
   );
 }
-

@@ -24,6 +24,18 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type RunFormState = { error?: string } | undefined;
 
+function invalidPeriodRow(
+  rows: Deposit[],
+  start: string,
+  end: string,
+): Deposit | undefined {
+  const today = todayISO();
+  return rows.find(
+    (row) =>
+      !row.date || row.date < start || row.date > end || row.date > today,
+  );
+}
+
 // Store the bank file's negative Zelle rows (chargebacks) as reversal alerts
 // on the run, each matched to its best-guess original payment: the most
 // recent posted deposit from the same payer for the same amount. Upsert on
@@ -34,29 +46,47 @@ async function saveReversals(
   runId: string,
   reversals: Deposit[],
 ): Promise<void> {
-  for (const rev of reversals) {
-    const { data: suspect } = await supabase
-      .from("reconciliation_deposits")
-      .select("payment_id")
-      .eq("payer_key", rev.description)
-      .eq("amount", rev.amount)
-      .not("payment_id", "is", null)
-      .order("deposit_date", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    const { error } = await supabase.from("reconciliation_reversals").upsert(
-      {
-        run_id: runId,
-        external_ref: rev.externalRef,
-        payer_key: rev.description,
-        raw_description: rev.raw,
-        amount: rev.amount,
-        deposit_date: rev.date,
-        suspect_payment_id: suspect?.payment_id ?? null,
-      },
-      { onConflict: "external_ref", ignoreDuplicates: true },
-    );
-    if (error) console.error("[recon] save reversal failed:", error.message);
+  const insertedIds: string[] = [];
+  try {
+    for (const rev of reversals) {
+      let suspectQuery = supabase
+        .from("reconciliation_deposits")
+        .select("payment_id")
+        .eq("payer_key", rev.description)
+        .eq("amount", rev.amount)
+        .not("payment_id", "is", null)
+        .order("deposit_date", { ascending: false });
+      // A reversal can only point backward. Without this bound, a later payment
+      // could be selected as the transaction supposedly being reversed.
+      if (rev.date) suspectQuery = suspectQuery.lte("deposit_date", rev.date);
+      const { data: suspect, error: suspectError } = await suspectQuery
+        .limit(1)
+        .maybeSingle();
+      if (suspectError) throw new Error(suspectError.message);
+      const { data: inserted, error } = await supabase
+        .from("reconciliation_reversals")
+        .upsert(
+          {
+            run_id: runId,
+            external_ref: rev.externalRef,
+            payer_key: rev.description,
+            raw_description: rev.raw,
+            amount: rev.amount,
+            deposit_date: rev.date,
+            suspect_payment_id: suspect?.payment_id ?? null,
+          },
+          { onConflict: "external_ref", ignoreDuplicates: true },
+        )
+        .select("id")
+        .maybeSingle();
+      if (error) throw new Error(error.message);
+      if (inserted?.id) insertedIds.push(inserted.id);
+    }
+  } catch (error) {
+    if (insertedIds.length > 0) {
+      await supabase.from("reconciliation_reversals").delete().in("id", insertedIds);
+    }
+    throw error;
   }
 }
 
@@ -75,6 +105,9 @@ export async function runReconciliation(
   if (!/^\d{4}-(0[1-9]|1[0-2])-\d{2}$/.test(month)) {
     return { error: "Pick a month for this reconciliation." };
   }
+  if (month > `${todayISO().slice(0, 7)}-01`) {
+    return { error: "A reconciliation month can't be in the future." };
+  }
 
   const bankFile = formData.get("bank_statement");
   const otherFile = formData.get("other_payments");
@@ -84,6 +117,10 @@ export async function runReconciliation(
   }
 
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!canEditLedger(user?.email)) return { error: LEDGER_ADMIN_ERROR };
 
   // 1) Parse both files in-memory.
   let bankResult, otherResult;
@@ -118,6 +155,18 @@ export async function runReconciliation(
       deposits: otherResult.deposits.length,
     });
     allDeposits = [...allDeposits, ...otherResult.deposits];
+  }
+
+  const { start, end } = monthBounds(month);
+  const badDeposit = invalidPeriodRow(allDeposits, start, end);
+  const badReversal = invalidPeriodRow(bankResult.reversals, start, end);
+  if (badDeposit || badReversal) {
+    const bad = badDeposit ?? badReversal!;
+    return {
+      error:
+        `Every bank row must have a non-future date inside ${month.slice(0, 7)}. ` +
+        `Found ${bad.date ?? "a missing date"} in "${bad.raw.slice(0, 80)}".`,
+    };
   }
 
   // Fingerprint hygiene, in two parts:
@@ -157,7 +206,6 @@ export async function runReconciliation(
 
   // 2) Snapshot tenancies that overlapped the selected month (including ones
   //    that ended mid-month, whose payments would otherwise go unattributed).
-  const { start, end } = monthBounds(month);
   const { tenancies: tenancyRows, error: tErr } = await loadMonthTenancies(
     supabase,
     start,
@@ -189,10 +237,10 @@ export async function runReconciliation(
   const runId = runIns.id;
   console.log("[recon] run created:", runId);
 
-  // 4) Upload source files to storage (audit trail; non-fatal on failure —
-  //    but don't record a path pointing at an object that failed to store).
+  // 4) Upload source files to storage. A reconciliation without its source is
+  // not auditable, so source persistence is a requirement, not best-effort.
   const safeName = (s: string) => s.replace(/[^\w.\-]/g, "_");
-  let bankPath: string | null = `${runId}/bank-${Date.now()}-${safeName(bankFile.name)}`;
+  const bankPath = `${runId}/bank-${Date.now()}-${safeName(bankFile.name)}`;
   {
     const { error: upErr } = await supabase.storage
       .from("reconciliation")
@@ -201,8 +249,8 @@ export async function runReconciliation(
         upsert: false,
       });
     if (upErr) {
-      console.error("[recon] bank file upload failed:", upErr.message);
-      bankPath = null;
+      await supabase.from("reconciliation_runs").delete().eq("id", runId);
+      return { error: `Failed to preserve the bank statement: ${upErr.message}` };
     }
   }
 
@@ -216,13 +264,24 @@ export async function runReconciliation(
         upsert: false,
       });
     if (upErr) {
-      console.error("[recon] other file upload failed:", upErr.message);
-      otherPath = null;
+      await supabase.storage.from("reconciliation").remove([bankPath]);
+      await supabase.from("reconciliation_runs").delete().eq("id", runId);
+      return { error: `Failed to preserve the other-payments file: ${upErr.message}` };
     }
   }
 
   // 4b) Flag any negative Zelle rows (chargebacks) for operator review.
-  await saveReversals(supabase, runId, bankResult.reversals);
+  try {
+    await saveReversals(supabase, runId, bankResult.reversals);
+  } catch (e) {
+    await supabase.storage
+      .from("reconciliation")
+      .remove([bankPath, ...(otherPath ? [otherPath] : [])]);
+    await supabase.from("reconciliation_runs").delete().eq("id", runId);
+    return {
+      error: `Failed to save reversal alerts: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
 
   // 5) Build per-tenant matches (known non-rent payers stay out of the
   //    unmatched list).
@@ -235,16 +294,6 @@ export async function runReconciliation(
     runId,
     ignoredKeys,
   );
-
-  if (matches.length > 0) {
-    const { error: mErr } = await supabase
-      .from("reconciliation_matches")
-      .insert(matches);
-    if (mErr) {
-      await supabase.from("reconciliation_runs").delete().eq("id", runId);
-      return { error: `Failed to save matches: ${mErr.message}` };
-    }
-  }
 
   // 5b) Save every parsed deposit (matched or not) so Post payments can
   //     iterate them and dedupe by external_ref.
@@ -265,28 +314,58 @@ export async function runReconciliation(
       // Deposits are REQUIRED to post — without them Post would silently write
       // nothing yet mark the run "posted". Roll the whole run back instead of
       // leaving a run that looks ready but isn't.
-      await supabase
-        .from("reconciliation_matches")
-        .delete()
-        .eq("run_id", runId);
+      await supabase.storage
+        .from("reconciliation")
+        .remove([bankPath, ...(otherPath ? [otherPath] : [])]);
       await supabase.from("reconciliation_runs").delete().eq("id", runId);
       return { error: `Failed to save deposits: ${dErr.message}` };
     }
   }
 
-  await supabase
+  const { error: pathError } = await supabase
     .from("reconciliation_runs")
     .update({
       bank_statement_path: bankPath,
       other_payments_path: otherPath,
-      total_expected: totals.totalExpected,
-      total_actual: totals.totalActual,
-      match_count: totals.matchCount,
-      mismatch_count: totals.mismatchCount,
-      missing_count: totals.missingCount,
-      unmatched_deposits: unmatched,
     })
     .eq("id", runId);
+  if (pathError) {
+    await supabase.storage
+      .from("reconciliation")
+      .remove([bankPath, ...(otherPath ? [otherPath] : [])]);
+    await supabase.from("reconciliation_runs").delete().eq("id", runId);
+    return { error: `Failed to attach source files: ${pathError.message}` };
+  }
+
+  // Store matches, assignments, and totals as one snapshot transaction.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error: snapshotError } = await (supabase as any).rpc(
+    "replace_reconciliation_snapshot",
+    {
+      p_run_id: runId,
+      p_matches: matches,
+      p_deposit_assignments: Array.from(
+        new Set(allDeposits.map((deposit) => deposit.description)),
+      ).map((payerKey) => ({
+        payer_key: payerKey,
+        tenancy_id: tenancyByKey.get(payerKey) ?? null,
+      })),
+      p_unmatched: unmatched,
+      p_total_expected: totals.totalExpected,
+      p_total_actual: totals.totalActual,
+      p_match_count: totals.matchCount,
+      p_mismatch_count: totals.mismatchCount,
+      p_missing_count: totals.missingCount,
+      p_post_payments: false,
+    },
+  );
+  if (snapshotError) {
+    await supabase.storage
+      .from("reconciliation")
+      .remove([bankPath, ...(otherPath ? [otherPath] : [])]);
+    await supabase.from("reconciliation_runs").delete().eq("id", runId);
+    return { error: `Failed to save run snapshot: ${snapshotError.message}` };
+  }
 
   revalidatePath("/reconciliation");
   redirect(`/reconciliation/${runId}`);
@@ -313,6 +392,10 @@ export async function addStatementToRun(
   }
 
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!canEditLedger(user?.email)) return { error: LEDGER_ADMIN_ERROR };
   const { data: run } = await supabase
     .from("reconciliation_runs")
     .select("id, month, posted_at, notes")
@@ -325,21 +408,24 @@ export async function addStatementToRun(
     }>();
   if (!run) return { error: "Run not found." };
 
-  // Adding to a POSTED run writes ledger payments (the auto-post below) —
-  // same operator-only gate as posting and assigning on a posted run.
-  if (run.posted_at) {
-    const {
-      data: { user },
-    } = await supabase.auth.getUser();
-    if (!canEditLedger(user?.email)) return { error: LEDGER_ADMIN_ERROR };
-  }
-
   let parsed;
   try {
     parsed = await parseBankFile(file);
   } catch (e) {
     return {
       error: `Couldn't read bank file: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
+
+  const { start, end } = monthBounds(run.month);
+  const badDeposit = invalidPeriodRow(parsed.deposits, start, end);
+  const badReversal = invalidPeriodRow(parsed.reversals, start, end);
+  if (badDeposit || badReversal) {
+    const bad = badDeposit ?? badReversal!;
+    return {
+      error:
+        `Every bank row must have a non-future date inside ${run.month.slice(0, 7)}. ` +
+        `Found ${bad.date ?? "a missing date"} in "${bad.raw.slice(0, 80)}".`,
     };
   }
 
@@ -413,10 +499,35 @@ export async function addStatementToRun(
       contentType: file.type || "application/octet-stream",
       upsert: false,
     });
-  if (upErr) console.error("[recon] statement upload failed:", upErr.message);
+  if (upErr) {
+    await supabase
+      .from("reconciliation_deposits")
+      .delete()
+      .eq("run_id", runId)
+      .in(
+        "external_ref",
+        fresh.map((d) => d.externalRef),
+      );
+    return { error: `Failed to preserve the added statement: ${upErr.message}` };
+  }
 
   // Flag any negative Zelle rows (chargebacks) in the added statement.
-  await saveReversals(supabase, runId, parsed.reversals);
+  try {
+    await saveReversals(supabase, runId, parsed.reversals);
+  } catch (e) {
+    await supabase
+      .from("reconciliation_deposits")
+      .delete()
+      .eq("run_id", runId)
+      .in(
+        "external_ref",
+        fresh.map((d) => d.externalRef),
+      );
+    await supabase.storage.from("reconciliation").remove([path]);
+    return {
+      error: `Failed to save reversal alerts: ${e instanceof Error ? e.message : String(e)}`,
+    };
+  }
 
   const note =
     `Added ${file.name}: ${parsed.parsedRowCount} rows → ${fresh.length} new deposits` +
@@ -430,29 +541,20 @@ export async function addStatementToRun(
     .update({ notes: run.notes ? `${run.notes}\n${note}` : note })
     .eq("id", runId);
 
-  // Fold the new deposits into matches/totals/unmatched. If this throws the
-  // deposits are already saved — the run page recomputes on view anyway.
+  // Fold the new deposits into matches/totals/unmatched. For a posted run the
+  // snapshot replacement and ledger repost happen in one transaction.
   try {
-    await recomputeRun(supabase, runId);
+    await recomputeRun(supabase, runId, {
+      allowPosted: Boolean(run.posted_at),
+    });
   } catch (e) {
-    console.error("[recon] recompute after add-statement failed:", e);
+    return {
+      error:
+        `Added ${fresh.length} deposit${fresh.length === 1 ? "" : "s"}, but updating the run failed: ` +
+        `${e instanceof Error ? e.message : String(e)}`,
+    };
   }
-
-  // On an already-posted run, credit the new matched deposits to the ledger
-  // right away (same as assigning a deposit on a posted run) — posting upserts
-  // on external_ref, so the run's earlier payments can't duplicate.
-  if (run.posted_at) {
-    try {
-      await postRunCore(supabase, runId);
-    } catch (e) {
-      return {
-        error:
-          `Added ${fresh.length} deposit${fresh.length === 1 ? "" : "s"}, but posting them failed: ` +
-          `${e instanceof Error ? e.message : String(e)}`,
-      };
-    }
-    revalidatePath("/tenants");
-  }
+  if (run.posted_at) revalidatePath("/tenants");
 
   revalidatePath("/reconciliation");
   revalidatePath(`/reconciliation/${runId}`);
@@ -473,167 +575,13 @@ export async function addStatementToRun(
 // ----------------------------------------------------------------------------
 
 async function postRunCore(supabase: SupabaseClient, runId: string) {
-  // Load every parsed deposit on this run that matched a tenancy.
-  const { data: deposits, error: dErr } = await supabase
-    .from("reconciliation_deposits")
-    .select(
-      "id, tenancy_id, external_ref, amount, deposit_date, raw_description, payment_id",
-    )
-    .eq("run_id", runId)
-    .not("tenancy_id", "is", null);
-  if (dErr) {
-    throw new Error(`Failed to load deposits: ${dErr.message}`);
-  }
-  if (!deposits || deposits.length === 0) {
-    // Could be legitimate (nothing matched a tenant) OR a data problem (the
-    // deposit rows are missing). Distinguish via the run's own counts: if it
-    // matched any paying tenant there MUST be deposits to post — so refuse to
-    // mark it "posted" while writing nothing.
-    const { data: run } = await supabase
-      .from("reconciliation_runs")
-      .select("match_count, mismatch_count")
-      .eq("id", runId)
-      .maybeSingle();
-    const expectedToPost =
-      (run?.match_count ?? 0) + (run?.mismatch_count ?? 0);
-    if (expectedToPost > 0) {
-      throw new Error(
-        `This run matched ${expectedToPost} paying tenant(s) but has no deposit ` +
-          `records to post — the run is corrupt. Re-run this reconciliation before posting.`,
-      );
-    }
-    // Genuinely nothing to credit (all missing/unmatched): safe to mark posted.
-    await supabase
-      .from("reconciliation_runs")
-      .update({ posted_at: new Date().toISOString() })
-      .eq("id", runId);
-    return;
-  }
-
-  const stamp = todayISO();
-
-  // Prefetch every payment that already exists for this run's refs (posted
-  // earlier, or by an overlapping run) in a few bulk queries. Re-posting a
-  // large run (e.g. after adding a statement) then writes only the genuinely
-  // new or changed rows, instead of 2-3 round trips per deposit — which is
-  // what made "add statement to a posted run" hang.
-  const existingByRef = new Map<
-    string,
-    { id: string; tenancy_id: string | null }
-  >();
-  const refs = deposits.filter((d) => d.tenancy_id).map((d) => d.external_ref);
-  for (let i = 0; i < refs.length; i += 150) {
-    const { data: batch, error: exErr } = await supabase
-      .from("payments")
-      .select("id, tenancy_id, external_ref")
-      .in("external_ref", refs.slice(i, i + 150));
-    if (exErr) {
-      throw new Error(`Failed to load existing payments: ${exErr.message}`);
-    }
-    for (const p of batch ?? []) {
-      if (p.external_ref) {
-        existingByRef.set(p.external_ref, { id: p.id, tenancy_id: p.tenancy_id });
-      }
-    }
-  }
-
-  // For each matched deposit: insert its payment if missing (adopting the
-  // existing row on a unique-index race), move the money if the deposit was
-  // re-attributed since (a pays_as fix), and (re)link the deposit. Failures
-  // are collected, not swallowed: a single failure must not let the run be
-  // marked posted while payments are missing.
-  const failures: string[] = [];
-  for (const d of deposits) {
-    if (!d.tenancy_id) continue;
-    let existing = existingByRef.get(d.external_ref);
-    let paymentId: string | null = existing?.id ?? null;
-
-    if (!existing) {
-      const { data: ins, error: pErr } = await supabase
-        .from("payments")
-        .insert({
-          tenancy_id: d.tenancy_id,
-          paid_on: d.deposit_date ?? stamp,
-          amount: Number(d.amount),
-          payment_type: "rent",
-          method: "Reconciliation",
-          notes: `Posted from recon (${d.external_ref})`,
-          reconciliation_run_id: runId,
-          external_ref: d.external_ref,
-        })
-        .select("id")
-        .maybeSingle();
-      if (pErr) {
-        if (pErr.code === "23505") {
-          // Raced a concurrent post — adopt the winner's row.
-          const { data: raced } = await supabase
-            .from("payments")
-            .select("id, tenancy_id")
-            .eq("external_ref", d.external_ref)
-            .maybeSingle();
-          if (raced) {
-            existing = { id: raced.id, tenancy_id: raced.tenancy_id };
-            existingByRef.set(d.external_ref, existing);
-            paymentId = raced.id;
-          } else {
-            failures.push(`${d.external_ref}: ${pErr.message}`);
-            continue;
-          }
-        } else {
-          console.error("[recon] insert payment failed:", pErr, d.external_ref);
-          failures.push(`${d.external_ref}: ${pErr.message}`);
-          continue;
-        }
-      } else {
-        paymentId = ins?.id ?? null;
-      }
-    }
-
-    // The deposit was re-attributed since the payment was written (e.g. a
-    // pays_as fix moved it to a different tenancy) — move the money too,
-    // otherwise the match table shows the new tenant paid while the ledger
-    // credits the old one.
-    if (existing && existing.tenancy_id !== d.tenancy_id) {
-      const { error: moveErr } = await supabase
-        .from("payments")
-        .update({ tenancy_id: d.tenancy_id })
-        .eq("id", existing.id);
-      if (moveErr) {
-        failures.push(`${d.external_ref}: ${moveErr.message}`);
-        continue;
-      }
-      existing.tenancy_id = d.tenancy_id;
-    }
-
-    if (!paymentId) {
-      failures.push(`${d.external_ref}: no payment row written or found`);
-      continue;
-    }
-    if (d.payment_id !== paymentId) {
-      const { error: linkErr } = await supabase
-        .from("reconciliation_deposits")
-        .update({ payment_id: paymentId })
-        .eq("id", d.id);
-      if (linkErr) {
-        console.error("[recon] link deposit failed:", linkErr, d.external_ref);
-        failures.push(`${d.external_ref}: ${linkErr.message}`);
-      }
-    }
-  }
-
-  // Don't mark the run posted if anything failed — surface it instead, so
-  // the user isn't told "posted" while Tenants & Rent stays empty.
-  if (failures.length > 0) {
-    throw new Error(
-      `Posted ${deposits.length - failures.length}/${deposits.length} payments; ` +
-        `${failures.length} failed. First error — ${failures[0]}`,
-    );
-  }
-
-  await supabase
-    .from("reconciliation_runs")
-    .update({ posted_at: new Date().toISOString() })
-    .eq("id", runId);
+  // The RPC validates every external_ref and posts the entire run in one
+  // transaction. It intentionally refuses to "adopt" a conflicting payment.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any).rpc("post_reconciliation_run", {
+    p_run_id: runId,
+  });
+  if (error) throw new Error(error.message);
 }
 
 export async function postPayments(formData: FormData) {
@@ -663,48 +611,12 @@ export async function unpostPayments(formData: FormData) {
   } = await supabase.auth.getUser();
   if (!canEditLedger(user?.email)) throw new Error(LEDGER_ADMIN_ERROR);
 
-  // Delete by the payment ids this run's deposits were LINKED to at post
-  // time — not by external_ref. Matching on refs made unpost a silent no-op
-  // whenever another run (even an unposted preview of the same statement)
-  // held the same refs. A payment is kept only if a *different* run's
-  // deposit is actually linked to it (payment_id set, i.e. that run posted).
-  const { data: deps } = await supabase
-    .from("reconciliation_deposits")
-    .select("payment_id")
-    .eq("run_id", runId)
-    .not("payment_id", "is", null);
-  const paymentIds = Array.from(
-    new Set(
-      ((deps ?? []) as { payment_id: string }[]).map((d) => d.payment_id),
-    ),
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any).rpc(
+    "unpost_reconciliation_run",
+    { p_run_id: runId },
   );
-  if (paymentIds.length > 0) {
-    const { data: otherLinks } = await supabase
-      .from("reconciliation_deposits")
-      .select("payment_id")
-      .neq("run_id", runId)
-      .in("payment_id", paymentIds);
-    const keep = new Set(
-      ((otherLinks ?? []) as { payment_id: string }[]).map(
-        (r) => r.payment_id,
-      ),
-    );
-    const safeToDelete = paymentIds.filter((id) => !keep.has(id));
-    if (safeToDelete.length > 0) {
-      await supabase.from("payments").delete().in("id", safeToDelete);
-    }
-  }
-
-  // Detach this run's deposits from their payment rows.
-  await supabase
-    .from("reconciliation_deposits")
-    .update({ payment_id: null })
-    .eq("run_id", runId);
-
-  await supabase
-    .from("reconciliation_runs")
-    .update({ posted_at: null })
-    .eq("id", runId);
+  if (error) throw new Error(error.message);
 
   revalidatePath("/reconciliation");
   revalidatePath(`/reconciliation/${runId}`);
@@ -730,36 +642,27 @@ export async function deleteRun(formData: FormData) {
     throw new Error("Only an admin can delete a reconciliation run.");
   }
 
+  // Delete the database run and any exclusively-linked payments atomically.
+  // Source-object cleanup happens afterward; a storage failure can leave an
+  // inaccessible orphan, but can never leave the ledger half-deleted.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any).rpc(
+    "delete_reconciliation_run",
+    { p_run_id: id },
+  );
+  if (error) throw new Error(error.message);
+
   const { data: objects } = await supabase.storage
     .from("reconciliation")
     .list(id);
   if (objects && objects.length > 0) {
-    await supabase.storage
+    const { error: storageError } = await supabase.storage
       .from("reconciliation")
       .remove(objects.map((o) => `${id}/${o.name}`));
-  }
-  // Keep any payment another run's posted deposits are linked to — a payment
-  // created by this run can since have been adopted by an overlapping run.
-  const { data: mine } = await supabase
-    .from("payments")
-    .select("id")
-    .eq("reconciliation_run_id", id);
-  const mineIds = (mine ?? []).map((p) => p.id);
-  if (mineIds.length > 0) {
-    const { data: otherLinks } = await supabase
-      .from("reconciliation_deposits")
-      .select("payment_id")
-      .neq("run_id", id)
-      .in("payment_id", mineIds);
-    const keep = new Set(
-      ((otherLinks ?? []) as { payment_id: string }[]).map((r) => r.payment_id),
-    );
-    const del = mineIds.filter((p) => !keep.has(p));
-    if (del.length > 0) {
-      await supabase.from("payments").delete().in("id", del);
+    if (storageError) {
+      console.error("[recon] deleted run but source cleanup failed:", storageError);
     }
   }
-  await supabase.from("reconciliation_runs").delete().eq("id", id);
   revalidatePath("/reconciliation");
   redirect("/reconciliation");
 }
@@ -820,6 +723,10 @@ export async function recordManualPayments(
   if (rows.length === 0) return { error: "Enter an amount for at least one tenant." };
 
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!canEditLedger(user?.email)) return { error: LEDGER_ADMIN_ERROR };
   const { error } = await supabase.from("payments").insert(rows);
   if (error) return { error: error.message };
 
@@ -884,9 +791,11 @@ export async function ignoreUnmatchedPayer(
   if (error) return { error: error.message };
 
   try {
-    await recomputeRun(supabase, runId);
+    await recomputeRun(supabase, runId, { allowPosted: true });
   } catch (e) {
-    console.error("[recon] recompute after ignore failed:", e);
+    return {
+      error: `Payer was marked not-rent, but the run could not be updated: ${e instanceof Error ? e.message : String(e)}`,
+    };
   }
 
   revalidatePath("/reconciliation");
@@ -907,12 +816,16 @@ export async function unignorePayer(formData: FormData) {
   } = await supabase.auth.getUser();
   if (!canEditLedger(user?.email)) throw new Error(LEDGER_ADMIN_ERROR);
 
-  await supabase.from("ignored_payers").delete().eq("payer_key", payerKey);
+  const { error: deleteError } = await supabase
+    .from("ignored_payers")
+    .delete()
+    .eq("payer_key", payerKey);
+  if (deleteError) throw new Error(deleteError.message);
   if (runId) {
     try {
-      await recomputeRun(supabase, runId);
+      await recomputeRun(supabase, runId, { allowPosted: true });
     } catch (e) {
-      console.error("[recon] recompute after unignore failed:", e);
+      throw new Error(e instanceof Error ? e.message : String(e));
     }
     revalidatePath(`/reconciliation/${runId}`);
   }
@@ -943,88 +856,32 @@ export async function resolveReversal(
   } = await supabase.auth.getUser();
   if (!canEditLedger(user?.email)) return { error: LEDGER_ADMIN_ERROR };
 
-  const { data: rev } = await supabase
-    .from("reconciliation_reversals")
-    .select(
-      "id, run_id, external_ref, raw_description, amount, deposit_date, suspect_payment_id, resolved_at",
-    )
-    .eq("id", id)
-    .maybeSingle();
-  if (!rev) return { error: "Reversal not found." };
-  if (rev.resolved_at) return { success: "Already resolved." };
-
-  let refundPaymentId: string | null = null;
-  if (mode === "refund") {
-    if (!rev.suspect_payment_id) {
-      return {
-        error:
-          "No matching posted payment found for this reversal — record a refund on the tenant's page manually, then dismiss this alert.",
-      };
-    }
-    const { data: suspect } = await supabase
-      .from("payments")
-      .select("tenancy_id")
-      .eq("id", rev.suspect_payment_id)
-      .maybeSingle();
-    if (!suspect?.tenancy_id) {
-      return {
-        error:
-          "The suspected payment no longer exists — record the refund manually, then dismiss this alert.",
-      };
-    }
-
-    const paidOn =
-      rev.deposit_date && rev.deposit_date <= todayISO()
-        ? rev.deposit_date
-        : todayISO();
-    const { data: ins, error: insErr } = await supabase
-      .from("payments")
-      .insert({
-        tenancy_id: suspect.tenancy_id,
-        paid_on: paidOn,
-        amount: Number(rev.amount),
-        payment_type: "refund",
-        method: "Reconciliation",
-        notes: `Zelle reversal (${rev.raw_description.slice(0, 120)})`,
-        // The reversal's own fingerprint — a second click can't debit twice.
-        external_ref: rev.external_ref,
-      })
-      .select("id")
-      .single();
-    if (insErr) {
-      // Unique violation = the refund was already recorded; adopt it.
-      if (insErr.code === "23505") {
-        const { data: existing } = await supabase
-          .from("payments")
-          .select("id")
-          .eq("external_ref", rev.external_ref)
-          .maybeSingle();
-        refundPaymentId = existing?.id ?? null;
-      } else {
-        return { error: `Failed to record the refund: ${insErr.message}` };
-      }
-    } else {
-      refundPaymentId = ins.id;
-    }
-  }
-
-  await supabase
-    .from("reconciliation_reversals")
-    .update({
-      resolved_at: new Date().toISOString(),
-      resolved_by: user?.email ?? null,
-      resolution: mode === "refund" ? "refunded" : "dismissed",
-      refund_payment_id: refundPaymentId,
-    })
-    .eq("id", id);
+  // The refund payment and alert resolution commit together. The database
+  // also verifies any pre-existing external_ref matches amount/date/type.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data, error } = await (supabase as any).rpc(
+    "resolve_reconciliation_reversal",
+    {
+      p_reversal_id: id,
+      p_mode: mode,
+      p_resolved_by: user?.email ?? "unknown",
+    },
+  );
+  if (error) return { error: error.message };
+  const result = data as {
+    run_id: string;
+    amount: number;
+    already_resolved: boolean;
+  };
+  if (result.already_resolved) return { success: "Already resolved." };
 
   revalidatePath("/reconciliation");
-  revalidatePath(`/reconciliation/${rev.run_id}`);
+  revalidatePath(`/reconciliation/${result.run_id}`);
   revalidatePath("/tenants");
   return {
     success:
       mode === "refund"
-        ? `Refund of $${Number(rev.amount).toLocaleString()} recorded — the tenant's ledger now reflects the returned money.`
+        ? `Refund of $${Number(result.amount).toLocaleString()} recorded — the tenant's ledger now reflects the returned money.`
         : "Reversal dismissed.",
   };
 }
@@ -1091,17 +948,16 @@ export async function assignUnmatchedDeposit(
   if (upErr) return { error: `Failed to remember the payer: ${upErr.message}` };
 
   // Assigning affirms this payer IS rent — clear any stale not-rent flag.
-  await supabase.from("ignored_payers").delete().eq("payer_key", payerKey);
+  const { error: clearIgnoredError } = await supabase
+    .from("ignored_payers")
+    .delete()
+    .eq("payer_key", payerKey);
+  if (clearIgnoredError) {
+    return { error: `Failed to clear the not-rent flag: ${clearIgnoredError.message}` };
+  }
 
   try {
-    await recomputeRun(supabase, runId);
-    // If the run was already posted, credit the newly-matched deposit now.
-    const { data: run } = await supabase
-      .from("reconciliation_runs")
-      .select("posted_at")
-      .eq("id", runId)
-      .maybeSingle<{ posted_at: string | null }>();
-    if (run?.posted_at) await postRunCore(supabase, runId);
+    await recomputeRun(supabase, runId, { allowPosted: true });
   } catch (e) {
     return { error: e instanceof Error ? e.message : String(e) };
   }

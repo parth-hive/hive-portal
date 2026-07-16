@@ -5,7 +5,6 @@ import { canEditLedger, isMaster } from "@/lib/access";
 import { formatDate, todayISO } from "@/lib/date";
 import { computeLedger } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
-import { recomputeRun } from "@/lib/reconciliation/matching";
 import { AutoRefresh } from "@/components/auto-refresh";
 import { SearchInput } from "@/components/search-input";
 import { DeleteRunButton } from "./delete-run";
@@ -137,26 +136,13 @@ export default async function ReconciliationRunPage({
   };
 
   const supabase = await createClient();
-  // The Expected/Collected money totals are admin-only; the run itself, the
-  // match/mismatch/missing counts, and the per-tenant rows stay visible.
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const admin = isMaster(user?.email);
-  // Posting/unposting writes or deletes ledger payments — operator-only
-  // (enforced server-side in the actions; hidden here to match).
   const canPost = canEditLedger(user?.email);
-
-  // Freshen the stored snapshot before reading it: re-derive matches/totals
-  // from the run's saved deposits against current tenancy + payment data, so
-  // payments recorded (or deleted) since the run was created show up without
-  // re-uploading. A no-op write-wise when nothing changed; a failure falls
-  // back to displaying the stored rows.
-  try {
-    await recomputeRun(supabase, id);
-  } catch (e) {
-    console.error("[recon] recompute on view failed:", e);
-  }
+  if (!canPost) notFound();
+  const admin = canPost;
+  const master = isMaster(user?.email);
 
   const [{ data: run }, { data: matches }] = await Promise.all([
     supabase
@@ -733,7 +719,7 @@ export default async function ReconciliationRunPage({
         </section>
       )}
 
-      {admin && (
+      {master && (
         <section className="mt-12 border-t border-stone/60 pt-6">
           <DeleteRunButton id={run.id} label={monthLabel(run.month)} />
         </section>

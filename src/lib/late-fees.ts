@@ -52,18 +52,26 @@ export async function applyMonthlyLateFees(
     return { ran: false, reason: `waiting for day ${GRACE_DAY + 1}` };
   }
 
-  // Run-once-per-month marker.
+  // Claim the month before calculating or inserting anything. The partial
+  // unique index makes concurrent cron invocations race safely: exactly one
+  // wins, and a failed winner removes its marker so tomorrow can retry.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
-  const { data: existingBatch } = await sb
+  const { data: claimedBatch, error: claimError } = await sb
     .from("rent_reminder_batches")
+    .insert({
+      kind: "late_fee",
+      period_month: period,
+      recipient_count: 0,
+      triggered_by: "cron",
+    })
     .select("id")
-    .eq("kind", "late_fee")
-    .eq("period_month", period)
-    .limit(1)
-    .maybeSingle();
-  if (existingBatch) {
-    return { ran: false, reason: "already applied this month", period };
+    .single();
+  if (claimError) {
+    if (claimError.code === "23505") {
+      return { ran: false, reason: "already applied this month", period };
+    }
+    return { ran: false, error: claimError.message, period };
   }
 
   type TenancyRow = {
@@ -85,7 +93,10 @@ export async function applyMonthlyLateFees(
     )
     .eq("status", "active")
     .returns<TenancyRow[]>();
-  if (error) return { ran: false, error: error.message, period };
+  if (error) {
+    await sb.from("rent_reminder_batches").delete().eq("id", claimedBatch.id);
+    return { ran: false, error: error.message, period };
+  }
 
   const { charges, allocations, rentChanges } =
     await fetchLedgerSidecars(supabase);
@@ -95,14 +106,16 @@ export async function applyMonthlyLateFees(
   for (const [tenancyId, list] of charges) {
     if (
       list.some(
-        (c) => c.kind === "late_fee" && c.charged_on >= `${period}-01`,
+        (c) =>
+          c.kind === "late_fee" &&
+          c.charged_on >= `${period}-01` &&
+          c.charged_on <= today,
       )
     ) {
       alreadyFeed.add(tenancyId);
     }
   }
 
-  const monthEnd = `${period}-31`;
   let chargedCount = 0;
   let skippedExistingFee = 0;
   const tenants: string[] = [];
@@ -112,7 +125,7 @@ export async function applyMonthlyLateFees(
     // Same eligibility as balance reminders: currently living tenants whose
     // tenancy has started.
     if (row.move_out_date && row.move_out_date <= today) continue;
-    if (row.start_date > monthEnd) continue;
+    if (row.start_date > today) continue;
 
     const { netBalance } = computeLedger(
       row,
@@ -135,9 +148,14 @@ export async function applyMonthlyLateFees(
       kind: "late_fee",
       amount: LATE_FEE_AMOUNT,
       charged_on: today,
+      dedupe_key: `late_fee:${period}`,
       note: `Auto — balance unpaid after ${period}-0${GRACE_DAY}`,
     });
     if (insErr) {
+      if (insErr.code === "23505") {
+        skippedExistingFee++;
+        continue;
+      }
       console.error("[late-fees] charge failed:", insErr.message, name);
       failures.push(name);
       continue;
@@ -146,16 +164,18 @@ export async function applyMonthlyLateFees(
     tenants.push(name);
   }
 
-  // Mark the month done only if no insert failed — a failed tenant gets
-  // retried on tomorrow's run (the per-tenancy existing-fee check keeps the
-  // successful ones from double-charging).
+  // Finalize the marker only if every insert succeeded. On failure, release
+  // the claim; the per-tenancy unique index keeps tomorrow's retry safe.
   if (failures.length === 0) {
-    await sb.from("rent_reminder_batches").insert({
-      kind: "late_fee",
-      period_month: period,
-      recipient_count: chargedCount,
-      triggered_by: "cron",
-    });
+    const { error: markerError } = await sb
+      .from("rent_reminder_batches")
+      .update({ recipient_count: chargedCount })
+      .eq("id", claimedBatch.id);
+    if (markerError) {
+      return { ran: true, period, charged: chargedCount, error: markerError.message };
+    }
+  } else {
+    await sb.from("rent_reminder_batches").delete().eq("id", claimedBatch.id);
   }
 
   return {

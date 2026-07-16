@@ -16,7 +16,7 @@ import { todayISO } from "@/lib/date";
 import { computeLedger, LEDGER_PAYMENT_CUTOFF } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
 import { buildBalanceDetail, type BalanceDetail } from "@/lib/balance-detail";
-import { recordRentChange } from "@/lib/rent-history";
+import { updateTenancyRent } from "@/lib/rent-history";
 import { canEditLedger, LEDGER_ADMIN_ERROR } from "@/lib/access";
 
 // Accrual-affecting mutations (rent amounts, tenancy dates, deleting
@@ -125,6 +125,8 @@ export async function createTenant(
   }
 
   const supabase = await createClient();
+  const denied = await requireLedgerAdmin(supabase);
+  if (denied) return { error: denied };
   const { data: tenant, error: tErr } = await supabase
     .from("tenants")
     .insert({ full_name, email, phone, pays_as, notes })
@@ -169,17 +171,21 @@ export async function createTenant(
       return { error: "First month rent must be a non-negative number." };
     }
 
-    const { error: leErr } = await supabase.from("tenancies").insert({
-      room_id,
-      tenant_id: tenant.id,
-      start_date,
-      lease_end_date,
-      monthly_rent,
-      security_deposit,
-      status: "active",
-      lease_pdf_path,
-      first_month_rent,
-    });
+    const { data: tenancy, error: leErr } = await supabase
+      .from("tenancies")
+      .insert({
+        room_id,
+        tenant_id: tenant.id,
+        start_date,
+        lease_end_date,
+        monthly_rent,
+        security_deposit,
+        status: start_date > todayISO() ? "upcoming" : "active",
+        lease_pdf_path,
+        first_month_rent,
+      })
+      .select("id")
+      .single();
 
     if (leErr) {
       if (lease_pdf_path) {
@@ -189,9 +195,36 @@ export async function createTenant(
       return { error: leErr.message };
     }
 
-    // Mark the room as occupied and clear any "pending tenant" listing flag.
+    // A deposit entered during onboarding is money owed, not just profile
+    // metadata. Post the matching charge dated at move-in; future-dated rows
+    // stay out of the running balance until that date.
+    if (security_deposit !== null && security_deposit > 0 && tenancy) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const { error: depositError } = await (supabase as any)
+        .from("tenancy_charges")
+        .insert({
+          tenancy_id: tenancy.id,
+          kind: "security_deposit",
+          amount: security_deposit,
+          charged_on: start_date,
+          note: "Security deposit due at move-in",
+        });
+      if (depositError) {
+        await supabase.from("tenancies").delete().eq("id", tenancy.id);
+        if (lease_pdf_path) {
+          await supabase.storage.from("leases").remove([lease_pdf_path]);
+        }
+        await supabase.from("tenants").delete().eq("id", tenant.id);
+        return {
+          error: `Failed to post the security-deposit charge: ${depositError.message}`,
+        };
+      }
+    }
+
+    // Future tenancies reserve the room but do not become billable/active
+    // until the lifecycle cron reaches their start date.
     await updateRoomsWithNotification(supabase, room_id, {
-      status: "occupied",
+      status: start_date > todayISO() ? "reserved" : "occupied",
       pending_tenant: false,
     });
   }
@@ -259,6 +292,8 @@ export async function updateTenant(
   if (!full_name) return { error: "Name is required." };
 
   const supabase = await createClient();
+  const denied = await requireLedgerAdmin(supabase);
+  if (denied) return { error: denied };
   const { error } = await supabase
     .from("tenants")
     .update({
@@ -373,18 +408,21 @@ export async function setTenancyRentAmount(
   const denied = await requireLedgerAdmin(supabase);
   if (denied) return { error: denied };
 
-  // The new rate applies from the new lease's start month onward: recorded
-  // in tenancy_rent_history (backfilling the original rate as a baseline the
-  // first time), so months before the lease start keep billing what they
-  // billed.
+  // The rate-history row and tenancy terms are committed together by the
+  // database. A failure cannot leave one updated without the other.
   if (field === "monthly_rent") {
-    const { error: histErr } = await recordRentChange(
+    const { error: rentError } = await updateTenancyRent(
       supabase,
       tenancyId,
       amount as number,
       newLease!.start,
+      newLease!.start,
+      newLease!.end,
     );
-    if (histErr) return { error: histErr };
+    if (rentError) return { error: rentError };
+    revalidatePath("/tenants");
+    if (tenantId) revalidatePath(`/tenants/${tenantId}`);
+    return { ok: true };
   }
 
   const { error } = await supabase
@@ -437,19 +475,26 @@ async function applyMoveOut(
   const today = todayISO();
   const isPastOrToday = move_out_date <= today;
 
-  const { data: tenancy } = await supabase
+  const { data: tenancy, error: tenancyLoadError } = await supabase
     .from("tenancies")
-    .select("room_id, monthly_rent")
+    .select("room_id, monthly_rent, start_date, move_out_date, status")
     .eq("id", tenancy_id)
     .single();
+  if (tenancyLoadError || !tenancy) {
+    return { error: tenancyLoadError?.message ?? "Tenancy not found." };
+  }
+  if (move_out_date < tenancy.start_date) {
+    return { error: "Move-out date cannot be before the tenancy start date." };
+  }
 
-  await supabase
+  const { error: tenancyUpdateError } = await supabase
     .from("tenancies")
     .update({
       move_out_date,
       status: isPastOrToday ? "ended" : "active",
     })
     .eq("id", tenancy_id);
+  if (tenancyUpdateError) return { error: tenancyUpdateError.message };
 
   if (tenancy?.room_id) {
     // Carry the last tenant's rent forward as the room's list price. Their
@@ -464,13 +509,28 @@ async function applyMoveOut(
 
     // Re-entering the vacancy queue — reset the VA workflow flag to "no action"
     // so the room doesn't inherit the previous tenancy's color.
-    await updateRoomsWithNotification(supabase, tenancy.room_id, {
+    const { error: roomError } = await updateRoomsWithNotification(
+      supabase,
+      tenancy.room_id,
+      {
       status: isPastOrToday ? "available" : "occupied",
       available_from: move_out_date,
       listing_action: "no_action",
       ...rentPatch,
-    });
+      },
+    );
+    if (roomError) {
+      await supabase
+        .from("tenancies")
+        .update({
+          move_out_date: tenancy.move_out_date,
+          status: tenancy.status,
+        })
+        .eq("id", tenancy_id);
+      return { error: roomError.message };
+    }
   }
+  return {};
 }
 
 export async function endTenancy(formData: FormData) {
@@ -481,7 +541,8 @@ export async function endTenancy(formData: FormData) {
 
   const supabase = await createClient();
   if (await requireLedgerAdmin(supabase)) return;
-  await applyMoveOut(supabase, tenancy_id, move_out_date);
+  const result = await applyMoveOut(supabase, tenancy_id, move_out_date);
+  if (result.error) throw new Error(result.error);
 
   revalidatePath("/tenants");
   if (tenant_id) revalidatePath(`/tenants/${tenant_id}`);
@@ -502,7 +563,8 @@ export async function setTenancyMoveOutDate(
   if (denied) return { error: denied };
 
   if (value) {
-    await applyMoveOut(supabase, tenancyId, value);
+    const result = await applyMoveOut(supabase, tenancyId, value);
+    if (result.error) return { error: result.error };
   } else {
     const { data: tenancy } = await supabase
       .from("tenancies")
@@ -571,36 +633,6 @@ export async function reactivateTenancy(formData: FormData) {
   revalidatePath("/tenants");
   if (tenant_id) revalidatePath(`/tenants/${tenant_id}`);
   revalidatePath("/inventory");
-}
-
-// ----- Auto-finalize any tenancies whose move_out_date has now passed -----
-
-export async function processExpiredTenancies() {
-  const supabase = await createClient();
-  const today = todayISO();
-
-  const { data: expired } = await supabase
-    .from("tenancies")
-    .select("id, room_id")
-    .eq("status", "active")
-    .lt("move_out_date", today)
-    .not("move_out_date", "is", null);
-
-  if (!expired || expired.length === 0) return;
-
-  const ids = expired.map((t) => t.id);
-  const roomIds = expired
-    .map((t) => t.room_id)
-    .filter((v): v is string => Boolean(v));
-
-  await supabase.from("tenancies").update({ status: "ended" }).in("id", ids);
-
-  if (roomIds.length > 0) {
-    await updateRoomsWithNotification(supabase, roomIds, {
-      status: "available",
-      listing_action: "no_action",
-    });
-  }
 }
 
 // ----- Delete tenant (and their tenancies + payments via cascades) -----
@@ -724,6 +756,13 @@ export async function recordPayment(
     };
 
   const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "You are not signed in." };
+  if (payment_type === "refund" && !canEditLedger(user.email)) {
+    return { error: LEDGER_ADMIN_ERROR };
+  }
   const { error } = await supabase.from("payments").insert({
     tenancy_id: tenancyId,
     paid_on,
@@ -774,6 +813,10 @@ export async function addCharge(
   const amount = Number(amount_str);
   if (!Number.isFinite(amount) || amount <= 0)
     return { error: "Amount must be a positive number." };
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(charged_on))
+    return { error: "Charge date must be YYYY-MM-DD." };
+  if (charged_on > todayISO())
+    return { error: "Charge date can't be in the future." };
 
   const supabase = await createClient();
   const {
@@ -783,7 +826,15 @@ export async function addCharge(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { error } = await (supabase as any)
     .from("tenancy_charges")
-    .insert({ tenancy_id: tenancyId, kind, amount, charged_on, note });
+    .insert({
+      tenancy_id: tenancyId,
+      kind,
+      amount,
+      charged_on,
+      note,
+      dedupe_key:
+        kind === "late_fee" ? `late_fee:${charged_on.slice(0, 7)}` : null,
+    });
   if (error) return { error: error.message };
 
   revalidatePath("/tenants");
@@ -853,11 +904,11 @@ export async function sendBalanceReminders(
   const {
     data: { user },
   } = await supabase.auth.getUser();
+  if (!canEditLedger(user?.email)) return { error: LEDGER_ADMIN_ERROR };
 
   const now = new Date();
   const y = now.getFullYear();
   const m = now.getMonth();
-  const monthEnd = new Date(y, m + 1, 0).toISOString().slice(0, 10);
   const period = `${y}-${String(m + 1).padStart(2, "0")}`;
   const monthLabel = now.toLocaleDateString("en-US", {
     month: "long",
@@ -917,7 +968,7 @@ export async function sendBalanceReminders(
     // Skip tenancies that have already ended this month.
     if (row.move_out_date && row.move_out_date <= today) continue;
     // Skip tenancies that haven't started yet.
-    if (row.start_date > monthEnd) continue;
+    if (row.start_date > today) continue;
 
     const { netBalance } = computeLedger(
       row,

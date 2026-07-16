@@ -1,8 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { isMaster } from "@/lib/access";
-import { ClearLogButton } from "../clear-log-button";
-import { clearAuditLog } from "../log-actions";
+import { canEditLedger } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
@@ -29,6 +27,15 @@ const TABLE_LABEL: Record<string, string> = {
   leaseholders: "Leaseholders",
   cleaners: "Cleaners",
   notification_recipients: "Notification recipients",
+  tenancy_charges: "Ledger charges",
+  credit_allocations: "Credit allocations",
+  tenancy_rent_history: "Rent history",
+  reconciliation_runs: "Reconciliation runs",
+  reconciliation_matches: "Reconciliation matches",
+  reconciliation_deposits: "Reconciliation deposits",
+  reconciliation_reversals: "Reconciliation reversals",
+  ignored_payers: "Ignored payers",
+  profitability_line_items: "Profitability line items",
 };
 
 const KNOWN_TABLES = Object.keys(TABLE_LABEL);
@@ -43,6 +50,8 @@ type AuditRow = {
   action: "insert" | "update" | "delete";
   table_name: string;
   record_id: string | null;
+  before_data: unknown;
+  after_data: unknown;
   changed_columns: string[] | null;
   created_at: string;
 };
@@ -73,7 +82,22 @@ export default async function AuditLogPage({
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const master = isMaster(user?.email);
+  const operator = canEditLedger(user?.email);
+  if (!operator) {
+    return (
+      <div className="mx-auto w-full max-w-3xl">
+        <Link
+          href="/settings"
+          className="text-xs uppercase tracking-wide text-muted hover:text-ink"
+        >
+          ← Admin Settings
+        </Link>
+        <p className="mt-6 rounded-2xl bg-white px-6 py-12 text-center text-sm text-muted shadow-sm">
+          The financial audit log is restricted to the operators.
+        </p>
+      </div>
+    );
+  }
 
   const sp = await searchParams;
   const tableFilter =
@@ -91,7 +115,7 @@ export default async function AuditLogPage({
   let q = supabase
     .from("audit_log")
     .select(
-      "id, user_id, user_email, action, table_name, record_id, changed_columns, created_at",
+      "id, user_id, user_email, action, table_name, record_id, before_data, after_data, changed_columns, created_at",
       { count: "exact" },
     )
     .order("created_at", { ascending: false })
@@ -129,7 +153,9 @@ export default async function AuditLogPage({
             Captures who made the change via Supabase Auth.
           </p>
         </div>
-        {master && <ClearLogButton onClear={clearAuditLog} label="audit log" />}
+        <span className="rounded-full bg-warm px-3 py-1 text-xs font-medium text-muted">
+          Immutable record
+        </span>
       </header>
 
       <form
@@ -244,6 +270,18 @@ export default async function AuditLogPage({
                     : r.action === "insert"
                       ? <span className="text-muted">(new row)</span>
                       : <span className="text-muted">(deleted)</span>}
+                  <details className="mt-1">
+                    <summary className="cursor-pointer text-accent-text">
+                      Values
+                    </summary>
+                    <pre className="mt-1 max-h-72 max-w-xl overflow-auto rounded-lg bg-cream p-2 text-[10px] leading-relaxed text-ink">
+                      {JSON.stringify(
+                        { before: r.before_data, after: r.after_data },
+                        null,
+                        2,
+                      )}
+                    </pre>
+                  </details>
                 </td>
               </tr>
             ))}

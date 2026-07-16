@@ -52,7 +52,11 @@ export type LedgerPayment = {
   payment_type: string;
 };
 
-export type LedgerCharge = { kind: string; amount: number | string };
+export type LedgerCharge = {
+  kind: string;
+  amount: number | string;
+  charged_on?: string;
+};
 export type LedgerAllocation = { kind: string; amount: number | string };
 
 /**
@@ -146,6 +150,10 @@ function rentDue(
   todayIso: string,
   rentChanges: RentChange[],
 ): number {
+  // A tenancy is not billable until its actual move-in date. Comparing only
+  // month indexes previously charged an upcoming tenant from the first day of
+  // their start month.
+  if (t.start_date > todayIso) return 0;
   const anchorIdx = monthIndex(LEDGER_ANCHOR);
   const startIdx = monthIndex(t.start_date);
   const effStart = Math.max(anchorIdx, startIdx);
@@ -181,6 +189,9 @@ export function computeLedger(
     .filter(
       (p) => p.payment_type === "rent" && p.paid_on >= LEDGER_PAYMENT_CUTOFF,
     )
+    .filter(
+      (p) => p.paid_on <= todayIso,
+    )
     .reduce((s, p) => s + num(p.amount), 0);
   const allocatedAway = allocations.reduce((s, a) => s + num(a.amount), 0);
   const rentPaid = cents(rentPaidGross - allocatedAway);
@@ -189,7 +200,7 @@ export function computeLedger(
 
   const paidOf = (type: string) =>
     payments
-      .filter((p) => p.payment_type === type)
+      .filter((p) => p.payment_type === type && p.paid_on <= todayIso)
       .reduce((s, p) => s + num(p.amount), 0);
   const allocOf = (kind: string) =>
     allocations
@@ -197,7 +208,9 @@ export function computeLedger(
       .reduce((s, a) => s + num(a.amount), 0);
   const chargedOf = (kind: string) =>
     charges
-      .filter((c) => c.kind === kind)
+      .filter(
+        (c) => c.kind === kind && (!c.charged_on || c.charged_on <= todayIso),
+      )
       .reduce((s, c) => s + num(c.amount), 0);
 
   const bucket = (owed: number, key: string): Bucket => {
@@ -328,7 +341,7 @@ export function buildLedgerEntries(
   const effStart = Math.max(anchorIdx, startIdx);
   let end = monthIndex(todayIso);
   if (t.move_out_date) end = Math.min(end, monthIndex(t.move_out_date));
-  for (let idx = effStart; idx <= end; idx++) {
+  for (let idx = effStart; t.start_date <= todayIso && idx <= end; idx++) {
     const amount =
       idx === startIdx && startIdx >= anchorIdx && t.first_month_rent !== null
         ? num(t.first_month_rent)
@@ -351,6 +364,7 @@ export function buildLedgerEntries(
     { note: string; date: string; amount: number; ids: string[] }
   >();
   for (const c of charges) {
+    if (c.charged_on > todayIso) continue;
     if (c.kind === "other") {
       const key = (c.note ?? "").trim().toLowerCase();
       const g = otherGroups.get(key);
@@ -403,6 +417,7 @@ export function buildLedgerEntries(
   // This mirrors computeLedger so the running balance lands on the same net
   // figure.
   for (const p of payments) {
+    if (p.paid_on > todayIso) continue;
     if (p.payment_type === "rent" && p.paid_on < LEDGER_PAYMENT_CUTOFF) continue;
     if (p.payment_type === "refund") {
       rows.push({

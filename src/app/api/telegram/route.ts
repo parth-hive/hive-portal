@@ -251,13 +251,18 @@ async function appendHistory(
 }
 
 export async function POST(req: Request) {
-  // Optional shared-secret header set when registering the webhook.
+  // A missing webhook secret must fail closed. Otherwise anyone who knows an
+  // allowed Telegram user id could forge a webhook payload directly.
   const expected = process.env.TELEGRAM_WEBHOOK_SECRET;
-  if (expected) {
-    const got = req.headers.get("x-telegram-bot-api-secret-token");
-    if (got !== expected) {
-      return new NextResponse("unauthorized", { status: 401 });
-    }
+  if (!expected) {
+    return NextResponse.json(
+      { error: "TELEGRAM_WEBHOOK_SECRET is not configured" },
+      { status: 503 },
+    );
+  }
+  const got = req.headers.get("x-telegram-bot-api-secret-token");
+  if (got !== expected) {
+    return new NextResponse("unauthorized", { status: 401 });
   }
 
   let update: {
@@ -464,6 +469,9 @@ export async function POST(req: Request) {
   const assistantContent: ConvoMessage["content"] = falseSendClaim
     ? [{ type: "text", text: replyText }]
     : finalMessage.content;
+  const credentialToolUsed = calledTools.some(
+    (tool) => tool.name === "get_credentials",
+  );
 
   if (falseSendClaim) {
     await logTelegramEvent({
@@ -479,7 +487,13 @@ export async function POST(req: Request) {
   // Persist this turn (user input + full final assistant content, so future
   // turns have the tool-use chain in context if needed).
   await appendHistory(msg.chat.id, "user", newUserMessage.content);
-  await appendHistory(msg.chat.id, "assistant", assistantContent);
+  await appendHistory(
+    msg.chat.id,
+    "assistant",
+    credentialToolUsed
+      ? [{ type: "text", text: "[credential response omitted from history]" }]
+      : assistantContent,
+  );
 
   // Diagnostic record of the reply the operator actually saw, plus the token
   // usage and stop reason for the whole turn.
@@ -487,14 +501,23 @@ export async function POST(req: Request) {
     ...actor,
     kind: "assistant_reply",
     latencyMs: Date.now() - turnStartedAt,
-    text:
-      replyText.length > 0 ? replyText : "(no text — final message had no reply)",
-    detail: {
-      stop_reason: finalMessage.stop_reason,
-      usage: finalMessage.usage,
-      content: finalMessage.content,
-      ...(falseSendClaim ? { false_send_claim: true } : {}),
-    },
+    text: credentialToolUsed
+      ? "[credential response redacted]"
+      : replyText.length > 0
+        ? replyText
+        : "(no text — final message had no reply)",
+    detail: credentialToolUsed
+      ? {
+          redacted: true,
+          stop_reason: finalMessage.stop_reason,
+          usage: finalMessage.usage,
+        }
+      : {
+          stop_reason: finalMessage.stop_reason,
+          usage: finalMessage.usage,
+          content: finalMessage.content,
+          ...(falseSendClaim ? { false_send_claim: true } : {}),
+        },
   });
 
   if (finalMessage.stop_reason === "refusal") {

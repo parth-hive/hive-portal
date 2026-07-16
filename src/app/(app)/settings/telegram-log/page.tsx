@@ -1,12 +1,10 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { isMaster } from "@/lib/access";
+import { canEditLedger } from "@/lib/access";
 import {
   TELEGRAM_KIND_LABELS,
   type TelegramLogKind,
 } from "@/lib/telegram-log";
-import { ClearLogButton } from "../clear-log-button";
-import { clearTelegramLog } from "../log-actions";
 
 export const dynamic = "force-dynamic";
 
@@ -126,9 +124,9 @@ export default async function TelegramLogPage({ searchParams }: PageProps) {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const master = isMaster(user?.email);
+  const operator = canEditLedger(user?.email);
 
-  if (!master) {
+  if (!operator) {
     return (
       <div className="mx-auto w-full max-w-3xl">
         <Link
@@ -138,7 +136,7 @@ export default async function TelegramLogPage({ searchParams }: PageProps) {
           ← Admin Settings
         </Link>
         <p className="mt-6 rounded-2xl bg-white px-6 py-12 text-center text-sm text-muted shadow-sm">
-          The Telegram bot log is restricted to the master operator.
+          The Telegram bot log is restricted to the operators.
         </p>
       </div>
     );
@@ -198,7 +196,9 @@ export default async function TelegramLogPage({ searchParams }: PageProps) {
             the reply, and any error. Use this to see exactly what the bot did.
           </p>
         </div>
-        <ClearLogButton onClear={clearTelegramLog} label="Telegram bot log" />
+        <span className="rounded-full bg-warm px-3 py-1 text-xs font-medium text-muted">
+          Retained for audit
+        </span>
       </header>
 
       <div className="mt-6 flex flex-wrap items-center gap-2">

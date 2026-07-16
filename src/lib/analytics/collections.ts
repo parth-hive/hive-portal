@@ -6,7 +6,7 @@
  * "Expected" for a month = sum of each active tenancy's due for that
  * month (first_month_rent if it's the tenancy's starting month, else the
  * monthly rate in effect that month per tenancy_rent_history). "Collected"
- * = sum of payments.payment_type='rent' in that calendar month.
+ * = rent receipts less refunds in that calendar month.
  */
 
 import { createClient } from "@/lib/supabase/server";
@@ -100,6 +100,12 @@ type RawTenancy = {
   first_month_rent: number | null;
 };
 
+type CollectionPayment = {
+  amount: number;
+  paid_on: string;
+  payment_type: string;
+};
+
 // Attach each tenancy's rent-rate history so dueForMonth can bill past months
 // at the rate in effect back then. Accessed via `as any` because the table
 // post-dates the generated types (same pattern as rent-data.ts).
@@ -151,8 +157,8 @@ async function loadFilteredHistory(propertyIds?: string[]) {
 
     const { data: payments } = await supabase
       .from("payments")
-      .select("amount, paid_on")
-      .eq("payment_type", "rent")
+      .select("amount, paid_on, payment_type")
+      .in("payment_type", ["rent", "refund"])
       .in("tenancy_id", tenancyIds);
 
     return {
@@ -167,8 +173,8 @@ async function loadFilteredHistory(propertyIds?: string[]) {
       .select("id, start_date, move_out_date, monthly_rent, first_month_rent"),
     supabase
       .from("payments")
-      .select("amount, paid_on")
-      .eq("payment_type", "rent"),
+      .select("amount, paid_on, payment_type")
+      .in("payment_type", ["rent", "refund"]),
   ]);
   return {
     tenancies: await withRentChanges(supabase, tenancies ?? []),
@@ -206,9 +212,12 @@ export async function getMonthlyCollections(
   const { tenancies, payments } = await loadFilteredHistory(propertyIds);
 
   const collectedByMonth = new Map<string, number>();
-  for (const p of payments) {
+  const asOf = todayISO();
+  for (const p of payments as CollectionPayment[]) {
+    if (p.paid_on > asOf) continue;
     const key = monthOf(p.paid_on);
-    collectedByMonth.set(key, (collectedByMonth.get(key) ?? 0) + Number(p.amount));
+    const signed = p.payment_type === "refund" ? -Number(p.amount) : Number(p.amount);
+    collectedByMonth.set(key, (collectedByMonth.get(key) ?? 0) + signed);
   }
 
   return months.map((m) => {
@@ -253,10 +262,12 @@ export async function getCollectionSummary(
   let lifetimeCollected = 0;
   let paymentCount = 0;
   let thisMonthCollected = 0;
-  for (const p of payments) {
-    const amt = Number(p.amount);
+  for (const p of payments as CollectionPayment[]) {
+    if (p.paid_on > today) continue;
+    const amt =
+      (p.payment_type === "refund" ? -1 : 1) * Number(p.amount);
     lifetimeCollected += amt;
-    paymentCount++;
+    if (p.payment_type === "rent") paymentCount++;
     if (p.paid_on >= ytdStart) ytdCollected += amt;
     if (monthOf(p.paid_on) === thisMonth) thisMonthCollected += amt;
   }
@@ -297,6 +308,7 @@ export async function getPropertyCollections(
   type PaymentRow = {
     amount: number | string;
     paid_on: string;
+    payment_type: string;
     tenancies: {
       rooms: {
         properties: {
@@ -312,17 +324,17 @@ export async function getPropertyCollections(
   let q = supabase
     .from("payments")
     .select(
-      `amount, paid_on,
+      `amount, paid_on, payment_type,
        tenancies!inner(
          rooms!inner(
            properties!inner(id, building_name, street_address, unit_number)
          )
        )`,
     )
-    .eq("payment_type", "rent");
+    .in("payment_type", ["rent", "refund"]);
 
   if (fromISO) q = q.gte("paid_on", fromISO);
-  if (toISO) q = q.lte("paid_on", toISO);
+  q = q.lte("paid_on", toISO ?? todayISO());
 
   const { data } = await q.returns<PaymentRow[]>();
 
@@ -341,7 +353,8 @@ export async function getPropertyCollections(
     if (allow && !allow.has(property.id)) continue;
     const label = `${property.building_name?.trim() || property.street_address} Apt ${property.unit_number}`;
     const prev = byProperty.get(property.id) ?? { collected: 0, label };
-    prev.collected += Number(row.amount);
+    prev.collected +=
+      (row.payment_type === "refund" ? -1 : 1) * Number(row.amount);
     byProperty.set(property.id, prev);
   }
 

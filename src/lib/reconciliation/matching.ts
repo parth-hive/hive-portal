@@ -367,19 +367,27 @@ function matchSignature(rows: MatchRow[]): string {
 
 /**
  * Re-derive a run's matches, totals, and unmatched list from its saved
- * deposits against CURRENT tenancy/payment data. Called after an operator
- * assigns a deposit and on every run-page view, so the stored snapshot
- * always reflects payments recorded (or removed) since the run was created.
- * When nothing changed it's read-only — no rewrite, so match row ids stay
- * stable across background refreshes.
+ * deposits against CURRENT tenancy/payment data. Preview runs may refresh on
+ * view; posted runs are immutable unless an explicit operator action passes
+ * `allowPosted`. Snapshot replacement (and any required ledger repost) is one
+ * database transaction via `replace_reconciliation_snapshot`.
  */
-export async function recomputeRun(supabase: SupabaseClient, runId: string) {
+export async function recomputeRun(
+  supabase: SupabaseClient,
+  runId: string,
+  options: { allowPosted?: boolean } = {},
+) {
   const { data: run } = await supabase
     .from("reconciliation_runs")
-    .select("month, unmatched_deposits")
+    .select("month, unmatched_deposits, posted_at")
     .eq("id", runId)
-    .maybeSingle<{ month: string; unmatched_deposits: unknown }>();
+    .maybeSingle<{
+      month: string;
+      unmatched_deposits: unknown;
+      posted_at: string | null;
+    }>();
   if (!run) throw new Error("Run not found.");
+  if (run.posted_at && !options.allowPosted) return;
   const { start, end } = monthBounds(run.month);
 
   const { data: depRows, error: depErr } = await supabase
@@ -416,24 +424,16 @@ export async function recomputeRun(supabase: SupabaseClient, runId: string) {
     ignoredKeys,
   );
 
-  // Re-point deposits whose tenancy mapping changed (an assign, a pays_as
-  // edit, a tenant moving rooms). Unchanged keys are left alone.
+  // Track whether a payer assignment changed. The actual writes happen below
+  // in one transaction with the match snapshot and totals.
   const staleKeys = new Set<string>();
   for (const d of depRows ?? []) {
     if ((d.tenancy_id ?? null) !== (tenancyByKey.get(d.payer_key) ?? null)) {
       staleKeys.add(d.payer_key);
     }
   }
-  for (const key of staleKeys) {
-    await supabase
-      .from("reconciliation_deposits")
-      .update({ tenancy_id: tenancyByKey.get(key) ?? null })
-      .eq("run_id", runId)
-      .eq("payer_key", key);
-  }
-
-  // Rewrite matches and run totals only when the result actually differs from
-  // what's stored.
+  // Replace only when the result differs, preserving match-row ids when a
+  // preview refresh is genuinely unchanged.
   const { data: existing } = await supabase
     .from("reconciliation_matches")
     .select(
@@ -448,23 +448,29 @@ export async function recomputeRun(supabase: SupabaseClient, runId: string) {
       JSON.stringify(unmatched ?? []);
   if (unchanged && staleKeys.size === 0) return;
 
-  await supabase.from("reconciliation_matches").delete().eq("run_id", runId);
-  if (matches.length > 0) {
-    const { error: mErr } = await supabase
-      .from("reconciliation_matches")
-      .insert(matches);
-    if (mErr) throw new Error(`Failed to rewrite matches: ${mErr.message}`);
-  }
+  const assignments = Array.from(
+    new Set((depRows ?? []).map((d) => d.payer_key)),
+  ).map((payerKey) => ({
+    payer_key: payerKey,
+    tenancy_id: tenancyByKey.get(payerKey) ?? null,
+  }));
 
-  await supabase
-    .from("reconciliation_runs")
-    .update({
-      total_expected: totals.totalExpected,
-      total_actual: totals.totalActual,
-      match_count: totals.matchCount,
-      mismatch_count: totals.mismatchCount,
-      missing_count: totals.missingCount,
-      unmatched_deposits: unmatched,
-    })
-    .eq("id", runId);
+  // The function post-dates generated Supabase types.
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any).rpc(
+    "replace_reconciliation_snapshot",
+    {
+      p_run_id: runId,
+      p_matches: matches,
+      p_deposit_assignments: assignments,
+      p_unmatched: unmatched,
+      p_total_expected: totals.totalExpected,
+      p_total_actual: totals.totalActual,
+      p_match_count: totals.matchCount,
+      p_mismatch_count: totals.mismatchCount,
+      p_missing_count: totals.missingCount,
+      p_post_payments: Boolean(run.posted_at),
+    },
+  );
+  if (error) throw new Error(`Failed to rewrite matches: ${error.message}`);
 }

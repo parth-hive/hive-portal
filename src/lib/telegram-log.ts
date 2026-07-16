@@ -30,13 +30,12 @@ export const TELEGRAM_KIND_LABELS: Record<TelegramLogKind, string> = {
 };
 
 /**
- * Cap the size of any single string we persist. Tool inputs/results are stored
- * verbatim (including short secrets like credential passwords, by design), but a
- * tool that returns a base64 spreadsheet could be megabytes — truncate long
- * strings so the log stays queryable. Secrets are far shorter than this cap and
- * are never affected.
+ * Cap the size of any single string we persist. Credential-returning tool calls
+ * are redacted wholesale below; common secret-bearing object keys are redacted
+ * recursively for every other event.
  */
 const MAX_STRING = 20_000;
+const SENSITIVE_KEYS = /^(password|password_cipher|secret|token|api_?key|authorization)$/i;
 
 function truncateStrings(value: unknown, depth = 0): unknown {
   if (typeof value === "string") {
@@ -51,7 +50,9 @@ function truncateStrings(value: unknown, depth = 0): unknown {
   if (value && typeof value === "object") {
     const out: Record<string, unknown> = {};
     for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-      out[k] = truncateStrings(v, depth + 1);
+      out[k] = SENSITIVE_KEYS.test(k)
+        ? "[redacted]"
+        : truncateStrings(v, depth + 1);
     }
     return out;
   }
@@ -107,6 +108,7 @@ export async function logTelegramEvent(entry: {
     const sb = createClient(url, key, {
       auth: { persistSession: false, autoRefreshToken: false },
     });
+    const credentialEvent = entry.toolName === "get_credentials";
     await sb.from("telegram_activity_log").insert({
       kind: entry.kind,
       chat_id: entry.chatId,
@@ -116,10 +118,18 @@ export async function logTelegramEvent(entry: {
       tool_name: entry.toolName ?? null,
       ok: entry.ok ?? null,
       latency_ms: entry.latencyMs ?? null,
-      error: entry.error ?? null,
-      text: entry.text ? String(entry.text).slice(0, MAX_STRING) : null,
+      error: credentialEvent ? null : entry.error ?? null,
+      text: credentialEvent
+        ? "[credential tool call redacted]"
+        : entry.text
+          ? String(entry.text).slice(0, MAX_STRING)
+          : null,
       detail:
-        entry.detail === undefined ? null : truncateStrings(entry.detail),
+        credentialEvent
+          ? { redacted: true }
+          : entry.detail === undefined
+            ? null
+            : truncateStrings(entry.detail),
     });
   } catch {
     // Diagnostic logging is best-effort — it must never break a bot turn.

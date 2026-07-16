@@ -49,6 +49,7 @@ export async function uploadStatement(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
+  if (!canEditLedger(user.email)) return { error: LEDGER_ADMIN_ERROR };
 
   const file = formData.get("statement");
   if (!(file instanceof File) || file.size === 0)
@@ -263,6 +264,7 @@ export async function assignBillProperty(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
+  if (!canEditLedger(user.email)) return { error: LEDGER_ADMIN_ERROR };
 
   const sb = supabase;
   // A charged bill's ledger charges belong to the current unit's tenants —
@@ -313,6 +315,7 @@ export async function deleteBill(billId: string): Promise<UploadState> {
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
+  if (!canEditLedger(user.email)) return { error: LEDGER_ADMIN_ERROR };
 
   const sb = supabase;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -350,6 +353,7 @@ export async function dismissOverage(
     data: { user },
   } = await supabase.auth.getUser();
   if (!user) return { error: "Not signed in." };
+  if (!canEditLedger(user.email)) return { error: LEDGER_ADMIN_ERROR };
   if (billIds.length === 0) return undefined;
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any

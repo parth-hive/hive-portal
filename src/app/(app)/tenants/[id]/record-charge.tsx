@@ -77,7 +77,7 @@ export function RecordCharge({
           <input
             type="number"
             name="amount"
-            min="0"
+            min="0.01"
             step="0.01"
             required
             className={fieldInput}
@@ -89,6 +89,7 @@ export function RecordCharge({
             type="date"
             name="charged_on"
             defaultValue={today}
+            max={today}
             className={fieldInput}
           />
         </label>

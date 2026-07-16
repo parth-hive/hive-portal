@@ -3,7 +3,6 @@ import { createClient } from "@/lib/supabase/server";
 import { one } from "@/lib/relations";
 import { formatDate } from "@/lib/date";
 import { SearchInput } from "@/components/search-input";
-import { processExpiredTenancies } from "../actions";
 import { isMaster } from "@/lib/access";
 import { computeLedger } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
@@ -75,7 +74,6 @@ type PageProps = { searchParams: Promise<{ q?: string }> };
 
 export default async function TenantHistoryPage({ searchParams }: PageProps) {
   // Finalize anything whose scheduled end has now passed so it shows up here.
-  await processExpiredTenancies();
 
   const { q } = await searchParams;
   const query = (q ?? "").trim().toLowerCase();
@@ -110,8 +108,16 @@ export default async function TenantHistoryPage({ searchParams }: PageProps) {
     const property = one(room?.properties ?? null);
     const months = monthsBetween(r.start_date, r.move_out_date);
     const totalPaid = (r.payments ?? [])
-      .filter((p) => p.payment_type === "rent")
-      .reduce((sum, p) => sum + Number(p.amount), 0);
+      .filter(
+        (p) =>
+          (p.payment_type === "rent" || p.payment_type === "refund") &&
+          p.paid_on <= today,
+      )
+      .reduce(
+        (sum, p) =>
+          sum + (p.payment_type === "refund" ? -1 : 1) * Number(p.amount),
+        0,
+      );
     const unit = property
       ? `${property.building_name?.trim() || property.street_address} Apt ${property.unit_number}`
       : "—";

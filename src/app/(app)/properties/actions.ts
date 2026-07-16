@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { canEditLedger } from "@/lib/access";
 import {
   normalizeUnitAmenities,
   normalizeBuildingAmenities,
@@ -52,12 +53,30 @@ function parseForm(formData: FormData): ParsedForm | { error: string } {
     const v = String(formData.get(k) ?? "").trim();
     if (v === "") return null;
     const n = Number(v);
-    return Number.isFinite(n) ? n : null;
+    return Number.isFinite(n) ? n : Number.NaN;
   };
   const strOrNull = (k: string) => {
     const v = String(formData.get(k) ?? "").trim();
     return v === "" ? null : v;
   };
+
+  const numeric = {
+    bedrooms: numOrNull("bedrooms"),
+    bathrooms: numOrNull("bathrooms"),
+    unit_rent: numOrNull("unit_rent"),
+    amenity_fees_yearly: numOrNull("amenity_fees_yearly"),
+    misc_fees_yearly: numOrNull("misc_fees_yearly"),
+    internet_monthly: numOrNull("internet_monthly"),
+    cleaning_fee_monthly: numOrNull("cleaning_fee_monthly"),
+    insurance_monthly: numOrNull("insurance_monthly"),
+  };
+  for (const [field, value] of Object.entries(numeric)) {
+    if (typeof value === "number" && (!Number.isFinite(value) || value < 0)) {
+      return {
+        error: `${field.replaceAll("_", " ")} must be a non-negative number.`,
+      };
+    }
+  }
 
   return {
     building_name: strOrNull("building_name"),
@@ -66,16 +85,16 @@ function parseForm(formData: FormData): ParsedForm | { error: string } {
     cross_street: strOrNull("cross_street"),
     neighborhood: strOrNull("neighborhood"),
     is_new_york: formData.get("is_new_york") === "on",
-    bedrooms: numOrNull("bedrooms"),
-    bathrooms: numOrNull("bathrooms"),
-    unit_rent: numOrNull("unit_rent"),
+    bedrooms: numeric.bedrooms,
+    bathrooms: numeric.bathrooms,
+    unit_rent: numeric.unit_rent,
     unit_lease_start: lease_start || null,
     unit_lease_end: lease_end || null,
-    amenity_fees_yearly: numOrNull("amenity_fees_yearly"),
-    misc_fees_yearly: numOrNull("misc_fees_yearly"),
-    internet_monthly: numOrNull("internet_monthly"),
-    cleaning_fee_monthly: numOrNull("cleaning_fee_monthly"),
-    insurance_monthly: numOrNull("insurance_monthly"),
+    amenity_fees_yearly: numeric.amenity_fees_yearly,
+    misc_fees_yearly: numeric.misc_fees_yearly,
+    internet_monthly: numeric.internet_monthly,
+    cleaning_fee_monthly: numeric.cleaning_fee_monthly,
+    insurance_monthly: numeric.insurance_monthly,
     unit_amenities: normalizeUnitAmenities(
       formData.getAll("unit_amenities").map((v) => String(v)),
     ),
@@ -90,6 +109,15 @@ function parseForm(formData: FormData): ParsedForm | { error: string } {
       .filter(Boolean),
     notes: strOrNull("notes"),
   };
+}
+
+async function isPropertyOperator(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+): Promise<boolean> {
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  return canEditLedger(user?.email);
 }
 
 // Replace a property's cleaner assignments with the given set.
@@ -144,6 +172,9 @@ export async function createProperty(
   if ("error" in parsed) return parsed;
 
   const supabase = await createClient();
+  if (!(await isPropertyOperator(supabase))) {
+    return { error: "Only the financial operators can change properties." };
+  }
   const leaseholder_id = await resolveLeaseholderId(
     supabase,
     parsed.leaseholder_name,
@@ -181,6 +212,9 @@ export async function updateProperty(
   if ("error" in parsed) return parsed;
 
   const supabase = await createClient();
+  if (!(await isPropertyOperator(supabase))) {
+    return { error: "Only the financial operators can change properties." };
+  }
   const leaseholder_id = await resolveLeaseholderId(
     supabase,
     parsed.leaseholder_name,
@@ -214,6 +248,9 @@ export async function deleteProperty(formData: FormData) {
   if (!id) return;
 
   const supabase = await createClient();
+  if (!(await isPropertyOperator(supabase))) {
+    throw new Error("Only the financial operators can delete properties.");
+  }
   const { error } = await supabase.from("properties").delete().eq("id", id);
   if (error) {
     throw new Error(

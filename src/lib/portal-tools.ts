@@ -26,10 +26,14 @@ import {
 } from "@/lib/email";
 import { logEmail } from "@/lib/email-log";
 import { sendSms } from "@/lib/sms";
-import { computeLedger, rateForMonthISO } from "@/lib/rent";
+import {
+  computeLedger,
+  LEDGER_PAYMENT_CUTOFF,
+  rateForMonthISO,
+} from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
 import { buildBalanceDetail, type BalanceDetail } from "@/lib/balance-detail";
-import { recordRentChange } from "@/lib/rent-history";
+import { updateTenancyRent } from "@/lib/rent-history";
 import {
   billMonth,
   isOverThreshold,
@@ -293,9 +297,17 @@ export async function listActiveTenants(args: {
   const rows = (data ?? []).map((t) => {
     const paid = (t.payments ?? [])
       .filter(
-        (p) => p.payment_type === "rent" && p.paid_on >= start && p.paid_on <= end,
+        (p) =>
+          (p.payment_type === "rent" || p.payment_type === "refund") &&
+          p.paid_on >= start &&
+          p.paid_on <= end &&
+          p.paid_on <= today,
       )
-      .reduce((sum, p) => sum + Number(p.amount), 0);
+      .reduce(
+        (sum, p) =>
+          sum + (p.payment_type === "refund" ? -1 : 1) * Number(p.amount),
+        0,
+      );
     const tenant = one(t.tenants);
     const room = one(t.rooms);
     const property = one(room?.properties ?? null);
@@ -312,6 +324,12 @@ export async function listActiveTenants(args: {
       today,
       tenancyChanges,
     );
+    const due =
+      t.start_date > today || t.start_date > end
+        ? 0
+        : t.start_date >= start && t.first_month_rent !== null
+          ? Number(t.first_month_rent)
+          : rate;
     return {
       tenancy_id: t.id,
       tenant_id: tenant?.id ?? null,
@@ -322,7 +340,7 @@ export async function listActiveTenants(args: {
       room: room?.room_number ?? null,
       monthly_rent: rate,
       paid_this_cycle: paid,
-      cycle_balance: rate - paid,
+      cycle_balance: due - paid,
       net_balance: netBalance,
     };
   });
@@ -714,6 +732,19 @@ export async function recordPayment(args: {
   method?: string;
   notes?: string;
 }) {
+  if (!(args.amount > 0)) throw new Error("Amount must be a positive number.");
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(args.paid_on))
+    throw new Error("paid_on must be YYYY-MM-DD.");
+  if (args.paid_on > todayISO())
+    throw new Error("paid_on cannot be in the future.");
+  if (
+    (args.payment_type ?? "rent") === "rent" &&
+    args.paid_on < LEDGER_PAYMENT_CUTOFF
+  ) {
+    throw new Error(
+      `Rent payments must be dated ${LEDGER_PAYMENT_CUTOFF} or later.`,
+    );
+  }
   const supabase = admin();
   const { error } = await supabase.from("payments").insert({
     tenancy_id: args.tenancy_id,
@@ -789,35 +820,55 @@ export async function endTenancy(args: {
   tenancy_id: string;
   move_out_date: string;
 }) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(args.move_out_date))
+    throw new Error("move_out_date must be YYYY-MM-DD.");
   const supabase = admin();
   const today = todayISO();
   const isPastOrToday = args.move_out_date <= today;
 
   const { data: tenancy, error: lookupErr } = await supabase
     .from("tenancies")
-    .select("room_id")
+    .select("room_id, start_date, move_out_date, status")
     .eq("id", args.tenancy_id)
     .single();
   if (lookupErr || !tenancy) {
     throw new Error(lookupErr?.message ?? "Tenancy not found.");
   }
+  if (args.move_out_date < tenancy.start_date) {
+    throw new Error("move_out_date cannot be before the tenancy start date.");
+  }
 
-  await supabase
+  const { error: updateError } = await supabase
     .from("tenancies")
     .update({
       move_out_date: args.move_out_date,
       status: isPastOrToday ? "ended" : "active",
     })
     .eq("id", args.tenancy_id);
+  if (updateError) throw new Error(updateError.message);
 
   if (tenancy.room_id) {
     // Re-entering the vacancy queue — reset the VA workflow flag to "no action"
     // so the room doesn't inherit the previous tenancy's color.
-    await updateRoomsWithNotification(supabase, tenancy.room_id, {
+    const { error: roomError } = await updateRoomsWithNotification(
+      supabase,
+      tenancy.room_id,
+      {
       status: isPastOrToday ? "available" : "occupied",
       available_from: args.move_out_date,
       listing_action: "no_action",
-    });
+      },
+    );
+    if (roomError) {
+      await supabase
+        .from("tenancies")
+        .update({
+          move_out_date: tenancy.move_out_date,
+          status: tenancy.status,
+        })
+        .eq("id", args.tenancy_id);
+      throw new Error(roomError.message);
+    }
   }
 
   return {
@@ -1059,21 +1110,31 @@ export async function updateTenancy(args: {
   if (Object.keys(patch).length === 0) throw new Error("Nothing to update.");
 
   const supabase = admin();
+  const updatedFields = Object.keys(patch);
   if (args.monthly_rent !== undefined) {
-    const { error: histErr } = await recordRentChange(
+    const { error: rentError } = await updateTenancyRent(
       supabase,
       args.tenancy_id,
       args.monthly_rent,
-      args.new_lease_start,
+      args.new_lease_start!,
+      args.new_lease_start!,
+      args.lease_end_date!,
     );
-    if (histErr) throw new Error(histErr);
+    if (rentError) throw new Error(rentError);
+    delete patch.monthly_rent;
+    delete patch.lease_start_date;
+    delete patch.lease_end_date;
+    delete patch.lease_end_reminded_at;
+    delete patch.lease_end_reminded_30_at;
   }
-  const { error } = await supabase
-    .from("tenancies")
-    .update(patch)
-    .eq("id", args.tenancy_id);
-  if (error) throw new Error(error.message);
-  return { ok: true, updated_fields: Object.keys(patch) };
+  if (Object.keys(patch).length > 0) {
+    const { error } = await supabase
+      .from("tenancies")
+      .update(patch)
+      .eq("id", args.tenancy_id);
+    if (error) throw new Error(error.message);
+  }
+  return { ok: true, updated_fields: updatedFields };
 }
 
 // Post an ad-hoc charge to the ledger (owed side). Distinct from
@@ -1088,13 +1149,20 @@ export async function addTenancyCharge(args: {
   if (!(args.amount > 0)) throw new Error("Amount must be a positive number.");
   if (args.kind === "other" && !args.note?.trim())
     throw new Error("An 'other' charge needs a note describing it.");
+  const chargedOn = args.charged_on ?? todayISO();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(chargedOn))
+    throw new Error("charged_on must be YYYY-MM-DD.");
+  if (chargedOn > todayISO())
+    throw new Error("charged_on cannot be in the future.");
 
   const supabase = admin();
   const { error } = await supabase.from("tenancy_charges").insert({
     tenancy_id: args.tenancy_id,
     kind: args.kind,
     amount: args.amount,
-    charged_on: args.charged_on ?? todayISO(),
+    charged_on: chargedOn,
+    dedupe_key:
+      args.kind === "late_fee" ? `late_fee:${chargedOn.slice(0, 7)}` : null,
     note: args.note?.trim() || null,
   });
   if (error) throw new Error(error.message);
@@ -1369,7 +1437,8 @@ export async function addTenant(args: {
   if (roomErr) throw new Error(roomErr.message);
   if (!room) throw new Error("Room not found.");
   const occupant = (room.tenancies ?? []).find(
-    (t: { status: string }) => t.status === "active",
+    (t: { status: string }) =>
+      t.status === "active" || t.status === "upcoming",
   );
   if (occupant) {
     const who = one(occupant.tenants)?.full_name ?? "another tenant";
@@ -1408,7 +1477,7 @@ export async function addTenant(args: {
       // operator's message includes one — left null on the tenancy.
       security_deposit: null,
       first_month_rent: args.first_month_rent ?? null,
-      status: "active",
+      status: args.start_date > todayISO() ? "upcoming" : "active",
     })
     .select("id")
     .single();
@@ -1417,9 +1486,9 @@ export async function addTenant(args: {
     throw new Error(leErr.message);
   }
 
-  // 3. Mark the room occupied and clear any "pending tenant" listing flag.
+  // 3. Future tenancies reserve the room until their start date.
   await updateRoomsWithNotification(supabase, args.room_id, {
-    status: "occupied",
+    status: args.start_date > todayISO() ? "reserved" : "occupied",
     pending_tenant: false,
   });
 
@@ -1696,7 +1765,6 @@ export async function sendBalanceReminders(args: {
   const now = new Date();
   const y = now.getFullYear();
   const m = now.getMonth();
-  const monthEnd = new Date(y, m + 1, 0).toISOString().slice(0, 10);
   const period = `${y}-${String(m + 1).padStart(2, "0")}`;
   const monthLabel = now.toLocaleDateString("en-US", {
     month: "long",
@@ -1757,7 +1825,7 @@ export async function sendBalanceReminders(args: {
 
   for (const row of data ?? []) {
     if (row.move_out_date && row.move_out_date <= today) continue;
-    if (row.start_date > monthEnd) continue;
+    if (row.start_date > today) continue;
 
     const { netBalance } = computeLedger(
       row,
