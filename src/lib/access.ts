@@ -18,10 +18,12 @@ export function isMaster(email: string | null | undefined): boolean {
  * Everyone else can still view ledgers and record payments.
  *
  * IMPORTANT: this operator allowlist is mirrored in Postgres RLS policies
- * (payments, credentials, profitability_line_items, ledger side-tables, and the
- * credential_password / set_credential_password functions). RLS cannot import
- * this TS constant, so if the operator set ever changes, update BOTH here and
- * the database policies (see the 20260716* migrations) to avoid drift.
+ * (payments, credentials, profitability_line_items, ledger side-tables, the
+ * credential_password / set_credential_password functions, and — via
+ * is_financial_operator() — audit_log / email_log / sms_log / email_queue
+ * reads and notification_recipients writes). RLS cannot import this TS
+ * constant, so if the operator set ever changes, update BOTH here and the
+ * database policies (see the 20260716 and 20260717 migrations) to avoid drift.
  */
 const LEDGER_ADMIN_EMAILS = new Set<string>([
   "vdutta1485@gmail.com", // Vineet
@@ -43,5 +45,14 @@ export const LEDGER_ADMIN_ERROR =
 export function canViewProfitability(
   email: string | null | undefined,
 ): boolean {
+  return canEditLedger(email);
+}
+
+/**
+ * The admin logs (audit / email / text) and notification settings are
+ * operator-only: Vineet and Parth. Same set as the ledger admins; separate
+ * function so call sites read as access checks and the sets can diverge later.
+ */
+export function isOperator(email: string | null | undefined): boolean {
   return canEditLedger(email);
 }

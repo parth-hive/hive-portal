@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { isMaster } from "@/lib/access";
+import { isOperator } from "@/lib/access";
 import { formatDate } from "@/lib/date";
 import { AddRecipientForm } from "./add-form";
 import { toggleRecipient, deleteRecipient } from "./actions";
@@ -29,7 +29,7 @@ export default async function NotificationsPage() {
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!isMaster(user?.email)) redirect("/");
+  if (!isOperator(user?.email)) redirect("/");
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data } = await (supabase as any)

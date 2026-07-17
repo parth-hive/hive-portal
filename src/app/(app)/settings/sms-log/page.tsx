@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { SMS_TYPE_LABELS, type SmsType } from "@/lib/sms-log";
-import { isMaster } from "@/lib/access";
+import { isMaster, isOperator } from "@/lib/access";
 import { ClearLogButton } from "../clear-log-button";
 import { clearSmsLog } from "../log-actions";
 
@@ -46,6 +46,21 @@ export default async function SmsLogPage({ searchParams }: PageProps) {
     data: { user },
   } = await supabase.auth.getUser();
   const master = isMaster(user?.email);
+  if (!isOperator(user?.email)) {
+    return (
+      <div className="mx-auto w-full max-w-3xl">
+        <Link
+          href="/settings"
+          className="text-xs uppercase tracking-wide text-muted hover:text-ink"
+        >
+          ← Admin Settings
+        </Link>
+        <p className="mt-6 rounded-2xl bg-white px-6 py-12 text-center text-sm text-muted shadow-sm">
+          The text log is restricted to the operators.
+        </p>
+      </div>
+    );
+  }
 
   const sp = await searchParams;
   const typeFilter = isType(sp.type) ? sp.type : null;

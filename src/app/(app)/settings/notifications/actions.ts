@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
-import { isMaster } from "@/lib/access";
+import { isOperator } from "@/lib/access";
 
 export type RecipientFormState = { error?: string } | undefined;
 
@@ -15,21 +15,22 @@ function adminClient() {
   });
 }
 
-// Managing notification recipients is master-only (the page already redirects
-// non-masters; this closes the direct server-action invocation path).
-async function assertMaster(): Promise<boolean> {
+// Managing notification recipients is operator-only — Vineet and Parth (the
+// page already redirects everyone else; this closes the direct server-action
+// invocation path).
+async function assertOperator(): Promise<boolean> {
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  return isMaster(user?.email);
+  return isOperator(user?.email);
 }
 
 export async function addRecipient(
   _prev: RecipientFormState,
   formData: FormData,
 ): Promise<RecipientFormState> {
-  if (!(await assertMaster())) return { error: "Forbidden." };
+  if (!(await assertOperator())) return { error: "Forbidden." };
 
   const email = String(formData.get("email") ?? "").trim();
   const label = String(formData.get("label") ?? "").trim() || null;
@@ -60,7 +61,7 @@ export async function addRecipient(
 }
 
 export async function toggleRecipient(formData: FormData) {
-  if (!(await assertMaster())) return;
+  if (!(await assertOperator())) return;
   const id = String(formData.get("id") ?? "");
   const enabled = formData.get("enabled") === "true";
   if (!id) return;
@@ -76,7 +77,7 @@ export async function toggleRecipient(formData: FormData) {
 }
 
 export async function deleteRecipient(formData: FormData) {
-  if (!(await assertMaster())) return;
+  if (!(await assertOperator())) return;
   const id = String(formData.get("id") ?? "");
   if (!id) return;
 

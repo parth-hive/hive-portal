@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { canEditLedger } from "@/lib/access";
+import { isOperator } from "@/lib/access";
 
 export const dynamic = "force-dynamic";
 
@@ -82,7 +82,7 @@ export default async function AuditLogPage({
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  const operator = canEditLedger(user?.email);
+  const operator = isOperator(user?.email);
   if (!operator) {
     return (
       <div className="mx-auto w-full max-w-3xl">

@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
-import { isMaster } from "@/lib/access";
+import { isMaster, isOperator } from "@/lib/access";
 import { boardAdmin } from "@/lib/board";
 import { ChangePasswordForm } from "./change-password-form";
 import { BoardPrefToggle } from "./board-pref-toggle";
@@ -12,6 +12,8 @@ type AdminLink = {
   title: string;
   description: string;
   masterOnly?: boolean;
+  /** Visible to the operators (Vineet + Parth) only. */
+  operatorOnly?: boolean;
 };
 
 const ADMIN_LINKS: AdminLink[] = [
@@ -32,22 +34,25 @@ const ADMIN_LINKS: AdminLink[] = [
     title: "Notification settings",
     description:
       "Manage who gets emailed on room status and listing-action changes.",
-    masterOnly: true,
+    operatorOnly: true,
   },
   {
     href: "/settings/audit-log",
     title: "Audit log",
     description: "Review every change made across the portal.",
+    operatorOnly: true,
   },
   {
     href: "/settings/email-log",
     title: "Email log",
     description: "Every email the portal has sent, filterable by type and status.",
+    operatorOnly: true,
   },
   {
     href: "/settings/sms-log",
     title: "Text log",
     description: "Every text the portal has sent, filterable by type and status.",
+    operatorOnly: true,
   },
   {
     href: "/settings/telegram-log",
@@ -64,7 +69,10 @@ export default async function AdminSettingsPage() {
     data: { user },
   } = await supabase.auth.getUser();
   const master = isMaster(user?.email);
-  const visibleLinks = ADMIN_LINKS.filter((l) => !l.masterOnly || master);
+  const operator = isOperator(user?.email);
+  const visibleLinks = ADMIN_LINKS.filter(
+    (l) => (!l.masterOnly || master) && (!l.operatorOnly || operator),
+  );
 
   // Projects board email pref (default on when no row exists yet).
   let boardEmails = true;

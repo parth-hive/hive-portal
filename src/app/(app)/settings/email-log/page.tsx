@@ -2,7 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { EMAIL_TYPE_LABELS, type EmailType } from "@/lib/email-log";
 import { resendUsage } from "@/lib/resend-quota";
-import { isMaster } from "@/lib/access";
+import { isMaster, isOperator } from "@/lib/access";
 import { ClearLogButton } from "../clear-log-button";
 import { clearEmailLog } from "../log-actions";
 
@@ -47,6 +47,21 @@ export default async function EmailLogPage({ searchParams }: PageProps) {
     data: { user },
   } = await supabase.auth.getUser();
   const master = isMaster(user?.email);
+  if (!isOperator(user?.email)) {
+    return (
+      <div className="mx-auto w-full max-w-3xl">
+        <Link
+          href="/settings"
+          className="text-xs uppercase tracking-wide text-muted hover:text-ink"
+        >
+          ← Admin Settings
+        </Link>
+        <p className="mt-6 rounded-2xl bg-white px-6 py-12 text-center text-sm text-muted shadow-sm">
+          The email log is restricted to the operators.
+        </p>
+      </div>
+    );
+  }
 
   // Resend free-tier usage: today's & this month's sends vs the caps, plus the
   // number of emails currently deferred to the queue. Counting fails open before
