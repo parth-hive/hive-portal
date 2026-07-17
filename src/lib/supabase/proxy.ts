@@ -1,8 +1,9 @@
 import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
-// "/s" is the public cleaner schedule page (token in the path, no login).
-const PUBLIC_PATHS = ["/login", "/auth", "/s"];
+// "/s" is the public cleaner schedule page (token in the path, no login);
+// "/docs" is public API documentation.
+const PUBLIC_PATHS = ["/login", "/auth", "/s", "/docs"];
 
 export async function updateSession(request: NextRequest) {
   let response = NextResponse.next({ request });

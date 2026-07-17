@@ -304,7 +304,7 @@ export default async function InventoryPage({ searchParams }: PageProps) {
             Rooms you can list right now — available today, and scheduled to open
             up.{" "}
             <Link
-              href="/inventory/api-docs"
+              href="/docs/inventory-api"
               className="text-accent-text underline decoration-accent/40 underline-offset-2 hover:text-accent-dark"
             >
               API docs
