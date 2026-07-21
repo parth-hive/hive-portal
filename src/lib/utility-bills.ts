@@ -75,6 +75,24 @@ export const monthLabelShort = (ym: string) =>
 // 'current', which includes taxes) and ignores late fees ('late_fee'/'other').
 export const OVERAGE_THRESHOLD = 200;
 
+// Combined electric+gas statements (PSE&G) sometimes get extracted with
+// utility_type 'other', so the bill-level type alone can't be trusted — a
+// bill also counts as energy when its current charges are electric/gas
+// line items ("Electric charges", "Electric supply charges", "Gas charges")
+// or metered energy units ("SC-1 Charge (615 kWh)", therms). Water/internet/
+// trash bills are never charged to tenants.
+const ENERGY_CHARGE = /electric|gas|\bkwh\b|\btherm/i;
+
+export function isEnergyBill(b: BillRow): boolean {
+  return (
+    b.utility_type === "electric" ||
+    b.utility_type === "gas" ||
+    b.utility_bill_charges.some(
+      (c) => c.kind === "current" && ENERGY_CHARGE.test(c.description ?? ""),
+    )
+  );
+}
+
 export function usageTotal(b: BillRow): number {
   return b.utility_bill_charges
     .filter((c) => c.kind === "current")
@@ -84,8 +102,5 @@ export function usageTotal(b: BillRow): number {
 export function isOverThreshold(b: BillRow): boolean {
   // Compare in whole cents: usageTotal is a float sum, and an exactly-$200
   // bill can come out as 200.00000000000003.
-  return (
-    (b.utility_type === "electric" || b.utility_type === "gas") &&
-    Math.round(usageTotal(b) * 100) > OVERAGE_THRESHOLD * 100
-  );
+  return isEnergyBill(b) && Math.round(usageTotal(b) * 100) > OVERAGE_THRESHOLD * 100;
 }

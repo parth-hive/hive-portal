@@ -35,7 +35,13 @@ const ChargeSchema = z.object({
 
 const ExtractionSchema = z.object({
   provider: z.string().nullable().describe("Company issuing the bill, e.g. PSE&G, Con Edison"),
-  utility_type: z.enum(["electric", "gas", "water", "internet", "trash", "other"]),
+  utility_type: z
+    .enum(["electric", "gas", "water", "internet", "trash", "other"])
+    .describe(
+      "electric = any bill with electricity charges, INCLUDING combined " +
+        "electric+gas statements (e.g. PSE&G). gas = gas-only bills. Never " +
+        "use 'other' for a bill that has electric or gas charges.",
+    ),
   account_number: z.string().nullable(),
   service_address: z.string().nullable().describe("Service address as printed"),
   statement_date: z.string().nullable().describe('"YYYY-MM-DD"'),
