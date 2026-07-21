@@ -3,6 +3,7 @@
 import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { ConfirmModal } from "@/components/confirm-modal";
+import { SearchableSelect } from "@/components/searchable-select";
 import {
   assignToTenancy,
   dismissRequest,
@@ -298,22 +299,19 @@ export function AgreementTally({
                   <span className="text-xs font-medium uppercase tracking-wide text-muted">
                     Assign to tenant
                   </span>
-                  <select
+                  <SearchableSelect
+                    className="min-w-52 flex-1"
+                    placeholder="Search tenants…"
                     value={assignPick[r.id] ?? ""}
-                    onChange={(e) => {
-                      setAssignPick((prev) => ({ ...prev, [r.id]: e.target.value }));
+                    onSelect={(id) => {
+                      setAssignPick((prev) => ({ ...prev, [r.id]: id }));
                       setConfirmReplace(null);
                     }}
-                    className="min-w-52 flex-1 rounded-lg border border-stone bg-white px-3 py-1.5 text-sm text-ink focus:border-accent focus:outline-none"
-                  >
-                    <option value="">Pick a tenant…</option>
-                    {assignOptions.map((o) => (
-                      <option key={o.tenancyId} value={o.tenancyId}>
-                        {o.label}
-                        {o.hasLease ? " (has a lease PDF)" : ""}
-                      </option>
-                    ))}
-                  </select>
+                    options={assignOptions.map((o) => ({
+                      id: o.tenancyId,
+                      label: `${o.label}${o.hasLease ? " (has a lease PDF)" : ""}`,
+                    }))}
+                  />
                   {confirmReplace === r.id ? (
                     <div className="flex items-center gap-2">
                       <span className="text-xs text-amber-800">
