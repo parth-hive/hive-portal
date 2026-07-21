@@ -116,12 +116,11 @@ export function gmailAgreementBody(opts: {
     subject: "Agreement",
     text: `Hello ${name},
 
-Please find attached your Agreement.
+Your agreement is attached. You can review and sign it online here — the link works for 48 hours:
 
-You can review and sign it online here (link valid for 48 hours):
 ${opts.signUrl}
 
-Once you sign, a copy of the signed agreement will be emailed to you.`,
+Once you sign, you'll automatically get a copy of the signed agreement by email.`,
   };
 }
 
@@ -149,11 +148,11 @@ export function agreementEmailTemplate(opts: {
   const subject = "Your Hive agreement";
   const text = `Hi ${firstName},
 
-Welcome to Hive! Please find your agreement attached. You can review and sign it online here (the link is valid for 48 hours):
+Welcome to Hive! Your agreement is attached. You can review and sign it online here — the link works for 48 hours:
 
 ${opts.signUrl}
 
-Once you sign, a copy of the signed agreement will be emailed to you. Reply to this email if you have any questions.
+Once you sign, you'll automatically get a copy of the signed agreement by email. Reply to this email if you have any questions.
 
 Looking forward to having you with us.
 
@@ -165,7 +164,7 @@ Hive`;
     <div style="height:6px; background:#d4920b;"></div>
     <div style="padding:24px 20px; color:#1a1a18; line-height:1.55; font-size:15px;">
       <p style="margin:0 0 14px;">Hi ${escapeHtml(firstName)},</p>
-      <p style="margin:0 0 14px;">Welcome to Hive! Please find your agreement attached. Review it, then sign it online — it only takes a minute.</p>
+      <p style="margin:0 0 14px;">Welcome to Hive! Your agreement is attached. Review it, then sign it online — it only takes a minute.</p>
       <div style="margin:0 0 14px;">${ctaButton(opts.signUrl, "Review & sign agreement")}</div>
       <p style="margin:0 0 14px; font-size:13px; color:#8a8378;">The signing link is valid for 48 hours. Once you sign, a copy of the signed agreement will be emailed to you.</p>
       <p style="margin:0 0 14px;">Reply to this email if you have any questions. Looking forward to having you with us.</p>
@@ -189,7 +188,7 @@ export function gmailSignedAgreementBody(opts: { tenantName: string }): {
     subject: "Signed agreement",
     text: `Hello ${name},
 
-Thank you for signing. Attached is your fully signed agreement for your records.`,
+Thanks for signing! Your signed agreement is attached — keep it for your records.`,
   };
 }
 
@@ -203,7 +202,7 @@ export function signedAgreementEmailTemplate(opts: { tenantName: string }): {
   const subject = "Your signed Hive agreement";
   const text = `Hi ${firstName},
 
-Thank you for signing! Attached is your fully signed agreement for your records.
+Thanks for signing! Your signed agreement is attached — keep it for your records.
 
 Welcome to Hive — we're looking forward to having you with us.
 
@@ -216,7 +215,7 @@ Hive`;
     <div style="padding:24px 20px; color:#1a1a18; line-height:1.55; font-size:15px;">
       <span style="display:inline-block; background:#fbeccc; color:#9a6f08; font-size:12px; font-weight:600; letter-spacing:0.04em; text-transform:uppercase; padding:4px 12px; border-radius:999px;">Signed</span>
       <p style="margin:14px 0 14px;">Hi ${escapeHtml(firstName)},</p>
-      <p style="margin:0 0 14px;">Thank you for signing! Attached is your fully signed agreement for your records.</p>
+      <p style="margin:0 0 14px;">Thanks for signing! Your signed agreement is attached &mdash; keep it for your records.</p>
       <p style="margin:0 0 14px;">Welcome to Hive &mdash; we&rsquo;re looking forward to having you with us.</p>
       <p style="margin:18px 0 0;">Best,<br/>Vineet<br/><span style="color:#8a8378;">Hive</span></p>
     </div>
