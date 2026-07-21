@@ -7,7 +7,11 @@
  * attachments without juggling binary streams.
  */
 
-import { buildAgreementPdf, agreementFilename } from "@/lib/agreement-pdf";
+import {
+  buildAgreementPdf,
+  agreementFilename,
+  type SignatureImage,
+} from "@/lib/agreement-pdf";
 
 export type AgreementInput = {
   tenantName: string;
@@ -21,6 +25,12 @@ export type AgreementInput = {
   /** New York units go out without letterhead → pass false. Defaults to true. */
   includeLetterhead?: boolean;
   proRateRent?: string;
+  /** Stamped above the sublessor line (send + sign time). */
+  sublessorSignature?: SignatureImage;
+  /** Stamped above the sublessee line (sign time only). */
+  tenantSignature?: SignatureImage;
+  /** "YYYY-MM-DD" — fills the sublessee Date line at sign time. */
+  tenantSignDate?: string;
 };
 
 export type GeneratedAgreement = {
@@ -34,6 +44,11 @@ export type GeneratedAgreement = {
 function safePdfFilename(name: string): string {
   const cleaned = name.replace(/[^\w. -]+/g, "_").replace(/\.+$/, "").trim();
   return /\.pdf$/i.test(cleaned) ? cleaned : `${cleaned || "agreement"}.pdf`;
+}
+
+/** Attachment-safe filename for a tenant's agreement PDF. */
+export function agreementPdfFilename(tenantName: string): string {
+  return safePdfFilename(agreementFilename(tenantName));
 }
 
 /** Generate the agreement PDF and return it as base64. Throws on bad input. */
@@ -51,6 +66,9 @@ export async function generateAgreementPdf(
     agreementDate: input.agreementDate,
     includeLetterhead: input.includeLetterhead ?? true,
     proRateRent: input.proRateRent,
+    sublessorSignature: input.sublessorSignature,
+    tenantSignature: input.tenantSignature,
+    tenantSignDate: input.tenantSignDate,
   });
 
   const base64 = Buffer.from(pdf.output("arraybuffer")).toString("base64");

@@ -6,11 +6,13 @@ import {
   buildAgreementPdf,
   agreementFilename,
 } from "@/lib/agreement-pdf";
+import { sendAgreementToTenant } from "./actions";
 
 export type TenancyPrefill = {
   id: string;
   label: string;
   tenantName: string;
+  tenantEmail: string;
   propertyAddress: string;
   rent: string;
   securityDeposit: string;
@@ -49,9 +51,11 @@ function dayOf(dateStr: string): number | null {
 export function AgreementGenerator({
   prefills,
   defaultAgreementDate,
+  hasOperatorSignature,
 }: {
   prefills: TenancyPrefill[];
   defaultAgreementDate: string;
+  hasOperatorSignature: boolean;
 }) {
   const [form, setForm] = useState<FormState>({
     tenantName: "",
@@ -66,6 +70,9 @@ export function AgreementGenerator({
   });
   const [selectedPrefill, setSelectedPrefill] = useState("");
   const [showCalculator, setShowCalculator] = useState(false);
+  const [recipientEmail, setRecipientEmail] = useState("");
+  const [inNewYork, setInNewYork] = useState(false);
+  const [sending, setSending] = useState(false);
 
   const set = (field: keyof FormState) => (value: string) =>
     setForm((prev) => ({ ...prev, [field]: value }));
@@ -85,6 +92,8 @@ export function AgreementGenerator({
       leaseStartDate: p.leaseStartDate,
       leaseEndDate: p.leaseEndDate,
     }));
+    setRecipientEmail(p.tenantEmail);
+    setInNewYork(p.isNewYork);
   };
 
   const proration = useMemo(() => {
@@ -114,16 +123,54 @@ export function AgreementGenerator({
     return null;
   };
 
-  const generate = (includeLetterhead: boolean) => {
+  const validate = (): boolean => {
     const gap = missing();
     if (gap) {
       toast.error(`Fill in the ${gap} first.`);
-      return;
+      return false;
     }
     if (form.leaseEndDate <= form.leaseStartDate) {
       toast.error("Lease end date must be after the start date.");
+      return false;
+    }
+    return true;
+  };
+
+  const send = async () => {
+    if (!validate()) return;
+    if (!recipientEmail.trim()) {
+      toast.error("Fill in the tenant's email first.");
       return;
     }
+    setSending(true);
+    try {
+      const res = await sendAgreementToTenant({
+        tenantName: form.tenantName.trim(),
+        sublessorName: form.sublessorName.trim(),
+        propertyAddress: form.propertyAddress.trim(),
+        rent: form.rent.trim(),
+        securityDeposit: form.securityDeposit.trim(),
+        leaseStartDate: form.leaseStartDate,
+        leaseEndDate: form.leaseEndDate,
+        agreementDate: form.agreementDate,
+        proRateRent: form.proRateRent.trim() || undefined,
+        recipientEmail: recipientEmail.trim(),
+        inNewYork,
+      });
+      if (res.ok) {
+        toast.success(
+          `Agreement sent to ${recipientEmail.trim()} with a 48-hour signing link.`,
+        );
+      } else {
+        toast.error(res.error ?? "Failed to send the agreement.");
+      }
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const generate = (includeLetterhead: boolean) => {
+    if (!validate()) return;
     try {
       const pdf = buildAgreementPdf({
         tenantName: form.tenantName.trim(),
@@ -353,8 +400,64 @@ export function AgreementGenerator({
             </button>
           </div>
           <p className="mt-3 text-center text-xs text-muted">
-            The PDF is generated in your browser and downloads immediately —
-            nothing leaves the portal.
+            Downloads are generated in your browser and are unsigned — nothing
+            leaves the portal.
+          </p>
+        </div>
+
+        <div className="mt-6 border-t border-stone/50 pt-6">
+          <h3 className="text-sm font-medium uppercase tracking-wide text-muted">
+            Email to tenant for signing
+          </h3>
+          <p className="mt-1 text-xs text-muted">
+            Sends the agreement — pre-signed by you — with a 48-hour online
+            signing link, and adds the tenant to the signing tally above.
+          </p>
+          <div className="mt-4 grid items-end gap-4 sm:grid-cols-[1fr_auto_auto]">
+            <label className="flex flex-col gap-1.5">
+              <span className={fieldLabel}>Tenant email *</span>
+              <input
+                type="email"
+                value={recipientEmail}
+                onChange={(e) => setRecipientEmail(e.target.value)}
+                placeholder="tenant@example.com"
+                className={fieldInput}
+              />
+            </label>
+            <label className="flex items-center gap-2 pb-2 text-sm text-ink">
+              <input
+                type="checkbox"
+                checked={inNewYork}
+                onChange={(e) => setInNewYork(e.target.checked)}
+                className="h-4 w-4 accent-accent"
+              />
+              New York unit
+            </label>
+            <button
+              type="button"
+              onClick={send}
+              disabled={sending || !hasOperatorSignature}
+              className="rounded-full bg-ink px-6 py-3 text-sm font-medium uppercase tracking-wide text-white transition hover:bg-accent-dark disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              {sending ? "Sending…" : "Send to tenant"}
+            </button>
+          </div>
+          <p className="mt-3 text-xs text-muted">
+            {hasOperatorSignature ? (
+              inNewYork ? (
+                <>
+                  New York: sent plain from the personal Gmail, no letterhead or
+                  branding.
+                </>
+              ) : (
+                <>Sent branded from the Outlook work account, with letterhead.</>
+              )
+            ) : (
+              <span className="text-amber-800">
+                Draw your signature at the top of this page first — sending is
+                disabled until it&rsquo;s on file.
+              </span>
+            )}
           </p>
         </div>
       </section>

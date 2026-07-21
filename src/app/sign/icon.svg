@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100">
+  <!-- Neutral document-and-signature mark: the /sign pages are shared with
+       unbranded (New York) tenants, so no Hive logo or gold here. -->
+  <rect x="22" y="10" width="56" height="80" rx="9" fill="#fefdfb" stroke="#55524c" stroke-width="5"/>
+  <line x1="35" y1="32" x2="65" y2="32" stroke="#8a8378" stroke-width="5" stroke-linecap="round"/>
+  <line x1="35" y1="46" x2="65" y2="46" stroke="#8a8378" stroke-width="5" stroke-linecap="round"/>
+  <line x1="35" y1="60" x2="53" y2="60" stroke="#8a8378" stroke-width="5" stroke-linecap="round"/>
+  <path d="M35 76 C42 68, 50 82, 58 74 S 64 72, 66 74" stroke="#1a1a18" stroke-width="4.5" fill="none" stroke-linecap="round"/>
+</svg>

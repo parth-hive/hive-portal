@@ -96,4 +96,4 @@ Supabase migrations in `supabase/migrations/` (timestamped SQL). Core tables: `p
 
 ## Environment
 
-See `.env.example`. Required: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`. Feature-gated: Resend (`RESEND_*`), Gmail (`GMAIL_*`), MS Graph (`MS_*`), Telegram (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `ALLOWED_TELEGRAM_USER_IDS`), `ANTHROPIC_API_KEY`, cron (`CRON_SECRET`), inventory API (`INVENTORY_API_KEY`), `NEXT_PUBLIC_SITE_URL`.
+See `.env.example`. Required: `NEXT_PUBLIC_SUPABASE_URL`, `NEXT_PUBLIC_SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`. Feature-gated: Resend (`RESEND_*`), Gmail (`GMAIL_*`), MS Graph (`MS_*`), Telegram (`TELEGRAM_BOT_TOKEN`, `TELEGRAM_WEBHOOK_SECRET`, `ALLOWED_TELEGRAM_USER_IDS`), `ANTHROPIC_API_KEY`, cron (`CRON_SECRET`), inventory API (`INVENTORY_API_KEY`), `NEXT_PUBLIC_SITE_URL`, `SIGN_ORIGIN` (neutral no-"hive" domain for lease-signing links; NY sends refuse without it, and that host serves only `/sign/*`).

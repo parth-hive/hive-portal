@@ -11,6 +11,11 @@
 import { jsPDF } from "jspdf";
 import { drawHiveLetterhead, LETTERHEAD_GOLD } from "./agreement-logo";
 
+/** A signature captured as a PNG data URL ("data:image/png;base64,…").
+ *  Rendered into a 48×12mm box, so capture on a 4:1 canvas to avoid
+ *  distortion. Transparent background expected (canvas default). */
+export type SignatureImage = { pngDataUrl: string };
+
 export type AgreementPdfData = {
   tenantName: string;
   sublessorName: string;
@@ -26,6 +31,12 @@ export type AgreementPdfData = {
   /** New York units go out without letterhead. */
   includeLetterhead: boolean;
   proRateRent?: string;
+  /** Stamped above the sublessor signature line when present. */
+  sublessorSignature?: SignatureImage;
+  /** Stamped above the sublessee signature line when present. */
+  tenantSignature?: SignatureImage;
+  /** "YYYY-MM-DD" — fills the sublessee Date line (set at sign time). */
+  tenantSignDate?: string;
 };
 
 // Date-only strings are formatted from their Y/M/D parts directly. Going
@@ -98,6 +109,10 @@ type Layout = {
   bottom: number;
   /** y to restart at on a fresh page */
   top: number;
+  /** Body font size — shrunk by the one-page fit loop. */
+  fontSize: number;
+  /** Body line height, scaled with fontSize. */
+  lineHeight: number;
 };
 
 function textWidth(pdf: jsPDF, text: string, bold: boolean): number {
@@ -124,11 +139,9 @@ function writeWithBold(
   y: number,
   maxWidth: number,
   boldPhrases: string[],
-  fontSize = 10,
 ): number {
-  const { pdf } = layout;
-  pdf.setFontSize(fontSize);
-  const lineHeight = 4.2;
+  const { pdf, lineHeight } = layout;
+  pdf.setFontSize(layout.fontSize);
   const spaceWidth = textWidth(pdf, " ", false);
 
   // Greedy wrap over tokens, then draw line by line.
@@ -169,54 +182,77 @@ export function agreementFilename(tenantName: string): string {
   return `${tenantName} Agreement.pdf`;
 }
 
-/** Build the agreement document. Callers pick the output format they need. */
+// Scales the one-page fit loop tries, largest first. 1 fits typical
+// agreements; the smaller steps absorb long names/addresses that wrap into
+// extra lines. 0.76 body text is ~7.6pt — still comfortably legible.
+const FIT_SCALES = [1, 0.94, 0.88, 0.82, 0.76];
+
+/**
+ * Build the agreement document — clauses AND signature block on a single
+ * letter page. Renders at shrinking scales until everything fits; the final
+ * scale is returned as-is even if it somehow still overflows (breakPage keeps
+ * that degenerate case readable rather than clipped).
+ */
 export function buildAgreementPdf(data: AgreementPdfData): jsPDF {
+  let last: jsPDF | null = null;
+  for (const scale of FIT_SCALES) {
+    last = buildAtScale(data, scale);
+    if (last.getNumberOfPages() === 1) return last;
+  }
+  return last!;
+}
+
+function buildAtScale(data: AgreementPdfData, s: number): jsPDF {
   const pdf = new jsPDF("p", "mm", "letter");
   const pageWidth = pdf.internal.pageSize.getWidth();
   const pageHeight = pdf.internal.pageSize.getHeight();
   const margin = 20;
   const contentWidth = pageWidth - margin * 2;
+  const fontSize = 10 * s;
   const layout: Layout = {
     pdf,
     pageWidth,
-    bottom: pageHeight - 18,
-    top: 18,
+    bottom: pageHeight - 13,
+    top: 13,
+    fontSize,
+    lineHeight: 4.2 * s,
   };
-  let yPos = 18;
+  let yPos = 13;
 
-  // Tighter spacing when letterhead is present so a typical agreement stays
-  // on one page.
+  // Tighter spacing when letterhead is present — its header block already
+  // costs ~18mm of the page.
   const hasLetterhead = data.includeLetterhead;
-  const clauseSpacing = hasLetterhead ? 1.8 : 2.5;
-  const sectionSpacing = hasLetterhead ? 5 : 8;
+  const clauseSpacing = (hasLetterhead ? 1.5 : 1.8) * s;
+  const sectionSpacing = (hasLetterhead ? 4 : 5) * s;
 
   if (hasLetterhead) {
     // Vector lockup from hiveny.com: gold hive glyph + HIVE wordmark. The
     // icon is deliberately modest next to the wordmark, matching the site.
-    const logoHeight = 9;
+    // Header stays at brand size — only body content scales down.
+    const logoHeight = 8;
     drawHiveLetterhead(pdf, margin, yPos, logoHeight);
 
-    // Contact details on top right. Four lines at 3.6mm leading run taller
+    // Contact details on top right. Four lines at 3.3mm leading run taller
     // than the logo, so the header height below follows the contact block.
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(8.5);
     const rightX = pageWidth - margin;
     let contactY = yPos + 2;
     pdf.text("917-622-9847", rightX, contactY, { align: "right" });
-    contactY += 3.6;
+    contactY += 3.3;
     pdf.text("Vineet.Dutta@HiveNY.com", rightX, contactY, { align: "right" });
-    contactY += 3.6;
+    contactY += 3.3;
     pdf.text("442 5th Avenue Suite #2478", rightX, contactY, { align: "right" });
-    contactY += 3.6;
+    contactY += 3.3;
     pdf.text("New York, NY 10018", rightX, contactY, { align: "right" });
 
-    yPos = contactY + 2.5;
+    yPos = contactY + 2;
 
     // Honey-gold divider line (brand accent #d4920b)
     pdf.setDrawColor(...LETTERHEAD_GOLD);
     pdf.setLineWidth(0.7);
     pdf.line(margin, yPos, pageWidth - margin, yPos);
-    yPos += 5;
+    yPos += 4;
   }
 
   const names = [data.tenantName, data.sublessorName];
@@ -229,23 +265,23 @@ export function buildAgreementPdf(data: AgreementPdfData): jsPDF {
     ...names,
     data.propertyAddress,
   ]);
-  yPos += 4;
+  yPos += 3.5 * s;
 
   // Rent, optional prorated rent, security deposit
-  pdf.setFontSize(10);
+  pdf.setFontSize(fontSize);
   pdf.text(`1. Rent: $${data.rent}`, margin + 4, yPos);
-  yPos += hasLetterhead ? 4 : 5;
+  yPos += (hasLetterhead ? 4 : 4.5) * s;
   let clauseNumber = 2;
   if (data.proRateRent && data.proRateRent.trim() !== "") {
     pdf.text(`${clauseNumber}. Prorated Rent: $${data.proRateRent}`, margin + 4, yPos);
-    yPos += hasLetterhead ? 4 : 5;
+    yPos += (hasLetterhead ? 4 : 4.5) * s;
     clauseNumber++;
   }
   pdf.text(`${clauseNumber}. Security Deposit: $${data.securityDeposit}`, margin + 4, yPos);
-  yPos += sectionSpacing + (hasLetterhead ? 4 : 0);
+  yPos += sectionSpacing + (hasLetterhead ? 3 : 0) * s;
 
   pdf.text("The parties agree:", margin, yPos);
-  yPos += hasLetterhead ? 9 : 11;
+  yPos += (hasLetterhead ? 7 : 8) * s;
 
   const clauses = [
     `If the monthly electric bill exceeds $200, the amount over $200 will be divided equally among the number of occupants residing in the unit. ${data.tenantName} will be responsible for his/her share of the excess charge.`,
@@ -283,7 +319,7 @@ export function buildAgreementPdf(data: AgreementPdfData): jsPDF {
           contentWidth - 16,
           names,
         );
-        yPos += hasLetterhead ? 1 : 1.5;
+        yPos += (hasLetterhead ? 1 : 1.5) * s;
       }
     }
   }
@@ -294,37 +330,72 @@ export function buildAgreementPdf(data: AgreementPdfData): jsPDF {
   }
 
   // Signature section — kept together: if it doesn't fit, it moves to the
-  // next page whole rather than losing the sublessee lines off the bottom.
-  yPos += hasLetterhead ? 3 : 5;
-  const signatureHeight = 24;
+  // next page whole rather than losing the sublessee lines off the bottom
+  // (the fit loop then retries a smaller scale so this stays one page).
+  // Rows with a signature image get a taller gap so the ink sits between the
+  // name and the line instead of over the name.
+  yPos += (hasLetterhead ? 2 : 3) * s;
+  const signedGap = 14 * s;
+  const unsignedGap = 7 * s;
+  const afterRow = 7 * s;
+  const rowHeight = (signed: boolean) => (signed ? signedGap : unsignedGap) + afterRow;
+  const signatureHeight =
+    rowHeight(!!data.sublessorSignature) + rowHeight(!!data.tenantSignature);
   yPos = breakPage(layout, yPos, signatureHeight);
 
-  pdf.setFontSize(10);
+  pdf.setFontSize(fontSize);
   const signatureLine = "__________________________";
   const dateLine = "____________________";
   const dateLineWidth = textWidth(pdf, dateLine, false);
   const dateX = pageWidth - margin - dateLineWidth;
   const dateCenterX = dateX + dateLineWidth / 2;
 
-  const signatureRow = (role: string, name: string, filledDate?: string) => {
+  const signatureRow = (
+    role: string,
+    name: string,
+    signature?: SignatureImage,
+    filledDate?: string,
+  ) => {
     pdf.setFont("helvetica", "normal");
     pdf.text(`${role}: `, margin, yPos);
     pdf.setFont("helvetica", "bold");
     pdf.text(name, margin + pdf.getTextWidth(`${role}: `), yPos);
     pdf.setFont("helvetica", "normal");
     pdf.text("Date", dateCenterX, yPos, { align: "center" });
-    yPos += 7;
+    yPos += signature ? signedGap : unsignedGap;
+    if (signature) {
+      // 4:1 ink box whose bottom edge rests just above the underscores.
+      const h = 11 * s;
+      pdf.addImage(
+        signature.pngDataUrl,
+        "PNG",
+        margin + 2,
+        yPos - h - 0.5,
+        h * 4,
+        h,
+      );
+    }
     pdf.text(signatureLine, margin, yPos);
     pdf.text(dateLine, dateX, yPos);
     if (filledDate) {
       // Sits just above the underscores, like a filled-in form field.
       pdf.text(filledDate, dateCenterX, yPos - 0.8, { align: "center" });
     }
-    yPos += 10;
+    yPos += afterRow;
   };
 
-  signatureRow("Sublessor", data.sublessorName, formatShortDate(data.agreementDate));
-  signatureRow("Sublessee", data.tenantName);
+  signatureRow(
+    "Sublessor",
+    data.sublessorName,
+    data.sublessorSignature,
+    formatShortDate(data.agreementDate),
+  );
+  signatureRow(
+    "Sublessee",
+    data.tenantName,
+    data.tenantSignature,
+    data.tenantSignDate ? formatShortDate(data.tenantSignDate) : undefined,
+  );
 
   return pdf;
 }

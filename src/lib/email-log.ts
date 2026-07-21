@@ -10,6 +10,7 @@ export type EmailType =
   | "cleaner_update"
   | "lease_end"
   | "agreement"
+  | "agreement_signed"
   | "board"
   | "utility_charge";
 
@@ -23,6 +24,7 @@ export const EMAIL_TYPE_LABELS: Record<EmailType, string> = {
   cleaner_update: "Cleaner schedule update",
   lease_end: "Lease ending (45-day heads-up)",
   agreement: "Sublease agreement",
+  agreement_signed: "Signed agreement copy",
   board: "Projects board notification",
   utility_charge: "Utility charge notice",
 };

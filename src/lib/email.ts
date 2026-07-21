@@ -104,14 +104,24 @@ const REMINDER_HTML = `<div style="font-family: 'DM Sans', Arial, sans-serif; co
 
 // Plain, unbranded cover message for the Gmail (New York, no-letterhead) draft.
 // Deliberately no Hive mention and no HTML — kept as simple as possible.
-export function gmailAgreementBody(opts: { tenantName: string }): {
+export function gmailAgreementBody(opts: {
+  tenantName: string;
+  signUrl: string;
+}): {
   subject: string;
   text: string;
 } {
   const name = opts.tenantName.trim() || "there";
   return {
     subject: "Agreement",
-    text: `Hello ${name},\n\nPlease find attached your Agreement.`,
+    text: `Hello ${name},
+
+Please find attached your Agreement.
+
+You can review and sign it online here (link valid for 48 hours):
+${opts.signUrl}
+
+Once you sign, a copy of the signed agreement will be emailed to you.`,
   };
 }
 
@@ -127,7 +137,10 @@ function escapeHtml(s: string): string {
 
 // Branded cover message for the Outlook (non-NY, with-letterhead) send. The PDF
 // is attached separately; this is just the cover message.
-export function agreementEmailTemplate(opts: { tenantName: string }): {
+export function agreementEmailTemplate(opts: {
+  tenantName: string;
+  signUrl: string;
+}): {
   subject: string;
   text: string;
   html: string;
@@ -136,7 +149,11 @@ export function agreementEmailTemplate(opts: { tenantName: string }): {
   const subject = "Your Hive agreement";
   const text = `Hi ${firstName},
 
-Welcome to Hive! Please find your agreement attached. Review it, sign it and send it back. Reply to this email if you have any questions.
+Welcome to Hive! Please find your agreement attached. You can review and sign it online here (the link is valid for 48 hours):
+
+${opts.signUrl}
+
+Once you sign, a copy of the signed agreement will be emailed to you. Reply to this email if you have any questions.
 
 Looking forward to having you with us.
 
@@ -148,8 +165,59 @@ Hive`;
     <div style="height:6px; background:#d4920b;"></div>
     <div style="padding:24px 20px; color:#1a1a18; line-height:1.55; font-size:15px;">
       <p style="margin:0 0 14px;">Hi ${escapeHtml(firstName)},</p>
-      <p style="margin:0 0 14px;">Welcome to Hive! Please find your agreement attached. Review it, sign it and send it back. Reply to this email if you have any questions.</p>
-      <p style="margin:0 0 14px;">Looking forward to having you with us.</p>
+      <p style="margin:0 0 14px;">Welcome to Hive! Please find your agreement attached. Review it, then sign it online — it only takes a minute.</p>
+      <div style="margin:0 0 14px;">${ctaButton(opts.signUrl, "Review & sign agreement")}</div>
+      <p style="margin:0 0 14px; font-size:13px; color:#8a8378;">The signing link is valid for 48 hours. Once you sign, a copy of the signed agreement will be emailed to you.</p>
+      <p style="margin:0 0 14px;">Reply to this email if you have any questions. Looking forward to having you with us.</p>
+      <p style="margin:18px 0 0;">Best,<br/>Vineet<br/><span style="color:#8a8378;">Hive</span></p>
+    </div>
+  </div>
+</div>`;
+  return { subject, text, html };
+}
+
+// Cover messages for the automatic "here's your signed copy" send after the
+// tenant signs on /sign/[token]. Same channel split as the original send.
+
+/** NY variant: personal Gmail, plain text, no Hive mention. */
+export function gmailSignedAgreementBody(opts: { tenantName: string }): {
+  subject: string;
+  text: string;
+} {
+  const name = opts.tenantName.trim() || "there";
+  return {
+    subject: "Signed agreement",
+    text: `Hello ${name},
+
+Thank you for signing. Attached is your fully signed agreement for your records.`,
+  };
+}
+
+/** Non-NY variant: branded card sent from the Outlook work account. */
+export function signedAgreementEmailTemplate(opts: { tenantName: string }): {
+  subject: string;
+  text: string;
+  html: string;
+} {
+  const firstName = opts.tenantName.trim().split(/\s+/)[0] || "there";
+  const subject = "Your signed Hive agreement";
+  const text = `Hi ${firstName},
+
+Thank you for signing! Attached is your fully signed agreement for your records.
+
+Welcome to Hive — we're looking forward to having you with us.
+
+Best,
+Vineet
+Hive`;
+  const html = `<div style="margin:0; padding:20px 12px; background:#f5f2ed; font-family:'DM Sans',Arial,Helvetica,sans-serif;">
+  <div style="max-width:480px; margin:0 auto; background:#fefdfb; border:1px solid #e8e3db; border-radius:16px; overflow:hidden;">
+    <div style="height:6px; background:#d4920b;"></div>
+    <div style="padding:24px 20px; color:#1a1a18; line-height:1.55; font-size:15px;">
+      <span style="display:inline-block; background:#fbeccc; color:#9a6f08; font-size:12px; font-weight:600; letter-spacing:0.04em; text-transform:uppercase; padding:4px 12px; border-radius:999px;">Signed</span>
+      <p style="margin:14px 0 14px;">Hi ${escapeHtml(firstName)},</p>
+      <p style="margin:0 0 14px;">Thank you for signing! Attached is your fully signed agreement for your records.</p>
+      <p style="margin:0 0 14px;">Welcome to Hive &mdash; we&rsquo;re looking forward to having you with us.</p>
       <p style="margin:18px 0 0;">Best,<br/>Vineet<br/><span style="color:#8a8378;">Hive</span></p>
     </div>
   </div>

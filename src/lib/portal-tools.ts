@@ -13,18 +13,14 @@ import { z } from "zod";
 import { updateRoomsWithNotification } from "@/lib/notifications";
 import { enqueueCleanerScheduleChange } from "@/lib/cleaner-reminders";
 import { todayISO, currentRentCycle, rentCycleForMonth } from "@/lib/date";
-import { generateAgreementPdf } from "@/lib/agreements";
+import { sendAgreementRequest } from "@/lib/agreement-send";
 import { sendGmailMessage } from "@/lib/google-mail";
-import { sendOutlookMessage } from "@/lib/graph-mail";
 import {
-  agreementEmailTemplate,
-  gmailAgreementBody,
   inventorySheetEmailTemplate,
   sendBalanceReminder,
   sendBalanceReminderGmail,
   balanceReminderText,
 } from "@/lib/email";
-import { logEmail } from "@/lib/email-log";
 import { sendSms } from "@/lib/sms";
 import {
   computeLedger,
@@ -1616,7 +1612,11 @@ export async function sendAgreement(args: {
     };
   }
 
-  const pdf = await generateAgreementPdf({
+  // Shared send path: stamps the operator's signature on the PDF, stores it,
+  // records the signing request (the /agreements tally), and emails the
+  // attachment plus a 48-hour signing link. Also writes the email_log row.
+  const mailbox = args.in_new_york ? "gmail" : "outlook";
+  const result = await sendAgreementRequest({
     tenantName: args.tenant_name,
     sublessorName: args.sublessor_name?.trim() || "Vineet Dutta",
     propertyAddress: args.property_address,
@@ -1625,58 +1625,10 @@ export async function sendAgreement(args: {
     leaseStartDate: args.lease_start_date,
     leaseEndDate: args.lease_end_date,
     agreementDate: args.agreement_date || todayISO(),
-    includeLetterhead: !args.in_new_york,
     proRateRent: proRate ?? undefined,
-  });
-
-  const attachment = {
-    filename: pdf.filename,
-    base64: pdf.base64,
-    mimeType: "application/pdf",
-  };
-
-  const mailbox = args.in_new_york ? "gmail" : "outlook";
-
-  let result;
-  let subject: string;
-  if (args.in_new_york) {
-    // New York: plain, unbranded email from Vineet's personal Gmail (no Hive, no HTML).
-    const body = gmailAgreementBody({ tenantName: args.tenant_name });
-    subject = body.subject;
-    result = await sendGmailMessage({
-      to: recipient,
-      subject: body.subject,
-      text: body.text,
-      attachment,
-      // Agreements are one-off and high-stakes: require the message to show
-      // up in the Gmail Sent folder before reporting success.
-      verifySent: true,
-    });
-  } else {
-    // Non-NY: branded email sent from the Outlook work account.
-    const body = agreementEmailTemplate({ tenantName: args.tenant_name });
-    subject = body.subject;
-    result = await sendOutlookMessage({
-      to: recipient,
-      subject: body.subject,
-      text: body.text,
-      html: body.html,
-      attachment,
-    });
-  }
-
-  // Durable audit row for every attempt — the Telegram activity log is
-  // diagnostic, but email_log is where "was this tenant actually emailed?"
-  // gets answered.
-  await logEmail({
-    type: "agreement",
-    recipient,
-    subject,
-    context: `${args.tenant_name} · ${args.property_address}`,
-    channel: mailbox,
-    status: result.ok ? "sent" : "failed",
-    error: result.ok ? null : result.error,
-    resend_id: result.ok ? result.id || null : null,
+    recipientEmail: recipient,
+    inNewYork: args.in_new_york,
+    propertyId: args.property_id,
   });
 
   if (!result.ok) {
@@ -1705,6 +1657,8 @@ export async function sendAgreement(args: {
     letterhead: !args.in_new_york,
     sent: true,
     recipient,
+    signing_link_expires: "48h",
+    signing_tally: "The tenant now appears in the /agreements signing tally until they sign online.",
     diag: result.diag,
   };
 }
@@ -2182,10 +2136,15 @@ const rawTools = [
   betaZodTool({
     name: "send_agreement",
     description:
-      "Generate a sublease agreement PDF and SEND it straight to the tenant. New " +
+      "Generate a sublease agreement PDF (pre-signed by the operator) and SEND it " +
+      "straight to the tenant, along with a 48-hour online signing link. New " +
       "York apartments → no letterhead, sent from the personal Gmail account (From " +
       "\"Vineet\", unbranded). Non-New-York → with letterhead, sent from the " +
-      "Outlook/M365 work account. This sends immediately — there is no draft to " +
+      "Outlook/M365 work account. The tenant then appears in the /agreements " +
+      "signing tally until they sign online (a signed copy is emailed to them " +
+      "automatically). Requires the operator's signature to be on file — if the " +
+      "send fails with a missing-signature error, tell the operator to draw it on " +
+      "the portal's Agreements page. This sends immediately — there is no draft to " +
       "review. Only call this once you have all required fields and the operator " +
       "has confirmed; ask for anything missing first.",
     inputSchema: z.object({

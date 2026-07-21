@@ -40,6 +40,107 @@ export type Database = {
           },
         ]
       }
+      agreement_requests: {
+        Row: {
+          assigned_at: string | null
+          assigned_tenancy_id: string | null
+          channel: string
+          created_at: string
+          dismissed_at: string | null
+          expires_at: string
+          id: string
+          include_letterhead: boolean
+          input: Json
+          property_address: string
+          property_id: string | null
+          recipient_email: string
+          sent_at: string
+          sign_ip: string | null
+          signed_at: string | null
+          signed_pdf_path: string | null
+          status: string
+          tenant_name: string
+          tenant_signature_kind: string | null
+          token: string
+          unsigned_pdf_path: string
+        }
+        Insert: {
+          assigned_at?: string | null
+          assigned_tenancy_id?: string | null
+          channel: string
+          created_at?: string
+          dismissed_at?: string | null
+          expires_at: string
+          id?: string
+          include_letterhead: boolean
+          input: Json
+          property_address: string
+          property_id?: string | null
+          recipient_email: string
+          sent_at?: string
+          sign_ip?: string | null
+          signed_at?: string | null
+          signed_pdf_path?: string | null
+          status?: string
+          tenant_name: string
+          tenant_signature_kind?: string | null
+          token?: string
+          unsigned_pdf_path: string
+        }
+        Update: {
+          assigned_at?: string | null
+          assigned_tenancy_id?: string | null
+          channel?: string
+          created_at?: string
+          dismissed_at?: string | null
+          expires_at?: string
+          id?: string
+          include_letterhead?: boolean
+          input?: Json
+          property_address?: string
+          property_id?: string | null
+          recipient_email?: string
+          sent_at?: string
+          sign_ip?: string | null
+          signed_at?: string | null
+          signed_pdf_path?: string | null
+          status?: string
+          tenant_name?: string
+          tenant_signature_kind?: string | null
+          token?: string
+          unsigned_pdf_path?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "agreement_requests_assigned_tenancy_id_fkey"
+            columns: ["assigned_tenancy_id"]
+            isOneToOne: false
+            referencedRelation: "tenancies"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "agreement_requests_assigned_tenancy_id_fkey"
+            columns: ["assigned_tenancy_id"]
+            isOneToOne: false
+            referencedRelation: "v_current_month_status"
+            referencedColumns: ["tenancy_id"]
+          },
+          {
+            foreignKeyName: "agreement_requests_assigned_tenancy_id_fkey"
+            columns: ["assigned_tenancy_id"]
+            isOneToOne: false
+            referencedRelation: "v_room_occupancy"
+            referencedColumns: ["tenancy_id"]
+          },
+          {
+            foreignKeyName: "agreement_requests_property_id_fkey"
+            columns: ["property_id"]
+            isOneToOne: false
+            referencedRelation: "properties"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       audit_log: {
         Row: {
           action: string
@@ -1667,6 +1768,7 @@ export type Database = {
           bill_id: string | null
           charged_on: string
           created_at: string
+          dedupe_key: string | null
           id: string
           kind: string
           note: string | null
@@ -1677,6 +1779,7 @@ export type Database = {
           bill_id?: string | null
           charged_on?: string
           created_at?: string
+          dedupe_key?: string | null
           id?: string
           kind: string
           note?: string | null
@@ -1687,6 +1790,7 @@ export type Database = {
           bill_id?: string | null
           charged_on?: string
           created_at?: string
+          dedupe_key?: string | null
           id?: string
           kind?: string
           note?: string | null
@@ -2124,6 +2228,15 @@ export type Database = {
         Args: { cred_id: string }
         Returns: string
       }
+      delete_reconciliation_run: {
+        Args: { p_run_id: string }
+        Returns: undefined
+      }
+      is_financial_operator: { Args: never; Returns: boolean }
+      post_reconciliation_run: {
+        Args: { p_run_id: string }
+        Returns: undefined
+      }
       property_display_name: {
         Args: {
           building_name: string
@@ -2132,8 +2245,41 @@ export type Database = {
         }
         Returns: string
       }
+      replace_reconciliation_snapshot: {
+        Args: {
+          p_deposit_assignments: Json
+          p_match_count: number
+          p_matches: Json
+          p_mismatch_count: number
+          p_missing_count: number
+          p_post_payments?: boolean
+          p_run_id: string
+          p_total_actual: number
+          p_total_expected: number
+          p_unmatched: Json
+        }
+        Returns: undefined
+      }
+      resolve_reconciliation_reversal: {
+        Args: { p_mode: string; p_resolved_by: string; p_reversal_id: string }
+        Returns: Json
+      }
       set_credential_password: {
         Args: { cred_id: string; plaintext: string }
+        Returns: undefined
+      }
+      unpost_reconciliation_run: {
+        Args: { p_run_id: string }
+        Returns: undefined
+      }
+      update_tenancy_rent: {
+        Args: {
+          p_effective_from: string
+          p_lease_end: string
+          p_lease_start: string
+          p_new_rate: number
+          p_tenancy_id: string
+        }
         Returns: undefined
       }
     }

@@ -107,9 +107,18 @@ Agreements:
   answer, relay the mismatch and ask the operator which is right. If they insist
   on sending as-is, call send_agreement again with the same details plus
   confirm_mailbox_mismatch=true — the operator's instruction wins.
+- The email carries the PDF (pre-signed by the operator) plus a link where the
+  tenant signs online; the link expires after 48 hours. Until they sign, the
+  tenant shows in the signing tally on the portal's /agreements page (resend /
+  dismiss happen there). When they sign, a signed copy is emailed to them
+  automatically.
+- send_agreement fails if the operator's signature isn't on file yet — in that
+  case tell the operator to draw their signature on the portal's Agreements page
+  and try again.
 - After it succeeds, confirm to the operator that the agreement was sent, to whom,
-  and from which mailbox (Gmail vs Outlook). If the tool returns an error (e.g. a
-  mailbox isn't configured or lacks send permission), relay it plainly.
+  and from which mailbox (Gmail vs Outlook), and mention the tenant has 48 hours
+  to sign via the link. If the tool returns an error (e.g. a mailbox isn't
+  configured or lacks send permission), relay it plainly.
 
 Adding tenants:
 - add_tenant creates the tenant AND places them in a room (an active tenancy).
