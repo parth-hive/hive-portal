@@ -1,6 +1,7 @@
 "use client";
 
 import { useActionState, useState } from "react";
+import { toast } from "sonner";
 import { addManualBill, type UploadState } from "./actions";
 import { useFormToast } from "@/components/use-form-toast";
 import type { UnitOpt } from "./bill-utils";
@@ -30,6 +31,7 @@ export function ManualBillForm({ units }: { units: UnitOpt[] }) {
   const [state, action, pending] = useActionState<UploadState, FormData>(
     async (prev, formData) => {
       const result = await addManualBill(prev, formData);
+      if (result?.warning) toast.warning(result.warning);
       if (result?.success) {
         setResetKey((k) => k + 1);
         setOpen(false);
@@ -130,6 +132,8 @@ export function ManualBillForm({ units }: { units: UnitOpt[] }) {
           />
           <span className="text-xs text-muted">
             Stored as the bill&apos;s statement — PDF or photo, up to 20 MB.
+            Provider, account, and charge details are read from it when
+            possible; your typed values always win.
           </span>
         </label>
       </div>

@@ -420,6 +420,29 @@ export async function addManualBill(
       };
   }
 
+  // Best-effort extraction: even a bill the drop zone couldn't handle often
+  // still yields provider, account number, service address, and a charge
+  // breakdown. The typed unit/type/period/amount stay authoritative —
+  // extraction only enriches, and a failure here never blocks the save.
+  let enriched: Awaited<ReturnType<typeof extractUtilityBill>> | null = null;
+  try {
+    const { data: props } = await supabase
+      .from("properties")
+      .select("id, building_name, street_address, unit_number");
+    const extractionUnits: UnitOption[] = (props ?? []).map((p) => ({
+      id: p.id,
+      label: `${p.building_name?.trim() || p.street_address} Apt ${p.unit_number}`,
+      street_address: p.street_address,
+      unit_number: p.unit_number,
+    }));
+    enriched = await extractUtilityBill(
+      { base64: buf.toString("base64"), mediaType },
+      extractionUnits,
+    );
+  } catch {
+    enriched = null;
+  }
+
   const compressed = await compressStatement(buf, mediaType);
   let safeName = file.name.replace(/[^\w.\-]/g, "_") || "screenshot";
   if (compressed.mediaType === "image/webp" && !/\.webp$/i.test(safeName)) {
@@ -436,22 +459,25 @@ export async function addManualBill(
     return { error: `Failed to store the screenshot: ${upErr.message}` };
 
   const total = Math.round(amount * 100) / 100;
+  const notes = ["Entered manually.", enriched?.notes]
+    .filter(Boolean)
+    .join(" ");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { data: bill, error: insErr } = await (supabase as any)
     .from("utility_bills")
     .insert({
       property_id: propertyId,
-      provider: null,
+      provider: enriched?.provider ?? null,
       utility_type: utilityType,
-      account_number: null,
-      service_address: null,
-      statement_date: null,
+      account_number: enriched?.account_number ?? null,
+      service_address: enriched?.service_address ?? null,
+      statement_date: enriched?.statement_date ?? null,
       period_start: periodStart,
       period_end: periodEnd,
       total_amount: total,
       statement_path: path,
       file_sha256: fileHash,
-      notes: "Entered manually.",
+      notes,
     })
     .select("id")
     .single();
@@ -460,15 +486,38 @@ export async function addManualBill(
     return { error: insErr.message };
   }
 
+  // Use the extracted charge breakdown (it separates late fees from usage,
+  // which the over-$200 split cares about) only when it agrees with the typed
+  // amount to the cent; otherwise a single charge for the typed amount is the
+  // truth, with a heads-up when the screenshot reads very differently.
+  const extractedTotal = enriched
+    ? Math.round(enriched.charges.reduce((s, c) => s + c.amount, 0) * 100) /
+      100
+    : null;
+  const useBreakdown =
+    enriched !== null &&
+    enriched.charges.length > 0 &&
+    extractedTotal !== null &&
+    Math.abs(extractedTotal - total) <= 0.01;
+  const chargeRows = useBreakdown
+    ? enriched!.charges.map((c) => ({
+        bill_id: bill.id,
+        kind: c.kind,
+        description: c.description,
+        amount: c.amount,
+      }))
+    : [
+        {
+          bill_id: bill.id,
+          kind: "current",
+          description: "Manual entry",
+          amount: total,
+        },
+      ];
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { error: chErr } = await (supabase as any)
     .from("utility_bill_charges")
-    .insert({
-      bill_id: bill.id,
-      kind: "current",
-      description: "Manual entry",
-      amount: total,
-    });
+    .insert(chargeRows);
   if (chErr) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     await (supabase as any).from("utility_bills").delete().eq("id", bill.id);
@@ -477,7 +526,12 @@ export async function addManualBill(
   }
 
   revalidatePath("/utilities");
-  return { success: "Bill logged." };
+  const warning =
+    extractedTotal !== null && Math.abs(extractedTotal - total) > 1
+      ? `The screenshot reads as $${extractedTotal.toFixed(2)} for this cycle, ` +
+        `but $${total.toFixed(2)} was logged — double-check the amount.`
+      : undefined;
+  return { success: "Bill logged.", warning };
 }
 
 export async function assignBillProperty(
