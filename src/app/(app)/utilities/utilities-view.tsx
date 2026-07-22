@@ -4,6 +4,7 @@ import { useMemo, useState } from "react";
 import { billMonth, filterBills, type BillRow, type UnitOpt } from "./bill-utils";
 import { MonthlyChart } from "./monthly-chart";
 import { UploadForm } from "./upload-form";
+import { ManualBillForm } from "./manual-bill-form";
 import { BillsLog } from "./bills-log";
 
 /**
@@ -53,6 +54,7 @@ export function UtilitiesView({
 
       <section className="mt-6">
         <UploadForm />
+        <ManualBillForm units={units} />
       </section>
 
       <section className="mt-10">

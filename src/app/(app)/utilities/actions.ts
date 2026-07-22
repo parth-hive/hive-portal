@@ -301,6 +301,185 @@ export async function uploadStatement(
   };
 }
 
+// ----------------------------------------------------------------------------
+// Manual bill entry: the operator types the required fields and attaches a
+// screenshot, which is stored as the bill's statement (no extraction call).
+// ----------------------------------------------------------------------------
+
+const MANUAL_TYPES = new Set([
+  "electric",
+  "gas",
+  "water",
+  "internet",
+  "trash",
+  "other",
+]);
+
+export async function addManualBill(
+  _prev: UploadState,
+  formData: FormData,
+): Promise<UploadState> {
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!user) return { error: "Not signed in." };
+  if (!canEditLedger(user.email)) return { error: LEDGER_ADMIN_ERROR };
+
+  const propertyId = String(formData.get("property_id") ?? "");
+  const utilityType = String(formData.get("utility_type") ?? "");
+  const periodStart = String(formData.get("period_start") ?? "");
+  const periodEnd = String(formData.get("period_end") ?? "");
+  const amountRaw = String(formData.get("amount") ?? "").replace(/[$,\s]/g, "");
+  const file = formData.get("screenshot");
+
+  if (!propertyId) return { error: "Pick the unit." };
+  if (!MANUAL_TYPES.has(utilityType))
+    return { error: "Pick the utility type." };
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(periodStart) ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(periodEnd)
+  )
+    return { error: "Enter both billing-period dates." };
+  if (periodEnd < periodStart)
+    return { error: "The billing period ends before it starts." };
+  if (periodStart > todayISO())
+    return { error: "The billing period can't start in the future." };
+  const amount = Number(amountRaw);
+  if (!Number.isFinite(amount) || amount <= 0)
+    return { error: "Enter the bill amount." };
+  if (!(file instanceof File) || file.size === 0)
+    return {
+      error: "Attach a screenshot of the bill — it's kept as the statement.",
+    };
+  if (file.size > MAX_STATEMENT_BYTES)
+    return { error: "Screenshot must be 20 MB or smaller." };
+  const mediaType = file.type || "application/octet-stream";
+  if (!/^(application\/pdf|image\/(png|jpeg|webp))$/.test(mediaType))
+    return { error: "Screenshot must be a PDF or a PNG/JPEG/WebP image." };
+
+  const { data: prop } = await supabase
+    .from("properties")
+    .select("id")
+    .eq("id", propertyId)
+    .maybeSingle();
+  if (!prop) return { error: "Unknown unit." };
+
+  const buf = Buffer.from(await file.arrayBuffer());
+
+  // Same-file dedup, as on extracted uploads.
+  const fileHash = createHash("sha256").update(buf).digest("hex");
+  {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: dup } = await (supabase as any)
+      .from("utility_bills")
+      .select("id")
+      .eq("file_sha256", fileHash)
+      .maybeSingle();
+    if (dup)
+      return {
+        error:
+          "Duplicate — this exact file is already attached to a logged bill.",
+      };
+  }
+
+  // Manual bills carry no account number, so the overlap guard keys on the
+  // unit + type instead: a logged bill of the same type for this unit whose
+  // period overlaps by more than 7 days is a duplicate (a couple of days is
+  // a normal meter-read boundary).
+  {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { data: candidates } = await (supabase as any)
+      .from("utility_bills")
+      .select("id, provider, period_start, period_end")
+      .eq("property_id", propertyId)
+      .eq("utility_type", utilityType)
+      .lt("period_start", periodEnd)
+      .gt("period_end", periodStart);
+    const overlapping = (candidates ?? []).find(
+      (c: { period_start: string | null; period_end: string | null }) => {
+        if (!c.period_start || !c.period_end) return false;
+        const ms =
+          Math.min(
+            Date.parse(`${c.period_end}T00:00:00Z`),
+            Date.parse(`${periodEnd}T00:00:00Z`),
+          ) -
+          Math.max(
+            Date.parse(`${c.period_start}T00:00:00Z`),
+            Date.parse(`${periodStart}T00:00:00Z`),
+          );
+        return ms / 86_400_000 > 7;
+      },
+    );
+    if (overlapping)
+      return {
+        error:
+          `A ${utilityType} bill for this unit already covers ` +
+          `${overlapping.period_start} – ${overlapping.period_end}` +
+          `${overlapping.provider ? ` (${overlapping.provider})` : ""}.`,
+      };
+  }
+
+  const compressed = await compressStatement(buf, mediaType);
+  let safeName = file.name.replace(/[^\w.\-]/g, "_") || "screenshot";
+  if (compressed.mediaType === "image/webp" && !/\.webp$/i.test(safeName)) {
+    safeName = safeName.replace(/\.[a-z0-9]+$/i, "") + ".webp";
+  }
+  const path = `${propertyId}/${Date.now()}-manual-${safeName}`;
+  const { error: upErr } = await supabase.storage
+    .from("utilities")
+    .upload(path, compressed.data, {
+      contentType: compressed.mediaType,
+      upsert: false,
+    });
+  if (upErr)
+    return { error: `Failed to store the screenshot: ${upErr.message}` };
+
+  const total = Math.round(amount * 100) / 100;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: bill, error: insErr } = await (supabase as any)
+    .from("utility_bills")
+    .insert({
+      property_id: propertyId,
+      provider: null,
+      utility_type: utilityType,
+      account_number: null,
+      service_address: null,
+      statement_date: null,
+      period_start: periodStart,
+      period_end: periodEnd,
+      total_amount: total,
+      statement_path: path,
+      file_sha256: fileHash,
+      notes: "Entered manually.",
+    })
+    .select("id")
+    .single();
+  if (insErr) {
+    await supabase.storage.from("utilities").remove([path]);
+    return { error: insErr.message };
+  }
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error: chErr } = await (supabase as any)
+    .from("utility_bill_charges")
+    .insert({
+      bill_id: bill.id,
+      kind: "current",
+      description: "Manual entry",
+      amount: total,
+    });
+  if (chErr) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    await (supabase as any).from("utility_bills").delete().eq("id", bill.id);
+    await supabase.storage.from("utilities").remove([path]);
+    return { error: `Failed to save the charge: ${chErr.message}` };
+  }
+
+  revalidatePath("/utilities");
+  return { success: "Bill logged." };
+}
+
 export async function assignBillProperty(
   billId: string,
   propertyId: string | null,
