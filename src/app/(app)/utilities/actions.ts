@@ -142,31 +142,77 @@ export async function uploadStatement(
     };
   }
 
-  // Duplicate guard 2: the same bill re-scanned or exported again (different
-  // bytes, same account + billing period / statement date).
+  // Duplicate guard 2: the same bill re-scanned or exported again, OR a
+  // statement whose billing period substantially overlaps one already logged
+  // for the same account (catch-up statements re-covering a prior cycle).
+  // Consecutive real cycles legitimately overlap by a couple of days at the
+  // meter-read boundary (PSE&G: 5/14–6/15 then 6/13–7/15), so only an overlap
+  // of MORE THAN 7 days counts as a duplicate.
   {
+    const DUP_OVERLAP_DAYS = 7;
+    const overlapDays = (
+      aStart: string,
+      aEnd: string,
+      bStart: string,
+      bEnd: string,
+    ) => {
+      const ms =
+        Math.min(Date.parse(`${aEnd}T00:00:00Z`), Date.parse(`${bEnd}T00:00:00Z`)) -
+        Math.max(
+          Date.parse(`${aStart}T00:00:00Z`),
+          Date.parse(`${bStart}T00:00:00Z`),
+        );
+      return ms / 86_400_000;
+    };
     const acct = extracted.account_number?.replace(/\D/g, "") || null;
     if (acct && (extracted.period_start || extracted.statement_date)) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let q = (sb as any)
         .from("utility_bills")
-        .select("id, account_number, provider");
+        .select(
+          "id, account_number, provider, utility_type, period_start, period_end",
+        );
       if (extracted.period_start && extracted.period_end) {
         q = q
-          .eq("period_start", extracted.period_start)
-          .eq("period_end", extracted.period_end);
+          .lt("period_start", extracted.period_end)
+          .gt("period_end", extracted.period_start);
       } else {
         q = q.eq("statement_date", extracted.statement_date);
       }
       const { data: candidates } = await q;
       const dup = (candidates ?? []).find(
-        (c: { account_number: string | null }) =>
-          (c.account_number ?? "").replace(/\D/g, "") === acct,
+        (c: {
+          account_number: string | null;
+          utility_type: string | null;
+          period_start: string | null;
+          period_end: string | null;
+        }) =>
+          (c.account_number ?? "").replace(/\D/g, "") === acct &&
+          // Same account can bill different services on separate statements
+          // with overlapping periods — only same-type overlap is a duplicate.
+          c.utility_type === extracted.utility_type &&
+          // Overlap query ran only when the new bill has both dates; matching
+          // on statement_date (no period on the new bill) is always a dup.
+          (!extracted.period_start ||
+            !extracted.period_end ||
+            !c.period_start ||
+            !c.period_end ||
+            overlapDays(
+              c.period_start,
+              c.period_end,
+              extracted.period_start,
+              extracted.period_end,
+            ) > DUP_OVERLAP_DAYS),
       );
       if (dup) {
+        const covered =
+          dup.period_start && dup.period_end
+            ? ` covering ${dup.period_start} – ${dup.period_end}`
+            : " for this period";
         return {
           error:
-            `Duplicate — a bill for this account and period is already in the log` +
+            `Duplicate — a ${dup.utility_type ?? ""} bill for this account` +
+            `${covered} is already in the log` +
             `${dup.provider ? ` (${dup.provider})` : ""}. Discarded.`,
         };
       }

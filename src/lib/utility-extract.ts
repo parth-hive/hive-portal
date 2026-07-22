@@ -57,8 +57,12 @@ const ExtractionSchema = z.object({
   charges: z
     .array(ChargeSchema)
     .describe(
-      "Every charge billed FOR THIS CYCLE. NEVER include previous balance, " +
-        "balance forward, payments received, or credits from earlier bills.",
+      "Every charge billed FOR THIS CYCLE ONLY — service that falls within " +
+        "this statement's own billing period. NEVER include previous balance, " +
+        "balance forward, payments received, or credits from earlier bills. " +
+        "NEVER include lines that itemize an EARLIER billing period's usage " +
+        "(re-billed or adjusted prior cycles, 'service from <older period>' " +
+        "blocks) — those belong to that period's own statement.",
     ),
   notes: z
     .string()
@@ -125,6 +129,12 @@ export async function extractUtilityBill(
               "- charges = ONLY what is billed for this cycle. Ignore previous " +
               "balance, balance forward, payments received, and credits from " +
               "prior bills entirely — do not list them as charges.\n" +
+              "- If the statement also itemizes charges for an EARLIER billing " +
+              "period (a re-billed estimated cycle, a prior-period adjustment, " +
+              "a 'service from <older dates>' section), EXCLUDE those lines too " +
+              "— each cycle is captured from its own statement, so re-listing " +
+              "an old cycle here would double-count it. Mention any such " +
+              "excluded prior-period section in notes.\n" +
               "- Late fees and other one-off charges are separate line items " +
               "with kind 'late_fee' / 'other'; regular usage, supply, delivery, " +
               "service and tax lines are kind 'current' (consolidate small tax/" +
