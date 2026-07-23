@@ -3,10 +3,11 @@ import { createClient } from "@/lib/supabase/server";
 import { one } from "@/lib/relations";
 import { formatDate } from "@/lib/date";
 import { SearchInput } from "@/components/search-input";
-import { isMaster } from "@/lib/access";
+import { isMaster, canEditLedger } from "@/lib/access";
 import { computeLedger } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
 import { todayISO } from "@/lib/date";
+import { undismissEndedBalance } from "../actions";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +40,7 @@ type Row = {
   security_deposit: number | null;
   start_date: string;
   move_out_date: string | null;
+  balance_dismissed_at: string | null;
   tenants: TenantRel | TenantRel[] | null;
   rooms: RoomRel | RoomRel[] | null;
   payments: PaymentRel[];
@@ -70,23 +72,24 @@ function formatDuration(months: number | null) {
   return m === 0 ? `${y}y` : `${y}y ${m}m`;
 }
 
-type PageProps = { searchParams: Promise<{ q?: string }> };
+type PageProps = { searchParams: Promise<{ q?: string; bal?: string }> };
 
 export default async function TenantHistoryPage({ searchParams }: PageProps) {
-  // Finalize anything whose scheduled end has now passed so it shows up here.
-
-  const { q } = await searchParams;
+  const { q, bal } = await searchParams;
   const query = (q ?? "").trim().toLowerCase();
+  const balanceOnly = bal === "1";
 
   const supabase = await createClient();
   const {
     data: { user },
   } = await supabase.auth.getUser();
   const admin = isMaster(user?.email); // "Total paid" is admin-only
+  const canUndismiss = canEditLedger(user?.email);
   const { data, error } = await supabase
     .from("tenancies")
     .select(
       `id, tenant_id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date,
+       balance_dismissed_at,
        tenants(id, full_name, email, phone),
        rooms(room_number,
              properties(building_name, street_address, unit_number)),
@@ -97,7 +100,8 @@ export default async function TenantHistoryPage({ searchParams }: PageProps) {
     .returns<Row[]>();
 
   // Moved-out tenants keep their running ledger balance here — money owed
-  // at move-out must stay visible and gets resolved from the tenant's page.
+  // at move-out must stay visible (dismissed from the Rent Tracker or not)
+  // and gets resolved from the tenant's page.
   const { charges, allocations, rentChanges } =
     await fetchLedgerSidecars(supabase);
   const today = todayISO();
@@ -133,6 +137,7 @@ export default async function TenantHistoryPage({ searchParams }: PageProps) {
       months,
       monthly_rent: Number(r.monthly_rent),
       total_paid: totalPaid,
+      dismissed: !!r.balance_dismissed_at,
       balance: computeLedger(
         r,
         r.payments ?? [],
@@ -144,15 +149,28 @@ export default async function TenantHistoryPage({ searchParams }: PageProps) {
     };
   });
 
+  const owing = rows.filter((r) => r.balance > 0.005);
+  const totalOutstanding = owing.reduce((s, r) => s + r.balance, 0);
+  const dismissedOwing = owing.filter((r) => r.dismissed).length;
+
+  const scoped = balanceOnly ? owing : rows;
   const filtered = query
-    ? rows.filter((r) =>
+    ? scoped.filter((r) =>
         [r.tenant_name, r.email, r.unit, r.room]
           .filter(Boolean)
           .join(" ")
           .toLowerCase()
           .includes(query),
       )
-    : rows;
+    : scoped;
+
+  const toggleHref = (on: boolean) => {
+    const params = new URLSearchParams();
+    if (q) params.set("q", q);
+    if (on) params.set("bal", "1");
+    const s = params.toString();
+    return `/tenants/history${s ? `?${s}` : ""}`;
+  };
 
   return (
     <div className="mx-auto w-full max-w-6xl">
@@ -171,24 +189,65 @@ export default async function TenantHistoryPage({ searchParams }: PageProps) {
             Every tenant who has moved out. Sorted by most recent move-out.
           </p>
         </div>
+        {owing.length > 0 && (
+          <div className="rounded-2xl bg-white px-5 py-3 text-right shadow-sm">
+            <p className="text-xs uppercase tracking-wide text-muted">
+              Outstanding balances
+            </p>
+            <p className="text-xl font-medium tabular-nums text-red-700">
+              $
+              {totalOutstanding.toLocaleString(undefined, {
+                maximumFractionDigits: 2,
+              })}
+            </p>
+            <p className="text-xs text-muted">
+              {owing.length} past tenant{owing.length === 1 ? "" : "s"}
+              {dismissedOwing > 0 ? ` · ${dismissedOwing} dismissed` : ""}
+            </p>
+          </div>
+        )}
       </header>
 
-      <div className="mt-6">
-        <SearchInput
-          placeholder="Search by name, email, unit, or room…"
-          ariaLabel="Search tenant history"
-        />
+      <div className="mt-6 flex flex-wrap items-center gap-3">
+        <div className="min-w-0 flex-1">
+          <SearchInput
+            placeholder="Search by name, email, unit, or room…"
+            ariaLabel="Search tenant history"
+          />
+        </div>
+        <div className="flex shrink-0 gap-1.5">
+          <Link
+            href={toggleHref(false)}
+            className={`rounded-full px-3 py-1.5 text-xs font-medium shadow-sm transition ${
+              balanceOnly
+                ? "border border-stone bg-white text-muted hover:bg-warm hover:text-ink"
+                : "bg-ink text-white"
+            }`}
+          >
+            All
+          </Link>
+          <Link
+            href={toggleHref(true)}
+            className={`rounded-full px-3 py-1.5 text-xs font-medium shadow-sm transition ${
+              balanceOnly
+                ? "bg-ink text-white"
+                : "border border-stone bg-white text-muted hover:bg-warm hover:text-ink"
+            }`}
+          >
+            With balance ({owing.length})
+          </Link>
+        </div>
       </div>
 
       {error && <p className="mt-6 text-sm text-red-700">{error.message}</p>}
 
-      {rows.length === 0 && (
+      {scoped.length === 0 && (
         <p className="mt-10 rounded-2xl bg-white px-6 py-12 text-center text-sm text-muted shadow-sm">
-          No move-outs yet.
+          {balanceOnly ? "No past tenants owe anything." : "No move-outs yet."}
         </p>
       )}
 
-      {rows.length > 0 && filtered.length === 0 && (
+      {scoped.length > 0 && filtered.length === 0 && (
         <p className="mt-10 rounded-2xl bg-white px-6 py-12 text-center text-sm text-muted shadow-sm">
           No history entries match &ldquo;{query}&rdquo;.
         </p>
@@ -251,13 +310,39 @@ export default async function TenantHistoryPage({ searchParams }: PageProps) {
                   )}
                   <td className="px-3 py-2.5 text-right tabular-nums">
                     {r.balance > 0.005 ? (
-                      <Link
-                        href={`/tenants/${r.tenant_id}`}
-                        title="Open the ledger to resolve"
-                        className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700 hover:bg-red-100"
-                      >
-                        owes {fmtMoney(r.balance)}
-                      </Link>
+                      <span className="inline-flex items-center gap-1.5">
+                        <Link
+                          href={`/tenants/${r.tenant_id}`}
+                          title="Open the ledger to resolve"
+                          className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700 hover:bg-red-100"
+                        >
+                          owes {fmtMoney(r.balance)}
+                        </Link>
+                        {r.dismissed && (
+                          <span
+                            className="rounded-full bg-warm px-2 py-0.5 text-xs text-muted"
+                            title="Dismissed from the Rent Tracker — the debt is still on the ledger."
+                          >
+                            dismissed
+                          </span>
+                        )}
+                        {r.dismissed && canUndismiss && (
+                          <form action={undismissEndedBalance}>
+                            <input
+                              type="hidden"
+                              name="tenancy_id"
+                              value={r.id}
+                            />
+                            <button
+                              type="submit"
+                              title="Put this balance back on the Rent Tracker's moved-out list."
+                              className="rounded-full bg-white px-2 py-0.5 text-xs text-muted shadow-sm hover:text-ink"
+                            >
+                              Undo
+                            </button>
+                          </form>
+                        )}
+                      </span>
                     ) : r.balance < -0.005 ? (
                       <span className="text-xs text-accent-text">
                         {fmtMoney(-r.balance)} credit

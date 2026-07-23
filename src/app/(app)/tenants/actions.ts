@@ -771,6 +771,7 @@ export async function dismissEndedBalance(formData: FormData) {
     })
     .eq("id", tenancy_id);
   revalidatePath("/tenants");
+  revalidatePath("/tenants/history");
 }
 
 export async function undismissEndedBalance(formData: FormData) {
@@ -788,6 +789,72 @@ export async function undismissEndedBalance(formData: FormData) {
     .update({ balance_dismissed_at: null, balance_dismissed_by: null })
     .eq("id", tenancy_id);
   revalidatePath("/tenants");
+  revalidatePath("/tenants/history");
+}
+
+// ----- Settle a moved-out tenant's outstanding balance -----
+// Unlike Dismiss (which only hides the row and leaves the debt visible in
+// the ledger), Settle posts a 'settlement' credit for the exact outstanding
+// amount: the security deposit is treated as applied toward the balance and
+// the remainder written off, so the ledger nets to $0. No payment row is
+// created — collections analytics never see settled debt as money received.
+// Reversible by deleting the Settlement line from the tenant's ledger.
+
+export async function settleEndedBalance(formData: FormData) {
+  const tenancy_id = String(formData.get("tenancy_id") ?? "");
+  if (!tenancy_id) return;
+
+  const supabase = await createClient();
+  const {
+    data: { user },
+  } = await supabase.auth.getUser();
+  if (!canEditLedger(user?.email)) throw new Error(LEDGER_ADMIN_ERROR);
+
+  const { data: t } = await supabase
+    .from("tenancies")
+    .select(
+      `id, tenant_id, status, monthly_rent, first_month_rent, security_deposit,
+       start_date, move_out_date,
+       payments(amount, paid_on, payment_type)`,
+    )
+    .eq("id", tenancy_id)
+    .maybeSingle();
+  if (!t || t.status !== "ended") return;
+
+  const { charges, allocations, rentChanges } =
+    await fetchLedgerSidecars(supabase);
+  const today = todayISO();
+  const { netBalance, deposit } = computeLedger(
+    t,
+    t.payments ?? [],
+    charges.get(tenancy_id) ?? [],
+    allocations.get(tenancy_id) ?? [],
+    today,
+    rentChanges.get(tenancy_id) ?? [],
+  );
+  // Nothing (or a credit) outstanding — there is no debt to settle.
+  if (netBalance <= 0.005) return;
+
+  const depositHeld = deposit.paid;
+  const note =
+    depositHeld > 0.005
+      ? `Settled at move-out — $${depositHeld.toLocaleString(undefined, {
+          minimumFractionDigits: 2,
+        })} security deposit applied toward the balance; remainder written off.`
+      : "Settled at move-out — balance written off.";
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { error } = await (supabase as any).from("tenancy_charges").insert({
+    tenancy_id,
+    kind: "settlement",
+    amount: netBalance,
+    charged_on: today,
+    note,
+  });
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/tenants");
+  revalidatePath("/tenants/history");
+  if (t.tenant_id) revalidatePath(`/tenants/${t.tenant_id}`);
 }
 
 // ----- Record a payment against a tenancy -----

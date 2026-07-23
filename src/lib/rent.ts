@@ -242,9 +242,18 @@ export function computeLedger(
   // and surfaces as account-wide credit. Negative `netBalance` == credit.
   // A refund is money returned to the tenant — it consumes credit / adds to
   // what's owed, mirroring the debit row in buildLedgerEntries.
+  // A 'settlement' charge is the move-out write-off (deposit applied,
+  // remainder forgiven): it credits the account without recording money
+  // received, so collections analytics stay truthful.
   const refunded = paidOf("refund");
+  const settled = chargedOf("settlement");
   const netBalance = cents(
-    rent.balance + deposit.balance + lateFee.balance + other.balance + refunded,
+    rent.balance +
+      deposit.balance +
+      lateFee.balance +
+      other.balance +
+      refunded -
+      settled,
   );
   const availableCredit = Math.max(0, -netBalance);
 
@@ -267,6 +276,7 @@ export const KIND_LABEL: Record<string, string> = {
   utility_overage: "Utility Overcharge",
   refund: "Refund",
   other: "Other",
+  settlement: "Settlement",
 };
 
 const MONTH_NAMES = [
@@ -365,6 +375,21 @@ export function buildLedgerEntries(
   >();
   for (const c of charges) {
     if (c.charged_on > todayIso) continue;
+    // Settlement is a credit line: it reduces the running balance like a
+    // payment does, but records forgiveness (deposit applied + write-off),
+    // not money received. Mirrors the `- settled` term in computeLedger.
+    if (c.kind === "settlement") {
+      rows.push({
+        id: c.id,
+        date: c.charged_on,
+        description: "Settlement" + (c.note ? ` · ${c.note}` : ""),
+        charge: 0,
+        payment: num(c.amount),
+        deletable: "charge",
+        refIds: [c.id],
+      });
+      continue;
+    }
     if (c.kind === "other") {
       const key = (c.note ?? "").trim().toLowerCase();
       const g = otherGroups.get(key);
