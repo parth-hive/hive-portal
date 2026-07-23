@@ -1,11 +1,20 @@
 /**
  * Monthly rent-reminder cron — fires on the LAST DAY of each month at 11:00 AM
- * Eastern. Every active tenant (no move-out scheduled) gets a generic reminder.
+ * Eastern.
  *
- * Email goes out as TWO bulk BCC blasts, not one email per tenant: one Resend
- * email for non-NY tenants, one unbranded Gmail for NY, everyone in BCC so they
- * can't see each other. SMS can't be BCC'd, so texts stay one-per-tenant and
- * time-budgeted (see the SMS phase). The rent_reminder_emails unique
+ * Tenants are split by their running ledger balance:
+ *  - CLEAN (nothing owed): the generic reminder, as bulk BCC blasts — one
+ *    branded Outlook email for non-NY tenants, one unbranded Gmail for NY,
+ *    everyone in BCC so they can't see each other.
+ *  - OWING (balance > 0): NO generic blast. Each gets a personal month-end
+ *    email instead — next month's rent is due AND here's your outstanding
+ *    balance with the mini ledger — asking them to send both together.
+ *    Routed like every tenant email: NY → unbranded Gmail, non-NY → branded
+ *    Outlook. Sent one-by-one inside the time budget (resumable, same
+ *    reservation row as the blast).
+ *
+ * SMS can't be BCC'd, so texts stay one-per-tenant and time-budgeted; owing
+ * tenants get the balance wording there too. The rent_reminder_emails unique
  * (tenancy_id, period_month) row is the idempotency record for both channels
  * (sms_sent_at tracks the text separately).
  *
@@ -19,13 +28,36 @@
 import { NextResponse, type NextRequest, after } from "next/server";
 import { createClient } from "@supabase/supabase-js";
 import {
-  sendRentReminderBulk,
+  sendRentReminderOutlookBulk,
   sendRentReminderGmailBulk,
+  sendMonthEndBalanceReminderOutlook,
+  sendMonthEndBalanceReminderGmail,
+  monthEndBalanceText,
   REMINDER_TEXT,
   type BulkSendResult,
 } from "@/lib/email";
 import { sendSms } from "@/lib/sms";
 import { todayISO } from "@/lib/date";
+import { computeLedger } from "@/lib/rent";
+import { fetchLedgerSidecars } from "@/lib/rent-data";
+import { buildBalanceDetail, type BalanceDetail } from "@/lib/balance-detail";
+
+const MONTH_NAMES = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+
+/** "2026-07" → "July 2026" */
+function periodLabel(period: string): string {
+  const [y, m] = period.split("-").map(Number);
+  return `${MONTH_NAMES[m - 1]} ${y}`;
+}
+
+/** "2026-07" → "August" (the month whose rent the reminder is about). */
+function nextMonthName(period: string): string {
+  const [, m] = period.split("-").map(Number);
+  return MONTH_NAMES[m % 12];
+}
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 60;
@@ -122,8 +154,10 @@ export async function GET(req: NextRequest) {
     .from("tenancies")
     .select(
       `id, tenant_id, start_date, move_out_date, status,
+       monthly_rent, first_month_rent, security_deposit,
        tenants!inner(id, email, phone),
-       rooms!inner(properties!inner(is_new_york))`,
+       rooms!inner(properties!inner(is_new_york)),
+       payments(id, amount, paid_on, payment_type, notes)`,
     )
     .eq("status", "active");
 
@@ -154,11 +188,21 @@ export async function GET(req: NextRequest) {
     tenant_id: string;
     start_date: string;
     move_out_date: string | null;
+    monthly_rent: number | string;
+    first_month_rent: number | string | null;
+    security_deposit: number | string | null;
     tenants:
       | { id: string; email: string | null; phone: string | null }
       | { id: string; email: string | null; phone: string | null }[]
       | null;
     rooms: RoomRel | RoomRel[] | null;
+    payments: {
+      id: string;
+      amount: number | string;
+      paid_on: string;
+      payment_type: string;
+      notes: string | null;
+    }[];
   };
 
   const isNewYork = (row: Row): boolean => {
@@ -169,6 +213,12 @@ export async function GET(req: NextRequest) {
     return property?.is_new_york ?? false;
   };
 
+  // Ledger sidecars for the balance split: tenants owing at month end get the
+  // personal balance email instead of the generic blast.
+  const { charges, allocations, rentChanges } =
+    await fetchLedgerSidecars(supabase);
+  const today = todayISO();
+
   // Eligible = active tenant with an email and no move-out scheduled. A set
   // move_out_date (past or future) drops them from the general reminder; balance
   // reminders, gated on an actual balance, still go out separately.
@@ -178,6 +228,8 @@ export async function GET(req: NextRequest) {
     email: string;
     phone: string | null;
     isNY: boolean;
+    balance: number;
+    row: Row;
   };
   let skipped = 0;
   const eligible: Eligible[] = [];
@@ -188,14 +240,26 @@ export async function GET(req: NextRequest) {
       skipped++;
       continue;
     }
+    const { netBalance } = computeLedger(
+      row,
+      row.payments ?? [],
+      charges.get(row.id) ?? [],
+      allocations.get(row.id) ?? [],
+      today,
+      rentChanges.get(row.id) ?? [],
+    );
     eligible.push({
       tenancyId: row.id,
       tenantId: row.tenant_id,
       email,
       phone: tenant?.phone?.trim() || null,
       isNY: isNewYork(row),
+      balance: netBalance,
+      row,
     });
   }
+  const clean = eligible.filter((e) => e.balance <= 0.005);
+  const owing = eligible.filter((e) => e.balance > 0.005);
 
   let sent = 0;
   let queued = 0;
@@ -204,12 +268,12 @@ export async function GET(req: NextRequest) {
   let remaining = 0;
   const errors: Array<{ tenancy_id: string; error: string }> = [];
 
-  // --- Email phase: two bulk BCC blasts, sent once per period ----------------
+  // --- Email phase A (clean tenants): two bulk BCC blasts -------------------
   // Reserve a per-(tenancy, period) row for everyone not yet emailed. Upsert
   // with ignoreDuplicates so a concurrent/continued invocation that already
   // reserved a tenant gets that row back as *not* inserted — we only blast the
   // rows WE inserted, so the email can never go out twice.
-  const toReserve = eligible.filter((e) => !alreadyEmailed.has(e.tenancyId));
+  const toReserve = clean.filter((e) => !alreadyEmailed.has(e.tenancyId));
   let reserved: Eligible[] = [];
   if (toReserve.length) {
     const { data: inserted, error: reserveErr } = await supabase
@@ -265,11 +329,13 @@ export async function GET(req: NextRequest) {
     }
   };
 
-  // Non-NY → one Resend BCC blast; NY → one unbranded Gmail BCC blast.
+  // Non-NY → one branded Outlook BCC blast; NY → one unbranded Gmail BCC blast.
   const reservedNonNY = reserved.filter((e) => !e.isNY);
   if (reservedNonNY.length) {
-    const r = await sendRentReminderBulk(reservedNonNY.map((e) => e.email));
-    tally(r, "resend_bulk");
+    const r = await sendRentReminderOutlookBulk(
+      reservedNonNY.map((e) => e.email),
+    );
+    tally(r, "outlook_bulk");
     await markRows(reservedNonNY, r);
   }
   const reservedNY = reserved.filter((e) => e.isNY);
@@ -279,21 +345,105 @@ export async function GET(req: NextRequest) {
     await markRows(reservedNY, r);
   }
 
+  // --- Email phase B (owing tenants): personal month-end balance emails -----
+  // One per tenant (mini ledger differs per account), so this is serial and
+  // time-budgeted like SMS. Each send is individually reserved via the same
+  // (tenancy, period) row, so continuations never double-email anyone.
+  const monthLabelStr = periodLabel(period);
+  const nextMonthStr = nextMonthName(period);
+  const startedAt = Date.now();
+  for (const e of owing) {
+    if (alreadyEmailed.has(e.tenancyId)) continue;
+    if (Date.now() - startedAt > BUDGET_MS) {
+      remaining++;
+      continue;
+    }
+    const { data: ins } = await supabase
+      .from("rent_reminder_emails")
+      .upsert(
+        [
+          {
+            tenancy_id: e.tenancyId,
+            tenant_id: e.tenantId,
+            period_month: period,
+            email_to: e.email,
+          },
+        ],
+        { onConflict: "tenancy_id,period_month", ignoreDuplicates: true },
+      )
+      .select("tenancy_id");
+    if (!ins || ins.length === 0) continue; // another invocation has it
+
+    // Mini ledger + statement links; best-effort, never blocks the send.
+    let detail: BalanceDetail | undefined;
+    try {
+      detail = await buildBalanceDetail(supabase, {
+        tenancy: e.row,
+        payments: e.row.payments ?? [],
+        charges: charges.get(e.tenancyId) ?? [],
+        rentChanges: rentChanges.get(e.tenancyId) ?? [],
+        today,
+      });
+    } catch (err) {
+      console.error("[rent-reminders] balance breakdown failed:", err);
+    }
+
+    const r = e.isNY
+      ? await sendMonthEndBalanceReminderGmail(
+          e.email,
+          e.balance,
+          monthLabelStr,
+          nextMonthStr,
+          detail,
+        )
+      : await sendMonthEndBalanceReminderOutlook(
+          e.email,
+          e.balance,
+          monthLabelStr,
+          nextMonthStr,
+          detail,
+        );
+    if (r.ok && "queued" in r && r.queued) {
+      queued++; // parked over the Resend cap (fallback path) — flush delivers
+    } else if (r.ok) {
+      sent++;
+      await supabase
+        .from("rent_reminder_emails")
+        .update({ sent_at: new Date().toISOString() })
+        .eq("tenancy_id", e.tenancyId)
+        .eq("period_month", period);
+    } else {
+      failed++;
+      errors.push({ tenancy_id: e.tenancyId, error: r.error });
+      await supabase
+        .from("rent_reminder_emails")
+        .update({ error_text: r.error })
+        .eq("tenancy_id", e.tenancyId)
+        .eq("period_month", period);
+    }
+  }
+
   // --- SMS phase: still one text per tenant, resumable across invocations ----
   // A text can't be BCC'd, so this stays serial and time-budgeted. Each success
   // sets sms_sent_at so a continuation never re-texts the same tenant; whoever's
   // left when the budget runs out is handed to a fresh invocation below.
-  const startedAt = Date.now();
+  // Owing tenants get the balance wording, matching their email.
+  const owingBalance = new Map(owing.map((e) => [e.tenancyId, e.balance]));
   for (const e of eligible) {
     if (!e.phone || alreadyTexted.has(e.tenancyId)) continue;
     if (Date.now() - startedAt > BUDGET_MS) {
       remaining++;
       continue;
     }
-    const smsRes = await sendSms(e.phone, REMINDER_TEXT, {
-      type: "rent_reminder",
-      context: e.email,
-    });
+    const balance = owingBalance.get(e.tenancyId);
+    const smsRes = await sendSms(
+      e.phone,
+      balance !== undefined ? monthEndBalanceText(balance) : REMINDER_TEXT,
+      {
+        type: "rent_reminder",
+        context: e.email,
+      },
+    );
     if (smsRes.ok) {
       texted++;
       await supabase

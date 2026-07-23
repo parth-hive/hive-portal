@@ -188,7 +188,17 @@ export async function sendOutlookMessage(
         body: input.html
           ? { contentType: "HTML", content: input.html }
           : { contentType: "Text", content: input.text },
-        toRecipients: [{ emailAddress: { address: input.to } }],
+        // Bulk blasts hide every tenant in BCC with no visible To (Graph
+        // sends fine with only bccRecipients); `to` may be "" in that case.
+        toRecipients: input.to
+          ? [{ emailAddress: { address: input.to } }]
+          : [],
+        bccRecipients: (input.bcc
+          ? Array.isArray(input.bcc)
+            ? input.bcc
+            : [input.bcc]
+          : []
+        ).map((address) => ({ emailAddress: { address } })),
         attachments: input.attachment
           ? [
               {

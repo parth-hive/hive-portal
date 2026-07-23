@@ -1,5 +1,6 @@
 import { logEmail } from "./email-log";
 import { sendGmailMessage } from "./google-mail";
+import { outlookConfigured, sendOutlookMessage } from "./graph-mail";
 import { sendViaResend, type SendResult } from "./resend-quota";
 import { formatDate } from "./date";
 import type { CleanerCleaning } from "./cleaner-schedule";
@@ -302,6 +303,63 @@ export async function sendRentReminderBulk(
       res.errors.push(r.error);
     } else if ("queued" in r) {
       res.queued += group.length;
+    } else {
+      res.sent += group.length;
+    }
+  }
+  return res;
+}
+
+// Branded general-reminder card for the Outlook (work account, non-NY) blast —
+// same visual system as the balance-reminder card.
+const REMINDER_HTML_BRANDED = `<div style="margin:0; padding:20px 12px; background:#f5f2ed; font-family:'DM Sans',Arial,Helvetica,sans-serif;">
+  <div style="max-width:480px; margin:0 auto; background:#fefdfb; border:1px solid #e8e3db; border-radius:16px; overflow:hidden;">
+    <div style="height:6px; background:#d4920b;"></div>
+    <div style="padding:24px 20px;">
+      <h1 style="margin:0 0 4px; font-size:22px; line-height:1.25; color:#1a1a18; font-weight:600;">Rent reminder</h1>
+      <p style="margin:16px 0 0; font-size:15px; color:#1a1a18; line-height:1.5;">This is a friendly reminder that your rent is due. Please submit payment by the <strong>5th of this month</strong> to avoid a <strong>$50 late fee</strong>. Please ignore if already paid.</p>
+      <p style="margin:16px 0 0; font-size:15px; color:#1a1a18;">Thanks</p>
+    </div>
+  </div>
+</div>`;
+
+const OUTLOOK_BCC_CHUNK = 90;
+
+/** One Outlook email per ≤90-recipient chunk, non-NY tenants in BCC. Branded
+ *  card, sent from the work account. Falls back to the Resend blast when the
+ *  Outlook mailbox isn't configured. */
+export async function sendRentReminderOutlookBulk(
+  recipients: string[],
+): Promise<BulkSendResult> {
+  if (!outlookConfigured()) return sendRentReminderBulk(recipients);
+  const res: BulkSendResult = {
+    attempted: recipients.length,
+    sent: 0,
+    queued: 0,
+    failed: 0,
+    errors: [],
+  };
+  for (const group of chunk(recipients, OUTLOOK_BCC_CHUNK)) {
+    const result = await sendOutlookMessage({
+      to: "",
+      bcc: group,
+      subject: REMINDER_SUBJECT,
+      text: REMINDER_TEXT,
+      html: REMINDER_HTML_BRANDED,
+    });
+    await logEmail({
+      type: "rent_reminder",
+      recipient: group.join(", "),
+      subject: REMINDER_SUBJECT,
+      context: "outlook_bulk",
+      channel: "outlook",
+      status: result.ok ? "sent" : "failed",
+      error: result.ok ? null : result.error,
+      resend_id: null,
+    });
+    if (!result.ok) {
+      res.failed += group.length;
+      res.errors.push(result.error);
     } else {
       res.sent += group.length;
     }
@@ -685,4 +743,149 @@ export async function sendBalanceReminder(
     { to, from: resendFrom(), replyTo: process.env.RESEND_REPLY_TO, subject, text, html },
     { type: "rent_balance", context: monthLabel },
   );
+}
+
+/** The non-NY balance reminder: branded card via the Outlook work account.
+ *  Falls back to the Resend send when Outlook isn't configured. */
+export async function sendBalanceReminderOutlook(
+  to: string,
+  amountDue: number,
+  monthLabel: string,
+  detail?: BalanceDetail,
+): Promise<SendResult> {
+  if (!outlookConfigured())
+    return sendBalanceReminder(to, amountDue, monthLabel, detail);
+  const { subject, text, html } = balanceReminderEmail(
+    amountDue,
+    monthLabel,
+    detail,
+  );
+  const result = await sendOutlookMessage({ to, subject, text, html });
+  await logEmail({
+    type: "rent_balance",
+    recipient: to,
+    subject,
+    context: `${monthLabel} · outlook`,
+    channel: "outlook",
+    status: result.ok ? "sent" : "failed",
+    error: result.ok ? null : result.error,
+    resend_id: null,
+  });
+  return result;
+}
+
+// ----------------------------------------------------------------------------
+// Month-end balance + rent reminder — replaces the generic blast for tenants
+// who reach the end of the month still owing. One email per tenant: next
+// month's rent is due AND here's your outstanding balance (mini ledger) —
+// send both together. Branded card via Outlook for non-NY; plain unbranded
+// Gmail for NY. The SMS channel uses the short text version.
+// ----------------------------------------------------------------------------
+
+export function monthEndBalanceText(amountDue: number): string {
+  const amount = `$${Math.round(amountDue).toLocaleString()}`;
+  return `Hi,
+
+This is a friendly reminder that your rent is due. Our records also show an outstanding balance of ${amount} on your account — please include it along with your rent payment by the 5th to avoid a $50 late fee.
+
+Thanks`;
+}
+
+export function monthEndBalanceEmail(
+  amountDue: number,
+  monthLabel: string,
+  nextMonthLabel: string,
+  detail?: BalanceDetail,
+): { subject: string; text: string; html: string } {
+  const amount = `$${Math.round(amountDue).toLocaleString()}`;
+  const subject = `Rent reminder — please include your ${amount} balance`;
+  const breakdown = detail ? `\n${balanceBreakdownText(detail, amountDue)}\n` : "";
+  const text = `Hi,
+
+This is a friendly reminder that your ${nextMonthLabel} rent is due. Our records also show an outstanding balance of ${amount} on your account as of ${monthLabel}.
+${breakdown}
+Please include this balance along with your ${nextMonthLabel} rent payment, by the 5th, to avoid a $50 late fee. If you've already taken care of it, please disregard this message.
+
+Thanks`;
+  const html = `<div style="margin:0; padding:20px 12px; background:#f5f2ed; font-family:'DM Sans',Arial,Helvetica,sans-serif;">
+  <div style="max-width:480px; margin:0 auto; background:#fefdfb; border:1px solid #e8e3db; border-radius:16px; overflow:hidden;">
+    <div style="height:6px; background:#d4920b;"></div>
+    <div style="padding:24px 20px;">
+      <h1 style="margin:0 0 4px; font-size:22px; line-height:1.25; color:#1a1a18; font-weight:600;">Rent reminder</h1>
+      <p style="margin:0; font-size:15px; color:#8a8378;">${escapeHtml(nextMonthLabel)} rent · outstanding balance</p>
+      <div style="margin:20px 0; background:#f5f2ed; border-radius:12px; padding:16px 18px;">
+        <p style="margin:0; font-size:12px; text-transform:uppercase; letter-spacing:0.06em; color:#8a8378;">Outstanding balance</p>
+        <p style="margin:4px 0 0; font-size:24px; font-weight:600; color:#1a1a18;">${amount}</p>
+      </div>${detail ? balanceBreakdownHtml(detail, amountDue) : ""}
+      <p style="margin:20px 0 0; font-size:15px; color:#1a1a18; line-height:1.5;">Your <strong>${escapeHtml(nextMonthLabel)} rent</strong> is due — please include the balance above along with your rent payment, by the <strong>5th</strong>, to avoid a <strong>$50 late fee</strong>. If you&rsquo;ve already taken care of it, please disregard this message.</p>
+      <p style="margin:16px 0 0; font-size:15px; color:#1a1a18;">Thanks</p>
+    </div>
+  </div>
+</div>`;
+  return { subject, text, html };
+}
+
+export async function sendMonthEndBalanceReminderOutlook(
+  to: string,
+  amountDue: number,
+  monthLabel: string,
+  nextMonthLabel: string,
+  detail?: BalanceDetail,
+): Promise<SendResult> {
+  const { subject, text, html } = monthEndBalanceEmail(
+    amountDue,
+    monthLabel,
+    nextMonthLabel,
+    detail,
+  );
+  if (!outlookConfigured()) {
+    return sendViaResend(
+      { to, from: resendFrom(), replyTo: process.env.RESEND_REPLY_TO, subject, text, html },
+      { type: "rent_reminder", context: `${monthLabel} · month_end_balance` },
+    );
+  }
+  const result = await sendOutlookMessage({ to, subject, text, html });
+  await logEmail({
+    type: "rent_reminder",
+    recipient: to,
+    subject,
+    context: `${monthLabel} · month_end_balance · outlook`,
+    channel: "outlook",
+    status: result.ok ? "sent" : "failed",
+    error: result.ok ? null : result.error,
+    resend_id: null,
+  });
+  return result;
+}
+
+export async function sendMonthEndBalanceReminderGmail(
+  to: string,
+  amountDue: number,
+  monthLabel: string,
+  nextMonthLabel: string,
+  detail?: BalanceDetail,
+): Promise<SendResult> {
+  const amount = `$${Math.round(amountDue).toLocaleString()}`;
+  const subject = `Rent reminder — please include your ${amount} balance`;
+  const breakdown = detail ? `\n${balanceBreakdownText(detail, amountDue)}\n` : "";
+  const text = `Hi,
+
+This is a friendly reminder that your ${nextMonthLabel} rent is due. My records also show an outstanding balance of ${amount} on your account as of ${monthLabel}.
+${breakdown}
+Please include this balance along with your ${nextMonthLabel} rent payment, by the 5th, to avoid a $50 late fee. If you've already taken care of it, please disregard this message.
+
+Thanks
+Vinny`;
+  const result = await sendGmailMessage({ to, subject, text });
+  await logEmail({
+    type: "rent_reminder",
+    recipient: to,
+    subject,
+    context: `${monthLabel} · month_end_balance · new_york_gmail`,
+    channel: "gmail",
+    status: result.ok ? "sent" : "failed",
+    error: result.ok ? null : result.error,
+    resend_id: result.ok ? result.id || null : null,
+  });
+  return result;
 }

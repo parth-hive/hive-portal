@@ -7,7 +7,7 @@ import type { Database } from "@/lib/supabase/types";
 import { one } from "@/lib/relations";
 import { updateRoomsWithNotification } from "@/lib/notifications";
 import {
-  sendBalanceReminder,
+  sendBalanceReminderOutlook,
   sendBalanceReminderGmail,
   balanceReminderText,
 } from "@/lib/email";
@@ -1139,7 +1139,7 @@ export async function sendBalanceReminders(
       const isNewYork = one(one(row.rooms)?.properties)?.is_new_york ?? false;
       const res = isNewYork
         ? await sendBalanceReminderGmail(email, netBalance, monthLabel, detail)
-        : await sendBalanceReminder(email, netBalance, monthLabel, detail);
+        : await sendBalanceReminderOutlook(email, netBalance, monthLabel, detail);
       if (res.ok) {
         if ("queued" in res) queued++;
         else sent++;

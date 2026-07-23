@@ -17,7 +17,7 @@ import { sendAgreementRequest } from "@/lib/agreement-send";
 import { sendGmailMessage } from "@/lib/google-mail";
 import {
   inventorySheetEmailTemplate,
-  sendBalanceReminder,
+  sendBalanceReminderOutlook,
   sendBalanceReminderGmail,
   balanceReminderText,
 } from "@/lib/email";
@@ -1971,7 +1971,7 @@ export async function sendBalanceReminders(args: {
       const isNewYork = one(one(row.rooms)?.properties ?? null)?.is_new_york ?? false;
       const res = isNewYork
         ? await sendBalanceReminderGmail(email, netBalance, monthLabel, detail)
-        : await sendBalanceReminder(email, netBalance, monthLabel, detail);
+        : await sendBalanceReminderOutlook(email, netBalance, monthLabel, detail);
       if (res.ok) {
         emailed++;
         delivered = true;
