@@ -10,7 +10,6 @@ export const UNIT_AMENITIES = [
   "Central A/C",
   "In-Unit Washer/Dryer",
   "Fully Equipped Kitchen",
-  "Smart TV",
   "Dishwasher",
 ] as const;
 
