@@ -17,6 +17,7 @@ import { todayISO, currentRentCycle } from "@/lib/date";
 import { canEditLedger, isMaster } from "@/lib/access";
 import { OverageAlertsPopup, type OverageAlert } from "./overage-alerts";
 import { FormerTenants, type FormerTenantRow } from "./former-tenants";
+import { UpcomingTenants, type UpcomingTenantRow } from "./upcoming-tenants";
 
 export const dynamic = "force-dynamic";
 // sendBalanceReminders (see actions.ts) sends an email + SMS per owing tenant,
@@ -150,6 +151,19 @@ export default async function TenantsPage({ searchParams }: PageProps) {
     .eq("status", "ended")
     .order("move_out_date", { ascending: false });
 
+  // Future-dated tenancies — invisible to the active groups until the daily
+  // cron activates them, so they get their own "Upcoming move-ins" section.
+  const { data: upcomingData } = await supabase
+    .from("tenancies")
+    .select(
+      `id, start_date, monthly_rent,
+       tenants(id, full_name),
+       rooms(room_number,
+             properties(building_name, street_address, unit_number))`,
+    )
+    .eq("status", "upcoming")
+    .order("start_date", { ascending: true });
+
   // Ad-hoc charges + credit allocations feed the running ledger balance.
   const { charges, allocations, rentChanges } =
     await fetchLedgerSidecars(supabase);
@@ -211,6 +225,49 @@ export default async function TenantsPage({ searchParams }: PageProps) {
     })
     .filter((r) => r.tenantId && r.balance > 0.005)
     .sort((a, b) => b.balance - a.balance);
+
+  type UpcomingQueryRow = {
+    id: string;
+    start_date: string;
+    monthly_rent: number;
+    tenants: { id: string; full_name: string } | { id: string; full_name: string }[] | null;
+    rooms:
+      | {
+          room_number: string | null;
+          properties:
+            | { building_name: string | null; street_address: string; unit_number: string }
+            | { building_name: string | null; street_address: string; unit_number: string }[]
+            | null;
+        }
+      | {
+          room_number: string | null;
+          properties:
+            | { building_name: string | null; street_address: string; unit_number: string }
+            | { building_name: string | null; street_address: string; unit_number: string }[]
+            | null;
+        }[]
+      | null;
+  };
+  const upcomingRows: UpcomingTenantRow[] = (
+    (upcomingData ?? []) as UpcomingQueryRow[]
+  )
+    .map((t) => {
+      const tenant = one(t.tenants);
+      const room = one(t.rooms);
+      const property = one(room?.properties ?? null);
+      return {
+        tenancyId: t.id,
+        tenantId: tenant?.id ?? "",
+        name: tenant?.full_name ?? "—",
+        unitLabel: property
+          ? `${property.building_name?.trim() || property.street_address} Apt ${property.unit_number}`
+          : null,
+        roomLabel: room?.room_number ?? null,
+        startDate: t.start_date,
+        monthlyRent: Number(t.monthly_rent),
+      };
+    })
+    .filter((r) => r.tenantId);
 
   // Per row we keep the *this-month* operational figures (Due / Paid, mirrored
   // by the portfolio KPIs and progress bar) but the Balance column now shows
@@ -520,6 +577,8 @@ export default async function TenantsPage({ searchParams }: PageProps) {
           </section>
         );
       })()}
+
+      <UpcomingTenants rows={upcomingRows} />
 
       <FormerTenants rows={formerRows} canDismiss={canEditLedger(user?.email)} />
 
