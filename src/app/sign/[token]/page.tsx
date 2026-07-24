@@ -8,7 +8,7 @@ export const dynamic = "force-dynamic";
 // "Hive co-living" description would leak onto the unbranded (NY) pages.
 export const metadata = {
   title: "Sign your agreement",
-  description: "Review and sign your sublease agreement online.",
+  description: "Review and sign your agreement online.",
   robots: { index: false, follow: false },
 };
 
@@ -104,14 +104,11 @@ export default async function SignAgreementPage({ params }: PageProps) {
           )}
           <h1 className="text-3xl tracking-tight text-ink">
             {branded ? (
-              <>
-                Sublease{" "}
-                <span className="font-display italic text-accent-text">
-                  Agreement
-                </span>
-              </>
+              <span className="font-display italic text-accent-text">
+                Agreement
+              </span>
             ) : (
-              <>Sublease Agreement</>
+              <>Agreement</>
             )}
           </h1>
           <p className="mt-2 text-sm text-muted">
