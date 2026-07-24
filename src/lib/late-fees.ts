@@ -25,8 +25,8 @@ const GRACE_DAY = 6;
 
 const LATE_FEE_AMOUNT = 50;
 
-/** Ignore sub-dollar residue — a $50 fee on pennies helps no one. */
-const MIN_OWED = 1;
+/** Only fee balances of $50+ — a $50 fee on a smaller residue helps no one. */
+const MIN_OWED = 50;
 
 export type LateFeeResult = {
   ran: boolean;
