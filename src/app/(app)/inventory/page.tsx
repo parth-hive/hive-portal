@@ -581,7 +581,7 @@ function InventoryRow({
         />
       </td>
       <td className={`w-1.5 p-0 ${ACTION_BORDER[room.listing_action].replace("border-l-", "bg-")}`} />
-      <td className="px-3 py-2.5">
+      <td className="px-3 py-2.5 text-center align-middle">
         <Link
           href={`/inventory/${room.id}`}
           className="font-medium text-accent-text underline decoration-accent/40 underline-offset-2 hover:text-accent-dark hover:decoration-accent-dark"
@@ -589,25 +589,25 @@ function InventoryRow({
           {unitTitle}
         </Link>
       </td>
-      <td className="px-3 py-2.5 text-xs text-ink">
+      <td className="px-3 py-2.5 text-center align-middle text-xs text-ink">
         {p?.neighborhood || <span className="text-muted">—</span>}
       </td>
-      <td className="px-3 py-2.5 text-ink">
+      <td className="px-3 py-2.5 text-center align-middle text-ink">
         {room.room_number?.replace(/^room\s+/i, "") || "—"}
       </td>
-      <td className="px-2 py-1.5">
+      <td className="px-2 py-1.5 text-center align-middle">
         <InlineDateEdit roomId={room.id} date={room.available_from} />
       </td>
-      <td className="px-2 py-1.5 text-right">
+      <td className="px-2 py-1.5 text-center align-middle">
         <InlineBaseRentEdit roomId={room.id} value={room.base_rent} />
       </td>
-      <td className="px-2 py-1.5 text-right">
+      <td className="px-2 py-1.5 text-center align-middle">
         <InlineServicesEdit roomId={room.id} value={room.bundle_fee} />
       </td>
-      <td className="px-3 py-1.5 text-right tabular-nums font-medium text-ink">
+      <td className="px-3 py-1.5 text-center align-middle tabular-nums font-medium text-ink">
         {fmtMoney(room.total_rent)}
       </td>
-      <td className="px-3 py-1.5">
+      <td className="px-3 py-1.5 text-center align-middle">
         <InlineAmenitiesEdit
           roomId={room.id}
           propertyId={p?.id ?? null}
@@ -621,10 +621,10 @@ function InventoryRow({
           <Amenities room={room} property={p} />
         </InlineAmenitiesEdit>
       </td>
-      <td className="px-3 py-1.5">
+      <td className="px-3 py-1.5 text-center align-middle">
         <InlinePhotosEdit roomId={room.id} url={room.photos_url} />
       </td>
-      <td className="px-3 py-2.5 text-xs">
+      <td className="px-3 py-2.5 text-center align-middle text-xs">
         {featuredTenant ? (
           <Link
             href={`/tenants/${featuredTenant.id}`}
@@ -636,16 +636,16 @@ function InventoryRow({
           <span className="text-muted">—</span>
         )}
       </td>
-      <td className="px-3 py-2.5">
+      <td className="px-3 py-2.5 text-center align-middle">
         <ListingActionSelector
           roomId={room.id}
           current={room.listing_action}
         />
       </td>
-      <td className="px-3 py-2.5">
+      <td className="px-3 py-2.5 text-center align-middle">
         <InlineAdEdit roomId={room.id} ads={room.ads} />
       </td>
-      <td className="px-3 py-2.5 text-xs text-ink">
+      <td className="px-3 py-2.5 text-center align-middle text-xs text-ink">
         {(() => {
           // Distinct posters across this room's ads, in first-posted order.
           const posters = Array.from(
@@ -662,7 +662,7 @@ function InventoryRow({
           );
         })()}
       </td>
-      <td className="px-3 py-2.5">
+      <td className="px-3 py-2.5 text-center align-middle">
         {p ? (
           <Link
             href={`/properties/${p.id}#residents`}
@@ -674,8 +674,8 @@ function InventoryRow({
           <span className="text-muted">—</span>
         )}
       </td>
-      <td className="px-3 py-2.5 text-right">
-        <div className="flex items-center justify-end gap-2">
+      <td className="px-3 py-2.5 text-center align-middle">
+        <div className="flex items-center justify-center gap-2">
           {room.marketing_description && (
             <CopyListing text={room.marketing_description} />
           )}

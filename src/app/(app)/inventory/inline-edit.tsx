@@ -162,7 +162,7 @@ export function InlinePhotosEdit({
   }
 
   return (
-    <div className={`flex items-center gap-1.5 ${pending ? "opacity-60" : ""}`}>
+    <div className={`flex items-center justify-center gap-1.5 ${pending ? "opacity-60" : ""}`}>
       {url ? (
         <a
           href={url}
@@ -220,7 +220,7 @@ export function InlineAdEdit({
 
   return (
     <div
-      className={`flex flex-col items-start gap-1 ${pending ? "opacity-60" : ""}`}
+      className={`flex flex-col items-center gap-1 ${pending ? "opacity-60" : ""}`}
     >
       {ads.map((ad) => (
         <div key={ad.id} className="flex items-center gap-1.5">
