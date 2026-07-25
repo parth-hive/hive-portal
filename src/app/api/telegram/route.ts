@@ -58,7 +58,9 @@ Style:
   send_agreement ok]"). That marker is the ONLY evidence an action happened —
   a past "Sent ✅" without a send tool in its marker was a mistake, not a send.
   Never copy the shape of a past reply as a substitute for calling the tool
-  now. Don't write these markers yourself; they're appended automatically.
+  now. Don't write these markers yourself; they're appended automatically,
+  and any marker you write in your own text is stripped before the operator
+  sees it.
 - If you can't find what the operator's asking about, say so directly rather
   than guessing.
 
@@ -222,16 +224,47 @@ const EMAIL_SEND_TOOLS = new Set([
   "send_balance_reminders",
 ]);
 
-// A hallucinated confirmation reads like "Sent to x@y.com from Gmail ✅" — a
-// completed-send word alongside a recipient address or mailbox name. Plain
-// mentions in read-backs and questions ("resend it?", "Send it?") carry
-// neither, so they don't trip this.
-function claimsEmailSent(text: string): boolean {
-  return (
-    /\b(sent|resent|emailed)\b/i.test(text) &&
-    /(\S+@\S+|\bgmail\b|\boutlook\b)/i.test(text)
-  );
+// The model has been observed forging the turn marker inside its own reply
+// text (e.g. "Sent ✅ … [tools run this turn: send_agreement ok]", 7/22–7/25),
+// which makes markers in history worthless as evidence. Strip any marker the
+// model wrote itself; only the one this route appends survives.
+const TOOL_MARKER_RE =
+  /\s*\[(?:tools run this turn:[^\]]*|no tools were run this turn)\]/gi;
+
+function stripToolMarkers(text: string): string {
+  return text.replace(TOOL_MARKER_RE, "").trim();
 }
+
+// A hallucinated confirmation reads like "Sent to x@y.com from Gmail ✅" — a
+// completed-send claim (checkmark, or "sent/emailed to <address>"). Read-backs
+// describing the upcoming send ("→ letterhead, sent from the Outlook work
+// account … Send it?") and past-failure references ("never actually sent")
+// must NOT trip this — observed 7/21–7/24 replacing legitimate confirmation
+// questions with the false-send correction.
+function claimsEmailSent(text: string): boolean {
+  // Negated phrasings are statements that nothing was sent, not claims.
+  const t = text.replace(
+    /\b(?:not|never|wasn'?t|hasn'?t|didn'?t|couldn'?t)(?:\s+\w+){0,2}\s+(?:sent|resent|emailed)\b/gi,
+    "",
+  );
+  if (!/\b(sent|resent|emailed)\b/i.test(t)) return false;
+  // A completed-send confirmation carries a checkmark or names the recipient
+  // right after the verb; "sent from the Outlook work account" in a read-back
+  // carries neither.
+  return /✅/.test(t) || /\b(?:sent|resent|emailed)\b[^\n?]{0,60}?\bto\s+\S+@\S+/i.test(t);
+}
+
+// Injected as a user turn when the model claims a send without a successful
+// send tool call — gives it one chance to actually run the tool before the
+// operator sees anything.
+const FALSE_SEND_RETRY_REMINDER =
+  "<system-reminder>Your previous reply claimed an email was sent, but no " +
+  "email-sending tool (send_agreement, email_inventory_sheet, " +
+  "send_balance_reminders) ran successfully in that turn — NOTHING has been " +
+  "sent. The operator already confirmed. Call the appropriate send tool NOW " +
+  "with the confirmed details, then report the actual result. If a required " +
+  "detail is missing, ask for it instead. Never say an email was sent unless " +
+  "the tool ran in THIS turn and returned ok: true.</system-reminder>";
 
 function falseSendCorrection(original: string): string {
   return (
@@ -442,6 +475,22 @@ export async function POST(req: Request) {
   // Filled in by instrumentTool as the agent loop runs — one entry per tool
   // call this turn. Read afterwards to verify any "sent" claim in the reply.
   const calledTools: { name: string; ok: boolean }[] = [];
+  const messageText = (m: Anthropic.Beta.BetaMessage): string =>
+    m.content
+      .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
+      .map((b) => stripToolMarkers(b.text))
+      .join("\n\n")
+      .trim();
+  const runAgent = (msgs: ConvoMessage[]) =>
+    client.beta.messages.toolRunner({
+      model: "claude-opus-4-8",
+      max_tokens: 16000,
+      system: SYSTEM_PROMPT,
+      thinking: { type: "adaptive" },
+      output_config: { effort: "high" },
+      tools,
+      messages: msgs,
+    });
   let finalMessage: Anthropic.Beta.BetaMessage;
   try {
     // Run inside the chat context so tools that deliver files (e.g.
@@ -457,16 +506,36 @@ export async function POST(req: Request) {
         username: msg.from.username,
         calledTools,
       },
-      async () =>
-        await client.beta.messages.toolRunner({
-          model: "claude-opus-4-8",
-          max_tokens: 16000,
-          system: SYSTEM_PROMPT,
-          thinking: { type: "adaptive" },
-          output_config: { effort: "high" },
-          tools,
-          messages,
-        }),
+      async () => {
+        let message = await runAgent(messages);
+        // Fabricated send claim: the reply says an email went out but no send
+        // tool succeeded. Rather than bouncing the operator ("please ask
+        // again"), give the model one corrective pass to actually run the
+        // tool. calledTools keeps accumulating, so the post-turn guard below
+        // still verifies whatever this pass produces.
+        const sendSucceeded = () =>
+          calledTools.some((t) => EMAIL_SEND_TOOLS.has(t.name) && t.ok);
+        if (!sendSucceeded() && claimsEmailSent(messageText(message))) {
+          await logTelegramEvent({
+            ...actor,
+            kind: "agent_error",
+            ok: false,
+            error:
+              "reply claimed a send without a successful send tool — retrying with corrective reminder",
+            text: messageText(message),
+            detail: { calledTools: [...calledTools] },
+          });
+          message = await runAgent([
+            ...messages,
+            { role: "assistant", content: message.content },
+            {
+              role: "user",
+              content: [{ type: "text", text: FALSE_SEND_RETRY_REMINDER }],
+            },
+          ]);
+        }
+        return message;
+      },
     );
   } catch (e) {
     console.error("Anthropic tool runner failed:", e);
@@ -492,14 +561,9 @@ export async function POST(req: Request) {
     return NextResponse.json({ ok: true });
   }
 
-  // Extract the assistant's text reply (concat all text blocks).
-  const text = finalMessage.content
-    .filter(
-      (b): b is Anthropic.Beta.BetaTextBlock => b.type === "text",
-    )
-    .map((b) => b.text)
-    .join("\n\n")
-    .trim();
+  // Extract the assistant's text reply (concat all text blocks, with any
+  // model-forged tool markers stripped).
+  const text = messageText(finalMessage);
 
   // If the reply claims an email was sent but no send tool succeeded this
   // turn, the claim is fabricated — replace it (in the reply AND in the
@@ -526,6 +590,12 @@ export async function POST(req: Request) {
             .join(", ")}]`
         : "[no tools were run this turn]",
   };
+  // Persisted text blocks are sanitized so a marker the model forged in its
+  // own prose can never survive into history — the appended marker is the
+  // only one, keeping it trustworthy evidence.
+  const sanitizedContent = finalMessage.content.map((b) =>
+    b.type === "text" ? { ...b, text: stripToolMarkers(b.text) } : b,
+  );
   // On a false send claim, persist only a short admission — NOT the original
   // fabricated "Sent to …" text, which would re-seed the exact pattern the
   // guard exists to stop.
@@ -537,7 +607,7 @@ export async function POST(req: Request) {
         },
         toolMarker,
       ]
-    : [...finalMessage.content, toolMarker];
+    : [...sanitizedContent, toolMarker];
   const credentialToolUsed = calledTools.some(
     (tool) => tool.name === "get_credentials",
   );
