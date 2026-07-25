@@ -235,42 +235,51 @@ function stripToolMarkers(text: string): string {
   return text.replace(TOOL_MARKER_RE, "").trim();
 }
 
-// A hallucinated confirmation reads like "Sent to x@y.com from Gmail ✅" — a
-// completed-send claim (checkmark, or "sent/emailed to <address>"). Read-backs
-// describing the upcoming send ("→ letterhead, sent from the Outlook work
-// account … Send it?") and past-failure references ("never actually sent")
+// A hallucinated confirmation reads like "Sent to x@y.com from Gmail ✅" or
+// "Texted 4 tenants ✅" — a completed-send claim (checkmark, "sent/emailed to
+// <address>", or a verb-plus-count like "emailed 4, texted 3", which is how
+// the balance-reminder result reads). Read-backs describing the upcoming send
+// ("→ letterhead, sent from the Outlook work account … Send it?", "I'll text
+// 4 tenants — confirm?") and past-failure references ("never actually sent")
 // must NOT trip this — observed 7/21–7/24 replacing legitimate confirmation
 // questions with the false-send correction.
-function claimsEmailSent(text: string): boolean {
+function claimsMessageSent(text: string): boolean {
   // Negated phrasings are statements that nothing was sent, not claims.
   const t = text.replace(
-    /\b(?:not|never|wasn'?t|hasn'?t|didn'?t|couldn'?t)(?:\s+\w+){0,2}\s+(?:sent|resent|emailed)\b/gi,
+    /\b(?:not|never|wasn'?t|hasn'?t|didn'?t|couldn'?t)(?:\s+\w+){0,2}\s+(?:sent|resent|emailed|texted|reminded)\b/gi,
     "",
   );
-  if (!/\b(sent|resent|emailed)\b/i.test(t)) return false;
-  // A completed-send confirmation carries a checkmark or names the recipient
-  // right after the verb; "sent from the Outlook work account" in a read-back
-  // carries neither.
-  return /✅/.test(t) || /\b(?:sent|resent|emailed)\b[^\n?]{0,60}?\bto\s+\S+@\S+/i.test(t);
+  if (!/\b(sent|resent|emailed|texted|reminded)\b/i.test(t)) return false;
+  return (
+    /✅/.test(t) ||
+    /\b(?:sent|resent|emailed|texted|reminded)\b[^\n?]{0,60}?\bto\s+\S+@\S+/i.test(t) ||
+    /\b(?:emailed|texted|reminded)\s+\d+\b/i.test(t)
+  );
 }
 
 // Injected as a user turn when the model claims a send without a successful
 // send tool call — gives it one chance to actually run the tool before the
-// operator sees anything.
+// operator sees anything. Deliberately conditional: if the flagged reply was
+// really describing an EARLIER send (not fabricating one for this turn), the
+// model must restate it as past rather than fire an unwanted duplicate send.
 const FALSE_SEND_RETRY_REMINDER =
-  "<system-reminder>Your previous reply claimed an email was sent, but no " +
-  "email-sending tool (send_agreement, email_inventory_sheet, " +
-  "send_balance_reminders) ran successfully in that turn — NOTHING has been " +
-  "sent. The operator already confirmed. Call the appropriate send tool NOW " +
-  "with the confirmed details, then report the actual result. If a required " +
-  "detail is missing, ask for it instead. Never say an email was sent unless " +
-  "the tool ran in THIS turn and returned ok: true.</system-reminder>";
+  "<system-reminder>Your previous reply claimed an email or text was sent, " +
+  "but no sending tool (send_agreement, email_inventory_sheet, " +
+  "send_balance_reminders) ran successfully in that turn — NOTHING was sent " +
+  "just now. If the operator asked you to send something in this turn, call " +
+  "the appropriate send tool NOW with the confirmed details, then report the " +
+  "actual result (ask for any missing detail instead of guessing). If you " +
+  "were only describing a send from an earlier turn, do NOT send anything — " +
+  "restate it plainly as a past event (e.g. \"that went out earlier, on " +
+  "<date>\") without a completed-send confirmation for this turn. Never say " +
+  "an email or text was sent unless the tool ran in THIS turn and returned " +
+  "ok: true.</system-reminder>";
 
 function falseSendCorrection(original: string): string {
   return (
-    "⚠️ Correction: my reply below claimed an email was sent, but no " +
-    "email-sending tool actually ran in this turn — nothing was sent just now. " +
-    "If you wanted an email sent, please ask again.\n\n" +
+    "⚠️ Correction: my reply below claimed an email or text was sent, but no " +
+    "sending tool actually ran in this turn — nothing was sent just now. " +
+    "If you wanted something sent, please ask again.\n\n" +
     `Original reply:\n${original}`
   );
 }
@@ -515,7 +524,7 @@ export async function POST(req: Request) {
         // still verifies whatever this pass produces.
         const sendSucceeded = () =>
           calledTools.some((t) => EMAIL_SEND_TOOLS.has(t.name) && t.ok);
-        if (!sendSucceeded() && claimsEmailSent(messageText(message))) {
+        if (!sendSucceeded() && claimsMessageSent(messageText(message))) {
           await logTelegramEvent({
             ...actor,
             kind: "agent_error",
@@ -571,7 +580,7 @@ export async function POST(req: Request) {
   const sendToolSucceeded = calledTools.some(
     (t) => EMAIL_SEND_TOOLS.has(t.name) && t.ok,
   );
-  const falseSendClaim = !sendToolSucceeded && claimsEmailSent(text);
+  const falseSendClaim = !sendToolSucceeded && claimsMessageSent(text);
   const replyText = falseSendClaim ? falseSendCorrection(text) : text;
 
   // History only keeps each turn's FINAL assistant message — the runner's
@@ -603,7 +612,7 @@ export async function POST(req: Request) {
     ? [
         {
           type: "text",
-          text: "⚠️ I claimed an email was sent, but no email-sending tool ran this turn — nothing was actually sent.",
+          text: "⚠️ I claimed an email or text was sent, but no sending tool ran this turn — nothing was actually sent.",
         },
         toolMarker,
       ]
