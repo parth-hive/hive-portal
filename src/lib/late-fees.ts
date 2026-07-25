@@ -3,6 +3,7 @@
  *
  * Policy (from August 2026 on): a tenant who hasn't cleared their running
  * ledger balance by the end of the 6th gets one $50 late fee for the month.
+ * New York units are exempt, as are balances under $50.
  * Runs from the daily ops cron — the date gate below makes it fire on the
  * first invocation on/after the 7th (Eastern), and a rent_reminder_batches
  * row (kind 'late_fee') marks the month done so it never runs twice. A
@@ -74,6 +75,8 @@ export async function applyMonthlyLateFees(
     return { ran: false, error: claimError.message, period };
   }
 
+  type PropertyRel = { is_new_york: boolean };
+  type RoomRel = { properties: PropertyRel | PropertyRel[] | null };
   type TenancyRow = {
     id: string;
     monthly_rent: number;
@@ -82,6 +85,7 @@ export async function applyMonthlyLateFees(
     start_date: string;
     move_out_date: string | null;
     tenants: { full_name: string } | { full_name: string }[] | null;
+    rooms: RoomRel | RoomRel[] | null;
     payments: { amount: number; paid_on: string; payment_type: string }[];
   };
   const { data: tenancies, error } = await supabase
@@ -89,6 +93,7 @@ export async function applyMonthlyLateFees(
     .select(
       `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date,
        tenants(full_name),
+       rooms(properties(is_new_york)),
        payments(amount, paid_on, payment_type)`,
     )
     .eq("status", "active")
@@ -126,6 +131,9 @@ export async function applyMonthlyLateFees(
     // tenancy has started.
     if (row.move_out_date && row.move_out_date <= today) continue;
     if (row.start_date > today) continue;
+
+    // New York units are exempt from automatic late fees.
+    if (one(one(row.rooms)?.properties)?.is_new_york) continue;
 
     const { netBalance } = computeLedger(
       row,
