@@ -3,7 +3,8 @@
  *
  * Policy (from August 2026 on): a tenant who hasn't cleared their running
  * ledger balance by the end of the 6th gets one $50 late fee for the month.
- * New York units are exempt, as are balances under $50.
+ * New York units are exempt, as are balances under $50 and tenants in
+ * their move-in month.
  * Runs from the daily ops cron — the date gate below makes it fire on the
  * first invocation on/after the 7th (Eastern), and a rent_reminder_batches
  * row (kind 'late_fee') marks the month done so it never runs twice. A
@@ -134,6 +135,10 @@ export async function applyMonthlyLateFees(
 
     // New York units are exempt from automatic late fees.
     if (one(one(row.rooms)?.properties)?.is_new_york) continue;
+
+    // New tenants get their move-in month fee-free: anyone whose tenancy
+    // started on/after the 1st of the current month is skipped this cycle.
+    if (row.start_date >= `${period}-01`) continue;
 
     const { netBalance } = computeLedger(
       row,
