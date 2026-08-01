@@ -12,7 +12,12 @@ import { createClient } from "@supabase/supabase-js";
 import { z } from "zod";
 import { updateRoomsWithNotification } from "@/lib/notifications";
 import { enqueueCleanerScheduleChange } from "@/lib/cleaner-reminders";
-import { todayISO, currentRentCycle, rentCycleForMonth } from "@/lib/date";
+import {
+  todayISO,
+  addDaysISO,
+  currentRentCycle,
+  rentCycleForMonth,
+} from "@/lib/date";
 import { sendAgreementRequest } from "@/lib/agreement-send";
 import { sendGmailMessage } from "@/lib/google-mail";
 import {
@@ -820,7 +825,9 @@ export async function endTenancy(args: {
     throw new Error("move_out_date must be YYYY-MM-DD.");
   const supabase = admin();
   const today = todayISO();
-  const isPastOrToday = args.move_out_date <= today;
+  // move_out_date is the tenant's LAST day (inclusive): the tenancy stays
+  // active through that day and the room becomes available the day after.
+  const hasMovedOut = args.move_out_date < today;
 
   const { data: tenancy, error: lookupErr } = await supabase
     .from("tenancies")
@@ -838,7 +845,7 @@ export async function endTenancy(args: {
     .from("tenancies")
     .update({
       move_out_date: args.move_out_date,
-      status: isPastOrToday ? "ended" : "active",
+      status: hasMovedOut ? "ended" : "active",
     })
     .eq("id", args.tenancy_id);
   if (updateError) throw new Error(updateError.message);
@@ -850,8 +857,8 @@ export async function endTenancy(args: {
       supabase,
       tenancy.room_id,
       {
-      status: isPastOrToday ? "available" : "occupied",
-      available_from: args.move_out_date,
+      status: hasMovedOut ? "available" : "occupied",
+      available_from: addDaysISO(args.move_out_date, 1),
       listing_action: "no_action",
       },
     );
@@ -869,8 +876,9 @@ export async function endTenancy(args: {
 
   return {
     ok: true,
-    tenancy_status: isPastOrToday ? "ended" : "active",
-    room_status: isPastOrToday ? "available" : "occupied",
+    tenancy_status: hasMovedOut ? "ended" : "active",
+    room_status: hasMovedOut ? "available" : "occupied",
+    room_available_from: addDaysISO(args.move_out_date, 1),
     listing_action_reset: true,
   };
 }
@@ -2268,12 +2276,17 @@ const rawTools = [
   betaZodTool({
     name: "end_tenancy",
     description:
-      "Set a tenancy's move_out_date. Past/today → tenancy ends, room becomes Available. " +
-      "Future date → tenancy stays Active until that day, room stays Occupied, but " +
-      "rooms.available_from is set so the room appears on Inventory as 'Available from X'.",
+      "Set a tenancy's move_out_date — the tenant's LAST day in the room, inclusive. " +
+      "The tenancy stays Active through that day and the room becomes available the " +
+      "NEXT day (rooms.available_from = move_out_date + 1, shown on Inventory as " +
+      "'Available from X'). So 'room available from 9/1' means move_out_date 8/31. " +
+      "A move_out_date before today ends the tenancy immediately; today/future keeps " +
+      "it Active until the day after, when the daily cron finalizes it.",
     inputSchema: z.object({
       tenancy_id: z.string(),
-      move_out_date: z.string().describe('"YYYY-MM-DD"'),
+      move_out_date: z
+        .string()
+        .describe('"YYYY-MM-DD" — the tenant\'s last day, inclusive'),
     }),
     run: async (args) => JSON.stringify(await endTenancy(args)),
   }),

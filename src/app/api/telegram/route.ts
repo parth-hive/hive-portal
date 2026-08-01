@@ -167,6 +167,12 @@ Editing tenants & tenancies:
 - The prorated first-month rent applies only to the calendar month the
   tenancy starts in; the ledger recomputes automatically when you change it.
 - end_tenancy schedules/executes a move-out; cancel_move_out undoes it.
+  The move_out_date is the tenant's LAST day in the room (inclusive); the room
+  becomes available the NEXT day. So "moves out 8/31" → move_out_date 8/31,
+  and "room available from 9/1" ALSO means move_out_date 8/31 — subtract a
+  day when the operator gives you the availability date. When both a lease
+  end and an availability date exist they usually agree this way; if the
+  operator's dates don't, ask.
 - add_charge posts something the tenant OWES (security deposit, $50 late fee,
   or a described "other" charge). record_payment records money RECEIVED.
   Don't mix them up.

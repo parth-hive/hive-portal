@@ -12,7 +12,7 @@ import {
   balanceReminderText,
 } from "@/lib/email";
 import { sendSms } from "@/lib/sms";
-import { todayISO } from "@/lib/date";
+import { todayISO, addDaysISO } from "@/lib/date";
 import { computeLedger, LEDGER_PAYMENT_CUTOFF } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
 import { buildBalanceDetail, type BalanceDetail } from "@/lib/balance-detail";
@@ -529,10 +529,11 @@ export async function setTenancyLeaseEndDate(
 }
 
 // ----- End (or schedule the end of) a tenancy -----
-// If move_out_date is today or earlier  → tenant has moved out; room is Available now.
-// If move_out_date is in the future     → tenant is still there until that date;
+// move_out_date is the tenant's LAST day in the room, inclusive.
+// If move_out_date is before today  → tenant has moved out; room is Available now.
+// If move_out_date is today/future  → tenant is still there through that day;
 //                                    room stays Occupied but we set
-//                                    `rooms.available_from = move_out_date` so it
+//                                    `rooms.available_from = move_out_date + 1` so it
 //                                    surfaces on /inventory as "Available from X".
 //                                    Tenancy stays 'active' and is auto-finalized
 //                                    when move_out_date passes (see processExpiredTenancies).
@@ -543,7 +544,7 @@ async function applyMoveOut(
   move_out_date: string,
 ) {
   const today = todayISO();
-  const isPastOrToday = move_out_date <= today;
+  const hasMovedOut = move_out_date < today;
 
   const { data: tenancy, error: tenancyLoadError } = await supabase
     .from("tenancies")
@@ -561,7 +562,7 @@ async function applyMoveOut(
     .from("tenancies")
     .update({
       move_out_date,
-      status: isPastOrToday ? "ended" : "active",
+      status: hasMovedOut ? "ended" : "active",
     })
     .eq("id", tenancy_id);
   if (tenancyUpdateError) return { error: tenancyUpdateError.message };
@@ -583,8 +584,8 @@ async function applyMoveOut(
       supabase,
       tenancy.room_id,
       {
-      status: isPastOrToday ? "available" : "occupied",
-      available_from: move_out_date,
+      status: hasMovedOut ? "available" : "occupied",
+      available_from: addDaysISO(move_out_date, 1),
       listing_action: "no_action",
       ...rentPatch,
       },
