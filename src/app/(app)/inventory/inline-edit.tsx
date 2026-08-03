@@ -26,7 +26,7 @@ function fmtDate(s: string | null) {
 }
 
 const cellButton =
-  "w-full rounded px-1.5 py-0.5 text-left hover:bg-warm/60 focus:outline-none focus:ring-1 focus:ring-accent";
+  "w-full rounded px-1.5 py-0.5 text-center hover:bg-warm/60 focus:outline-none focus:ring-1 focus:ring-accent";
 
 function MoneyCellEditor({
   value,
@@ -43,7 +43,7 @@ function MoneyCellEditor({
       <button
         type="button"
         onClick={() => setEditing(true)}
-        className={`${cellButton} text-right tabular-nums text-ink ${pending ? "opacity-60" : ""}`}
+        className={`${cellButton} tabular-nums text-ink ${pending ? "opacity-60" : ""}`}
       >
         {fmtMoney(value)}
       </button>
@@ -79,7 +79,7 @@ function MoneyCellEditor({
           setEditing(false);
         }
       }}
-      className="w-20 rounded border border-accent bg-white px-1.5 py-0.5 text-right tabular-nums text-ink focus:outline-none"
+      className="w-20 rounded border border-accent bg-white px-1.5 py-0.5 text-center tabular-nums text-ink focus:outline-none"
     />
   );
 }
@@ -219,22 +219,22 @@ export function InlineAdEdit({
   };
 
   return (
+    // Horizontal so a row with ads stays the standard height; the poster's
+    // name lives in the adjacent "Ad Posted" column (and each link's tooltip).
     <div
-      className={`flex flex-col items-center gap-1 ${pending ? "opacity-60" : ""}`}
+      className={`flex items-center justify-center gap-2 ${pending ? "opacity-60" : ""}`}
     >
-      {ads.map((ad) => (
-        <div key={ad.id} className="flex items-center gap-1.5">
+      {ads.map((ad, i) => (
+        <span key={ad.id} className="flex items-center gap-0.5 whitespace-nowrap">
           <a
             href={ad.url}
             target="_blank"
             rel="noopener noreferrer"
+            title={ad.posted_by?.trim() || undefined}
             className="text-xs text-purple-700 underline hover:text-purple-900"
           >
-            Open
+            {ads.length === 1 ? "Open" : `Ad ${i + 1}`}
           </a>
-          {ad.posted_by?.trim() && (
-            <span className="text-xs text-muted">{ad.posted_by.trim()}</span>
-          )}
           <button
             type="button"
             onClick={() => remove(ad.id)}
@@ -244,7 +244,7 @@ export function InlineAdEdit({
           >
             ×
           </button>
-        </div>
+        </span>
       ))}
 
       {adding ? (
@@ -319,7 +319,7 @@ export function InlineDateEdit({
           setEditing(false);
         }
       }}
-      className="w-36 rounded border border-accent bg-white px-1.5 py-0.5 tabular-nums text-ink focus:outline-none"
+      className="w-36 rounded border border-accent bg-white px-1.5 py-0.5 text-center tabular-nums text-ink focus:outline-none"
     />
   );
 }

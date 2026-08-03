@@ -12,6 +12,7 @@ import {
   InlinePhotosEdit,
 } from "./inline-edit";
 import { InlineAmenitiesEdit } from "./amenities-edit";
+import { AmenitiesTags } from "./amenities-tags";
 import { AddInventory, type AddableRoom } from "./add-inventory";
 import { DeleteListingButton } from "./delete-listing";
 import {
@@ -297,8 +298,11 @@ export default async function InventoryPage({ searchParams }: PageProps) {
     <div className="mx-auto w-full max-w-7xl">
       <header className="flex flex-wrap items-start justify-between gap-3 border-b border-stone/60 pb-4">
         <div>
-          <h1 className="text-3xl tracking-tight text-ink">
+          <h1 className="flex items-baseline gap-3 text-3xl tracking-tight text-ink">
             <span className="font-display text-accent-text">Inventory</span>
+            <span className="rounded-full bg-warm px-2.5 py-0.5 text-xs font-medium tracking-normal text-muted">
+              {filtered.length} {filtered.length === 1 ? "room" : "rooms"}
+            </span>
           </h1>
           <p className="mt-1 text-sm text-muted">
             Rooms you can list right now — available today, and scheduled to open
@@ -417,18 +421,26 @@ export default async function InventoryPage({ searchParams }: PageProps) {
       {filtered.length > 0 && (
         <div className="mt-4 overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-stone/40">
           <table className="w-full min-w-[1400px] text-sm">
-            <thead className="sticky top-0 z-10 bg-warm/60 text-center text-xs uppercase tracking-wide text-muted">
+            <thead className="sticky top-0 z-10 bg-warm text-center text-xs uppercase tracking-wide text-muted">
               <tr className="divide-x divide-stone/40">
-                <th className="w-10 px-2 py-2 font-medium">#</th>
-                <th className="w-10" />
-                <th className="w-1.5" />
-                <SortHeader
-                  label="Unit"
-                  sortKey="unit"
-                  activeSort={sortKey}
-                  dir={sortDir}
-                  poster={posterFilter}
-                />
+                {/* One sticky cell for the whole frozen pane (row #, delete,
+                    action stripe, unit) — a single cell can't develop seams,
+                    unlike per-column sticky offsets. */}
+                <th className="sticky left-0 border-r border-stone/40 bg-warm px-0 py-2 font-medium">
+                  <div className="flex items-center gap-1 pl-3.5 pr-3">
+                    <span className="w-6 shrink-0 text-center">#</span>
+                    <span className="w-10 shrink-0" aria-hidden />
+                    <span className="flex-1 px-2 text-center">
+                      <SortLink
+                        label="Unit"
+                        sortKey="unit"
+                        activeSort={sortKey}
+                        dir={sortDir}
+                        poster={posterFilter}
+                      />
+                    </span>
+                  </div>
+                </th>
                 <SortHeader
                   label="Neighborhood"
                   sortKey="neighborhood"
@@ -496,19 +508,15 @@ export default async function InventoryPage({ searchParams }: PageProps) {
   );
 }
 
-function SortHeader({
-  label,
-  sortKey,
-  activeSort,
-  dir,
-  poster,
-}: {
+type SortLinkProps = {
   label: string;
   sortKey: SortKey;
   activeSort: SortKey;
   dir: "asc" | "desc";
   poster: string | null;
-}) {
+};
+
+function SortLink({ label, sortKey, activeSort, dir, poster }: SortLinkProps) {
   const isActive = activeSort === sortKey;
   // Clicking the active column flips direction; a fresh column starts ascending.
   const nextDir = isActive && dir === "asc" ? "desc" : "asc";
@@ -517,21 +525,27 @@ function SortHeader({
   const arrow = isActive ? (dir === "asc" ? "↑" : "↓") : "↕";
 
   return (
-    <th className="px-3 py-2 font-medium text-center">
-      <Link
-        href={href}
-        scroll={false}
-        className={`group inline-flex items-center gap-1 ${
-          isActive ? "text-ink" : "hover:text-ink"
-        }`}
+    <Link
+      href={href}
+      scroll={false}
+      className={`group inline-flex items-center gap-1 ${
+        isActive ? "text-ink" : "hover:text-ink"
+      }`}
+    >
+      {label}
+      <span
+        className={`text-xs ${isActive ? "text-accent-text" : "text-stone group-hover:text-muted"}`}
       >
-        {label}
-        <span
-          className={`text-xs ${isActive ? "text-accent-text" : "text-stone group-hover:text-muted"}`}
-        >
-          {arrow}
-        </span>
-      </Link>
+        {arrow}
+      </span>
+    </Link>
+  );
+}
+
+function SortHeader(props: SortLinkProps) {
+  return (
+    <th className="px-3 py-2 font-medium text-center">
+      <SortLink {...props} />
     </th>
   );
 }
@@ -562,34 +576,41 @@ function InventoryRow({
 
   return (
     <tr
-      className={`divide-x divide-stone/30 border-t border-stone/30 ${
+      // Solid (not translucent) backgrounds: the frozen left cells inherit
+      // this color and must fully cover columns scrolling under them.
+      className={`h-12 divide-x divide-stone/30 border-t border-stone/30 ${
         room.listing_action === "no_action"
           ? striped
-            ? "bg-cream/40"
+            ? "bg-[#faf9f5]"
             : "bg-white"
           : ACTION_TINT[room.listing_action]
-      } hover:bg-warm/30`}
+      } hover:bg-[#f7f5f1]`}
     >
-      <td className="px-2 py-2.5 text-center align-middle tabular-nums text-xs text-muted">
-        {index}
-      </td>
-      <td className="px-2 py-2.5 text-center align-middle">
-        <DeleteListingButton
-          roomId={room.id}
-          label={unitTitle}
-          tenancyId={activeOutgoing?.id ?? null}
+      <td className="sticky left-0 z-[1] border-r border-stone/40 bg-inherit px-0 py-2.5 align-middle">
+        <span
+          aria-hidden
+          className={`absolute inset-y-0 left-0 w-1.5 ${ACTION_BORDER[room.listing_action].replace("border-l-", "bg-")}`}
         />
+        <div className="flex items-center gap-1 pl-3.5 pr-3">
+          <span className="w-6 shrink-0 text-center tabular-nums text-xs text-muted">
+            {index}
+          </span>
+          <DeleteListingButton
+            roomId={room.id}
+            label={unitTitle}
+            tenancyId={activeOutgoing?.id ?? null}
+          />
+          <span className="flex-1 px-2 text-center">
+            <Link
+              href={`/inventory/${room.id}`}
+              className="whitespace-nowrap font-medium text-accent-text underline decoration-accent/40 underline-offset-2 hover:text-accent-dark hover:decoration-accent-dark"
+            >
+              {unitTitle}
+            </Link>
+          </span>
+        </div>
       </td>
-      <td className={`w-1.5 p-0 ${ACTION_BORDER[room.listing_action].replace("border-l-", "bg-")}`} />
-      <td className="px-3 py-2.5 text-center align-middle">
-        <Link
-          href={`/inventory/${room.id}`}
-          className="font-medium text-accent-text underline decoration-accent/40 underline-offset-2 hover:text-accent-dark hover:decoration-accent-dark"
-        >
-          {unitTitle}
-        </Link>
-      </td>
-      <td className="px-3 py-2.5 text-center align-middle text-xs text-ink">
+      <td className="whitespace-nowrap px-3 py-2.5 text-center align-middle text-xs text-ink">
         {p?.neighborhood || <span className="text-muted">—</span>}
       </td>
       <td className="px-3 py-2.5 text-center align-middle text-ink">
@@ -618,7 +639,7 @@ function InventoryRow({
             building_amenities: p?.building_amenities ?? [],
           }}
         >
-          <Amenities room={room} property={p} />
+          <AmenitiesTags tags={amenityTags(room, p)} />
         </InlineAmenitiesEdit>
       </td>
       <td className="px-3 py-1.5 text-center align-middle">
@@ -628,7 +649,7 @@ function InventoryRow({
         {featuredTenant ? (
           <Link
             href={`/tenants/${featuredTenant.id}`}
-            className="font-medium text-accent-text underline decoration-accent/40 underline-offset-2 hover:text-accent-dark hover:decoration-accent-dark"
+            className="whitespace-nowrap font-medium text-accent-text underline decoration-accent/40 underline-offset-2 hover:text-accent-dark hover:decoration-accent-dark"
           >
             {featuredTenant.full_name}
           </Link>
@@ -656,7 +677,12 @@ function InventoryRow({
             ),
           );
           return posters.length ? (
-            posters.join(", ")
+            <span
+              className="mx-auto block max-w-[9rem] truncate"
+              title={posters.join(", ")}
+            >
+              {posters.join(", ")}
+            </span>
           ) : (
             <span className="text-muted">-</span>
           );
@@ -685,23 +711,14 @@ function InventoryRow({
   );
 }
 
-function Amenities({
-  room,
-  property,
-}: {
-  room: Pick<Row, "has_private_bathroom" | "has_ac">;
-  property: PropertyRel | null;
-}) {
+function amenityTags(
+  room: Pick<Row, "has_private_bathroom" | "has_ac">,
+  property: PropertyRel | null,
+): string[] {
   const tags: string[] = [];
   if (room.has_private_bathroom) tags.push("Private bath");
   if (room.has_ac) tags.push("AC");
   tags.push(...(property?.unit_amenities ?? []));
   tags.push(...(property?.building_amenities ?? []));
-
-  if (tags.length === 0) {
-    return <span className="text-xs text-muted">—</span>;
-  }
-  return (
-    <span className="text-xs text-ink">{tags.join(", ")}</span>
-  );
+  return tags;
 }

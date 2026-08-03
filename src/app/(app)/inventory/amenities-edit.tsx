@@ -90,7 +90,7 @@ export function InlineAmenitiesEdit({
         ref={triggerRef}
         type="button"
         onClick={openEditor}
-        className="w-full rounded px-1.5 py-0.5 text-left hover:bg-warm/60 focus:outline-none focus:ring-1 focus:ring-accent"
+        className="w-full rounded px-1.5 py-0.5 text-center hover:bg-warm/60 focus:outline-none focus:ring-1 focus:ring-accent"
       >
         {children}
       </button>
