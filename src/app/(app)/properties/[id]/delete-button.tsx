@@ -164,9 +164,9 @@ export function DeletePropertyButton({ id, label, activeTenants }: Props) {
           setError(null);
           setOpen(true);
         }}
-        className="text-xs uppercase tracking-wide text-muted hover:text-red-700"
+        className="rounded-full border border-red-200 bg-white px-4 py-2 text-sm text-red-700 transition hover:border-red-300 hover:bg-red-50"
       >
-        Delete this property
+        Delete
       </button>
       {modal}
     </>

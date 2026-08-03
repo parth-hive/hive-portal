@@ -23,6 +23,7 @@ export const BUILDING_AMENITIES = [
   "Courtyard",
   "Parking Garage",
   "Swimming Pool",
+  "Lounge",
 ] as const;
 
 export type UnitAmenity = (typeof UNIT_AMENITIES)[number];

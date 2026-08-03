@@ -180,8 +180,8 @@ export default async function PropertyDetailPage({ params }: PageProps) {
   for (const c of credentialRows) credsByCategory.get(c.category)?.push(c);
 
   return (
-    <div className="mx-auto w-full max-w-4xl">
-      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-stone/60 pb-6">
+    <div className="mx-auto w-full max-w-5xl">
+      <header className="flex flex-wrap items-end justify-between gap-4 border-b border-stone/60 pb-4">
         <div>
           <Link
             href="/properties"
@@ -189,7 +189,7 @@ export default async function PropertyDetailPage({ params }: PageProps) {
           >
             ← Properties
           </Link>
-          <h1 className="mt-2 text-3xl tracking-tight text-ink">
+          <h1 className="mt-1 text-3xl tracking-tight text-ink">
             {title}{" "}
             <span className="font-display text-accent-text">
               Apt {property.unit_number}
@@ -208,15 +208,66 @@ export default async function PropertyDetailPage({ params }: PageProps) {
           >
             Edit
           </Link>
+          <DeletePropertyButton
+            id={property.id}
+            label={propertyLabel}
+            activeTenants={(residents ?? []).map((r) => ({
+              tenancyId: r.id,
+              name: one(r.tenants)?.full_name ?? "Tenant",
+              roomNumber: one(r.rooms)?.room_number ?? null,
+              startDate: r.start_date,
+              moveOutDate: r.move_out_date,
+            }))}
+          />
         </div>
       </header>
 
-      <section className="mt-8 grid gap-4 md:grid-cols-2">
-        <div className="rounded-2xl bg-white p-6 shadow-sm">
+      <ResidentsWidget rows={residents ?? []} />
+
+      <section className="mt-8">
+        <header className="flex flex-wrap items-end justify-between gap-3">
+          <h2 className="text-xl tracking-tight text-ink">
+            <span className="font-display text-accent-text">Rooms</span>
+          </h2>
+          <div className="flex flex-wrap items-center justify-end gap-2">
+            <Link
+              href="/tenants/new"
+              className="rounded-full border border-stone bg-white px-4 py-2 text-sm text-ink hover:bg-warm"
+            >
+              Add tenant
+            </Link>
+            <AddRoom
+              propertyId={property.id}
+              suggestedRoomNumber={suggestedRoomNumber}
+            />
+          </div>
+        </header>
+
+        {(!rooms || rooms.length === 0) && (
+          <p className="mt-3 rounded-2xl bg-white px-6 py-6 text-center text-sm text-muted shadow-sm">
+            No rooms yet. Click <em>Add room</em> to add the first one.
+          </p>
+        )}
+
+        {rooms && rooms.length > 0 && (
+          <ul className="mt-3 flex flex-col gap-2">
+            {rooms.map((r) => (
+              <RoomRow key={r.id} propertyId={property.id} room={r} />
+            ))}
+          </ul>
+        )}
+      </section>
+
+      <section className="mt-8">
+        <h2 className="text-xl tracking-tight text-ink">
+          <span className="font-display text-accent-text">Property</span>
+        </h2>
+        <div className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+        <div className="rounded-2xl bg-white p-4 shadow-sm">
           <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
             Unit
           </h2>
-          <dl className="mt-4 grid grid-cols-2 gap-y-3 text-sm">
+          <dl className="mt-3 grid grid-cols-2 gap-y-2 text-sm">
             <dt className="text-muted">Bedrooms</dt>
             <dd className="text-ink">{property.bedrooms ?? "—"}</dd>
             <dt className="text-muted">Bathrooms</dt>
@@ -226,11 +277,11 @@ export default async function PropertyDetailPage({ params }: PageProps) {
           </dl>
         </div>
 
-        <div className="rounded-2xl bg-white p-6 shadow-sm">
+        <div className="rounded-2xl bg-white p-4 shadow-sm">
           <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
             Unit lease
           </h2>
-          <dl className="mt-4 grid grid-cols-2 gap-y-3 text-sm">
+          <dl className="mt-3 grid grid-cols-2 gap-y-2 text-sm">
             <dt className="text-muted">Rent</dt>
             <dd className="text-ink tabular-nums">
               {property.unit_rent !== null
@@ -287,90 +338,51 @@ export default async function PropertyDetailPage({ params }: PageProps) {
           </dl>
         </div>
 
-        <div className="rounded-2xl bg-white p-6 shadow-sm">
+        <div className="rounded-2xl bg-white p-4 shadow-sm">
           <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
             Amenities
           </h2>
-          <p className="mt-4 text-xs font-medium uppercase tracking-wide text-muted">
-            Unit
-          </p>
-          <ul className="mt-2 grid grid-cols-2 gap-y-2 text-sm">
-            {unitAmenities.map((a) => (
-              <li
-                key={a.label}
-                className={a.on ? "text-ink" : "text-muted line-through"}
-              >
-                {a.label}
-              </li>
-            ))}
-          </ul>
-          <p className="mt-4 text-xs font-medium uppercase tracking-wide text-muted">
-            Building
-          </p>
-          <ul className="mt-2 grid grid-cols-2 gap-y-2 text-sm">
-            {buildingAmenities.map((a) => (
-              <li
-                key={a.label}
-                className={a.on ? "text-ink" : "text-muted line-through"}
-              >
-                {a.label}
-              </li>
-            ))}
-          </ul>
+          <AmenityGroup title="Unit" items={unitAmenities} />
+          <AmenityGroup title="Building" items={buildingAmenities} />
           {property.amenities_notes && (
-            <p className="mt-4 text-sm text-muted">{property.amenities_notes}</p>
+            // Free-text extras (e.g. "Lounge") that aren't in the standard
+            // checklists — chip-styled to read like the groups above.
+            <div className="mt-3">
+              <p className="text-xs font-medium uppercase tracking-wide text-muted">
+                Other
+              </p>
+              <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                {property.amenities_notes
+                  .split(/[,\n]/)
+                  .map((s) => s.trim())
+                  .filter(Boolean)
+                  .map((s) => (
+                    <li
+                      key={s}
+                      className="rounded-full bg-warm/70 px-2.5 py-0.5 text-xs text-ink"
+                    >
+                      {s}
+                    </li>
+                  ))}
+              </ul>
+            </div>
           )}
         </div>
-      </section>
+        </div>
 
-      {property.notes && (
-        <section className="mt-6 rounded-2xl bg-white p-6 shadow-sm">
-          <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
-            Notes
-          </h2>
-          <p className="mt-3 whitespace-pre-wrap text-sm text-ink">
-            {property.notes}
-          </p>
-        </section>
-      )}
-
-      <ResidentsWidget rows={residents ?? []} />
-
-      <section className="mt-10">
-        <header className="flex flex-wrap items-end justify-between gap-3">
-          <h2 className="text-xl tracking-tight text-ink">
-            <span className="font-display text-accent-text">Rooms</span>
-          </h2>
-          <div className="flex flex-wrap items-center justify-end gap-2">
-            <Link
-              href="/tenants/new"
-              className="rounded-full border border-stone bg-white px-4 py-2 text-sm text-ink hover:bg-warm"
-            >
-              Add tenant
-            </Link>
-            <AddRoom
-              propertyId={property.id}
-              suggestedRoomNumber={suggestedRoomNumber}
-            />
+        {property.notes && (
+          <div className="mt-3 rounded-2xl bg-white p-4 shadow-sm">
+            <h2 className="text-sm font-medium uppercase tracking-wide text-muted">
+              Notes
+            </h2>
+            <p className="mt-2 whitespace-pre-wrap text-sm text-ink">
+              {property.notes}
+            </p>
           </div>
-        </header>
-
-        {(!rooms || rooms.length === 0) && (
-          <p className="mt-4 rounded-2xl bg-white px-6 py-10 text-center text-sm text-muted shadow-sm">
-            No rooms yet. Click <em>Add room</em> to add the first one.
-          </p>
-        )}
-
-        {rooms && rooms.length > 0 && (
-          <ul className="mt-4 flex flex-col gap-3">
-            {rooms.map((r) => (
-              <RoomRow key={r.id} propertyId={property.id} room={r} />
-            ))}
-          </ul>
         )}
       </section>
 
-      <section className="mt-12">
+      <section className="mt-8">
         <header className="flex flex-wrap items-end justify-between gap-3">
           <h2 className="text-xl tracking-tight text-ink">
             <span className="font-display text-accent-text">Cleaning</span>
@@ -401,7 +413,7 @@ export default async function PropertyDetailPage({ params }: PageProps) {
                   ? `Due in ${s.daysUntil}d`
                   : `In ${s.daysUntil}d`;
           return (
-            <div className="mt-4 flex flex-wrap items-center gap-3 rounded-xl bg-white px-4 py-3 text-sm shadow-sm">
+            <div className="mt-3 flex flex-wrap items-center gap-3 rounded-xl bg-white px-4 py-2.5 text-sm shadow-sm">
               <span className="text-xs uppercase tracking-wide text-muted">
                 Last: {s.last ? formatDate(s.last) : "—"}
               </span>
@@ -420,11 +432,11 @@ export default async function PropertyDetailPage({ params }: PageProps) {
         })()}
 
         {cleaningRows.length === 0 ? (
-          <p className="mt-4 rounded-2xl bg-white px-6 py-10 text-center text-sm text-muted shadow-sm">
+          <p className="mt-3 rounded-2xl bg-white px-6 py-6 text-center text-sm text-muted shadow-sm">
             No cleanings logged for this unit yet.
           </p>
         ) : (
-          <ul className="mt-4 flex flex-col gap-3">
+          <ul className="mt-3 flex flex-col gap-2">
             {cleaningRows.map((r) => (
               <CleaningRow
                 key={r.id}
@@ -438,7 +450,7 @@ export default async function PropertyDetailPage({ params }: PageProps) {
         )}
       </section>
 
-      <section className="mt-12">
+      <section className="mt-8">
         <header className="flex flex-wrap items-end justify-between gap-3">
           <h2 className="text-xl tracking-tight text-ink">
             <span className="font-display text-accent-text">Credentials</span>
@@ -451,7 +463,7 @@ export default async function PropertyDetailPage({ params }: PageProps) {
           </Link>
         </header>
         {credentialRows.length === 0 ? (
-          <p className="mt-4 rounded-2xl bg-white px-6 py-10 text-center text-sm text-muted shadow-sm">
+          <p className="mt-3 rounded-2xl bg-white px-6 py-6 text-center text-sm text-muted shadow-sm">
             No credentials linked to this unit yet. Add them from{" "}
             <Link href="/credentials" className="text-accent-text">
               Credentials
@@ -459,7 +471,7 @@ export default async function PropertyDetailPage({ params }: PageProps) {
             and pick this property.
           </p>
         ) : (
-          <div className="mt-4 overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-stone/40">
+          <div className="mt-3 overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-stone/40">
             <table className="w-full min-w-[1000px] text-sm">
               <thead className="bg-warm/60 text-left text-xs uppercase tracking-wide text-muted">
                 <tr>
@@ -491,19 +503,39 @@ export default async function PropertyDetailPage({ params }: PageProps) {
         )}
       </section>
 
-      <section className="mt-16 border-t border-stone/60 pt-6">
-        <DeletePropertyButton
-          id={property.id}
-          label={propertyLabel}
-          activeTenants={(residents ?? []).map((r) => ({
-            tenancyId: r.id,
-            name: one(r.tenants)?.full_name ?? "Tenant",
-            roomNumber: one(r.rooms)?.room_number ?? null,
-            startDate: r.start_date,
-            moveOutDate: r.move_out_date,
-          }))}
-        />
-      </section>
+    </div>
+  );
+}
+
+// Only the amenities the property actually has, as chips.
+function AmenityGroup({
+  title,
+  items,
+}: {
+  title: string;
+  items: { label: string; on: boolean }[];
+}) {
+  const have = items.filter((a) => a.on);
+
+  return (
+    <div className="mt-3">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted">
+        {title}
+      </p>
+      {have.length > 0 ? (
+        <ul className="mt-1.5 flex flex-wrap gap-1.5">
+          {have.map((a) => (
+            <li
+              key={a.label}
+              className="rounded-full bg-warm/70 px-2.5 py-0.5 text-xs text-ink"
+            >
+              {a.label}
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="mt-1.5 text-xs text-muted">None</p>
+      )}
     </div>
   );
 }
@@ -545,7 +577,7 @@ function ResidentsWidget({ rows }: { rows: ResidentRow[] }) {
     .sort((a, b) => (a.room_number ?? "").localeCompare(b.room_number ?? ""));
 
   return (
-    <section id="residents" className="mt-10 scroll-mt-6">
+    <section id="residents" className="mt-6 scroll-mt-6">
       <header className="flex items-end justify-between gap-3">
         <h2 className="text-xl tracking-tight text-ink">
           <span className="font-display text-accent-text">Residents</span>
@@ -556,11 +588,11 @@ function ResidentsWidget({ rows }: { rows: ResidentRow[] }) {
       </header>
 
       {cards.length === 0 ? (
-        <p className="mt-4 rounded-2xl bg-white px-6 py-10 text-center text-sm text-muted shadow-sm">
+        <p className="mt-3 rounded-2xl bg-white px-6 py-6 text-center text-sm text-muted shadow-sm">
           No active tenants in this unit yet.
         </p>
       ) : (
-        <ul className="mt-4 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
           {cards.map((c) => {
             const initials = c.full_name
               .split(/\s+/)
@@ -571,10 +603,10 @@ function ResidentsWidget({ rows }: { rows: ResidentRow[] }) {
             return (
               <li
                 key={c.id}
-                className="rounded-2xl bg-white p-5 shadow-sm"
+                className="rounded-2xl bg-white p-4 shadow-sm"
               >
                 <div className="flex items-start gap-3">
-                  <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full bg-accent/15 text-base font-medium text-accent-text">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-accent/15 text-sm font-medium text-accent-text">
                     {initials || "—"}
                   </div>
                   <div className="min-w-0 flex-1">
@@ -592,7 +624,7 @@ function ResidentsWidget({ rows }: { rows: ResidentRow[] }) {
                   </div>
                 </div>
 
-                <dl className="mt-4 grid grid-cols-3 gap-y-1.5 text-xs">
+                <dl className="mt-2.5 grid grid-cols-3 gap-y-1 text-xs">
                   <dt className="text-muted">Age</dt>
                   <dd className="col-span-2 text-ink">{c.age ?? "—"}</dd>
                   <dt className="text-muted">Profession</dt>
@@ -601,7 +633,7 @@ function ResidentsWidget({ rows }: { rows: ResidentRow[] }) {
                   </dd>
                 </dl>
 
-                <div className="mt-4 flex items-center gap-2">
+                <div className="mt-2.5 flex items-center gap-2">
                   {c.linkedin_url ? (
                     <a
                       href={c.linkedin_url}
