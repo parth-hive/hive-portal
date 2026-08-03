@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { createPortal } from "react-dom";
 import { useRouter } from "next/navigation";
 import { cancelMoveOut, deleteListing } from "./actions";
 
@@ -72,7 +73,11 @@ export function DeleteListingButton({
         </svg>
       </button>
 
-      {open && (
+      {/* Portaled to <body>: the button lives in a sticky table cell whose
+          stacking context would otherwise trap the overlay under the sticky
+          header and neighboring frozen cells. */}
+      {open &&
+        createPortal(
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-ink/40 p-4"
           onClick={() => !pending && setOpen(false)}
@@ -124,7 +129,8 @@ export function DeleteListingButton({
               Never mind
             </button>
           </div>
-        </div>
+        </div>,
+        document.body
       )}
     </>
   );
