@@ -8,6 +8,12 @@ const nextConfig: NextConfig = {
       // multipart encoding overhead and the other form fields.
       bodySizeLimit: "25mb",
     },
+    // Revisiting a page within 30s serves the client-cached copy instantly
+    // instead of re-rendering on the server. Server actions still bust this
+    // via revalidatePath, so our own edits always show immediately.
+    staleTimes: {
+      dynamic: 30,
+    },
   },
 };
 

@@ -3,6 +3,7 @@
 import { createHash } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/session";
 import {
   extractUtilityBill,
   extractUtilityCycles,
@@ -49,9 +50,7 @@ export async function uploadStatement(
   formData: FormData,
 ): Promise<UploadState> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!user) return { error: "Not signed in." };
   if (!canEditLedger(user.email)) return { error: LEDGER_ADMIN_ERROR };
 
@@ -373,9 +372,7 @@ export async function previewManualBill(
   formData: FormData,
 ): Promise<ManualPreviewState> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!user) return { error: "Not signed in." };
   if (!canEditLedger(user.email)) return { error: LEDGER_ADMIN_ERROR };
 
@@ -469,9 +466,7 @@ export async function commitManualBills(
   formData: FormData,
 ): Promise<UploadState> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!user) return { error: "Not signed in." };
   if (!canEditLedger(user.email)) return { error: LEDGER_ADMIN_ERROR };
 
@@ -740,9 +735,7 @@ export async function assignBillProperty(
   propertyId: string | null,
 ): Promise<UploadState> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!user) return { error: "Not signed in." };
   if (!canEditLedger(user.email)) return { error: LEDGER_ADMIN_ERROR };
 
@@ -791,9 +784,7 @@ export async function assignBillProperty(
 
 export async function deleteBill(billId: string): Promise<UploadState> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!user) return { error: "Not signed in." };
   if (!canEditLedger(user.email)) return { error: LEDGER_ADMIN_ERROR };
 
@@ -829,9 +820,7 @@ export async function dismissOverage(
   dismissed: boolean,
 ): Promise<UploadState> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!user) return { error: "Not signed in." };
   if (!canEditLedger(user.email)) return { error: LEDGER_ADMIN_ERROR };
   if (billIds.length === 0) return undefined;
@@ -1324,9 +1313,7 @@ export async function previewOverage(billId: string): Promise<OveragePreview> {
     tenants: [],
   };
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!user) return { ...empty, error: "Not signed in." };
   if (!canEditLedger(user.email)) return { ...empty, error: LEDGER_ADMIN_ERROR };
 
@@ -1367,9 +1354,7 @@ export async function chargeOverage(
   shares?: { tenancyId: string; amount: number }[],
 ): Promise<OverageChargeResult> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!user) return deniedResult(billId, "Not signed in.");
   if (!canEditLedger(user.email))
     return deniedResult(billId, LEDGER_ADMIN_ERROR);
@@ -1390,9 +1375,7 @@ export async function chargeAllOverages(
   billIds: string[],
 ): Promise<OverageChargeResult[]> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!user) return billIds.map((id) => deniedResult(id, "Not signed in."));
   if (!canEditLedger(user.email))
     return billIds.map((id) => deniedResult(id, LEDGER_ADMIN_ERROR));
@@ -1414,9 +1397,7 @@ export async function chargeAllOverages(
  */
 export async function unpostOverage(billId: string): Promise<UploadState> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!user) return { error: "Not signed in." };
   if (!canEditLedger(user.email)) return { error: LEDGER_ADMIN_ERROR };
 
@@ -1461,9 +1442,7 @@ export async function getStatementUrl(
   billId: string,
 ): Promise<{ url?: string; error?: string }> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!user) return { error: "Not signed in." };
 
   // Session client so the read and signed URL honor RLS if it's ever

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/session";
 import { canEditLedger } from "@/lib/access";
 import { one } from "@/lib/relations";
 import { todayISO } from "@/lib/date";
@@ -114,12 +115,8 @@ function parseForm(formData: FormData): ParsedForm | { error: string } {
   };
 }
 
-async function isPropertyOperator(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-): Promise<boolean> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+async function isPropertyOperator(): Promise<boolean> {
+  const user = await getSessionUser();
   return canEditLedger(user?.email);
 }
 
@@ -175,7 +172,7 @@ export async function createProperty(
   if ("error" in parsed) return parsed;
 
   const supabase = await createClient();
-  if (!(await isPropertyOperator(supabase))) {
+  if (!(await isPropertyOperator())) {
     return { error: "Only the financial operators can change properties." };
   }
   const leaseholder_id = await resolveLeaseholderId(
@@ -215,7 +212,7 @@ export async function updateProperty(
   if ("error" in parsed) return parsed;
 
   const supabase = await createClient();
-  if (!(await isPropertyOperator(supabase))) {
+  if (!(await isPropertyOperator())) {
     return { error: "Only the financial operators can change properties." };
   }
   const leaseholder_id = await resolveLeaseholderId(
@@ -269,7 +266,7 @@ export async function deleteProperty(
   if (!id) return;
 
   const supabase = await createClient();
-  if (!(await isPropertyOperator(supabase))) {
+  if (!(await isPropertyOperator())) {
     return { error: "Only the financial operators can delete properties." };
   }
 

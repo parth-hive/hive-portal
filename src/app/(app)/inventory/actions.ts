@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/session";
 import type { Database } from "@/lib/supabase/types";
 import { updateRoomsWithNotification } from "@/lib/notifications";
 import {
@@ -43,14 +44,8 @@ export type AdFormState = { error?: string } | undefined;
 // A room can carry several ads, each posted by a different person. Every ad is
 // its own room_ads row, snapshotting who saved it (display name, else email), so
 // the inventory poster tally counts each ad independently.
-type SupabaseServerClient = Awaited<ReturnType<typeof createClient>>;
-
-async function currentPosterName(
-  supabase: SupabaseServerClient,
-): Promise<string | null> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+async function currentPosterName(): Promise<string | null> {
+  const user = await getSessionUser();
   const meta = user?.user_metadata ?? {};
   const name =
     typeof meta.display_name === "string" && meta.display_name.trim()
@@ -83,7 +78,7 @@ export async function addRoomAd(
     return { error: "That doesn't look like a URL (must start with http:// or https://)." };
 
   const supabase = await createClient();
-  const posted_by = await currentPosterName(supabase);
+  const posted_by = await currentPosterName();
 
   // room_ads post-dates the generated types — access it untyped (project
   // convention for new tables).

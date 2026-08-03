@@ -9,6 +9,7 @@
  * = rent receipts less refunds in that calendar month.
  */
 
+import { cache } from "react";
 import { createClient } from "@/lib/supabase/server";
 import { one } from "@/lib/relations";
 import { todayISO } from "@/lib/date";
@@ -136,8 +137,11 @@ async function withRentChanges(
   }));
 }
 
-/** Resolve a property-IDs filter into the tenancies + payments those rooms had. */
-async function loadFilteredHistory(propertyIds?: string[]) {
+/** Resolve a property-IDs filter into the tenancies + payments those rooms had.
+ *  cache()d per request: /reports calls this from both getCollectionSummary and
+ *  getMonthlyCollections with the same filter — the second call reuses the
+ *  first's full-table scan instead of repeating it. */
+const loadFilteredHistory = cache(async (propertyIds?: string[]) => {
   const supabase = await createClient();
   if (propertyIds && propertyIds.length > 0) {
     const { data: rooms } = await supabase
@@ -180,7 +184,7 @@ async function loadFilteredHistory(propertyIds?: string[]) {
     tenancies: await withRentChanges(supabase, tenancies ?? []),
     payments: payments ?? [],
   };
-}
+});
 
 /**
  * Per-month collection table from earliestStartISO through endMonth (default

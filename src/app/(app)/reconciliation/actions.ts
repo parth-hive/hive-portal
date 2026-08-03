@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/session";
 import { canEditLedger, isMaster, LEDGER_ADMIN_ERROR } from "@/lib/access";
 import { one } from "@/lib/relations";
 import { todayISO } from "@/lib/date";
@@ -117,9 +118,7 @@ export async function runReconciliation(
   }
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!canEditLedger(user?.email)) return { error: LEDGER_ADMIN_ERROR };
 
   // 1) Parse both files in-memory.
@@ -392,9 +391,7 @@ export async function addStatementToRun(
   }
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!canEditLedger(user?.email)) return { error: LEDGER_ADMIN_ERROR };
   const { data: run } = await supabase
     .from("reconciliation_runs")
@@ -590,9 +587,7 @@ export async function postPayments(formData: FormData) {
   const supabase = await createClient();
   // Posting writes a month of payments into tenant ledgers — operator-only,
   // same restriction as ledger charges.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!canEditLedger(user?.email)) throw new Error(LEDGER_ADMIN_ERROR);
   await postRunCore(supabase, runId);
   revalidatePath("/reconciliation");
@@ -606,9 +601,7 @@ export async function unpostPayments(formData: FormData) {
 
   const supabase = await createClient();
   // Unposting deletes a month of payments from tenant ledgers — operator-only.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!canEditLedger(user?.email)) throw new Error(LEDGER_ADMIN_ERROR);
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -635,9 +628,7 @@ export async function deleteRun(formData: FormData) {
   // Deleting a run also wipes the payments it posted, so restrict it to the
   // master operator. UI hides the button for everyone else; this is the real
   // enforcement since the action is directly invokable.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!isMaster(user?.email)) {
     throw new Error("Only an admin can delete a reconciliation run.");
   }
@@ -723,9 +714,7 @@ export async function recordManualPayments(
   if (rows.length === 0) return { error: "Enter an amount for at least one tenant." };
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!canEditLedger(user?.email)) return { error: LEDGER_ADMIN_ERROR };
   const { error } = await supabase.from("payments").insert(rows);
   if (error) return { error: error.message };
@@ -765,9 +754,7 @@ export async function ignoreUnmatchedPayer(
   const supabase = await createClient();
   // Hiding money from the books is a ledger-level decision — same gate as
   // assigning and posting.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!canEditLedger(user?.email)) return { error: LEDGER_ADMIN_ERROR };
 
   // Prefer the bank's original casing for display.
@@ -811,9 +798,7 @@ export async function unignorePayer(formData: FormData) {
   if (!payerKey) return;
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!canEditLedger(user?.email)) throw new Error(LEDGER_ADMIN_ERROR);
 
   const { error: deleteError } = await supabase
@@ -851,9 +836,7 @@ export async function resolveReversal(
   }
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!canEditLedger(user?.email)) return { error: LEDGER_ADMIN_ERROR };
 
   // The refund payment and alert resolution commit together. The database
@@ -902,9 +885,7 @@ export async function assignUnmatchedDeposit(
   const supabase = await createClient();
   // Permanently maps this payer to the tenant and can immediately re-post
   // money on a posted run — operator-only.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!canEditLedger(user?.email)) return { error: LEDGER_ADMIN_ERROR };
 
   // Resolve the tenant behind the chosen tenancy.

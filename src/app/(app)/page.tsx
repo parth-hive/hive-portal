@@ -7,6 +7,7 @@ import { formatDate, currentRentCycle } from "@/lib/date";
 import { computeLedger } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
 import { isMaster } from "@/lib/access";
+import { getSessionUser } from "@/lib/session";
 import { NavIcon } from "./nav-icons";
 
 export const dynamic = "force-dynamic";
@@ -29,18 +30,13 @@ function fmtMoney(n: number) {
 
 export default async function Dashboard() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  // Aggregate collection totals are admin-only; per-tenant outstanding amounts
-  // (pending balances) stay visible to everyone.
-  const admin = isMaster(user?.email);
   const today = todayISO();
   // "Collected this month" follows the rent cycle (27th → 26th), since tenants
   // pay from the 27th.
   const tm = currentRentCycle();
 
   const [
+    user,
     propertyCountRes,
     roomCountRes,
     properties,
@@ -49,7 +45,9 @@ export default async function Dashboard() {
     tenancies,
     payments,
     roomAds,
+    { charges, allocations, rentChanges },
   ] = await Promise.all([
+    getSessionUser(),
     supabase.from("properties").select("*", { count: "exact", head: true }),
     supabase.from("rooms").select("*", { count: "exact", head: true }),
     supabase
@@ -80,7 +78,12 @@ export default async function Dashboard() {
     // room_ads post-dates the generated types — query it untyped.
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (supabase as any).from("room_ads").select("room_id, posted_by"),
+    fetchLedgerSidecars(supabase),
   ]);
+
+  // Aggregate collection totals are admin-only; per-tenant outstanding amounts
+  // (pending balances) stay visible to everyone.
+  const admin = isMaster(user?.email);
 
   // Distinct ad posters per room (a room can have several ads).
   const adPostersByRoom = new Map<string, string[]>();
@@ -158,9 +161,6 @@ export default async function Dashboard() {
         (pmt.payment_type === "refund" ? -1 : 1) * Number(pmt.amount);
     }
   }
-
-  const { charges, allocations, rentChanges } =
-    await fetchLedgerSidecars(supabase);
 
   // Rent worklist: active tenancies whose running net balance is positive.
   type RentEntry = {

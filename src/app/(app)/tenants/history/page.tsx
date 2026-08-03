@@ -4,6 +4,7 @@ import { one } from "@/lib/relations";
 import { formatDate } from "@/lib/date";
 import { SearchInput } from "@/components/search-input";
 import { isMaster, canEditLedger } from "@/lib/access";
+import { getSessionUser } from "@/lib/session";
 import { computeLedger } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
 import { todayISO } from "@/lib/date";
@@ -80,30 +81,29 @@ export default async function TenantHistoryPage({ searchParams }: PageProps) {
   const balanceOnly = bal === "1";
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const admin = isMaster(user?.email); // "Total paid" is admin-only
-  const canUndismiss = canEditLedger(user?.email);
-  const { data, error } = await supabase
-    .from("tenancies")
-    .select(
-      `id, tenant_id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date,
-       balance_dismissed_at,
-       tenants(id, full_name, email, phone),
-       rooms(room_number,
-             properties(building_name, street_address, unit_number)),
-       payments(amount, paid_on, payment_type)`,
-    )
-    .eq("status", "ended")
-    .order("move_out_date", { ascending: false, nullsFirst: false })
-    .returns<Row[]>();
-
   // Moved-out tenants keep their running ledger balance here — money owed
   // at move-out must stay visible (dismissed from the Rent Tracker or not)
   // and gets resolved from the tenant's page.
-  const { charges, allocations, rentChanges } =
-    await fetchLedgerSidecars(supabase);
+  const [user, { data, error }, { charges, allocations, rentChanges }] =
+    await Promise.all([
+      getSessionUser(),
+      supabase
+        .from("tenancies")
+        .select(
+          `id, tenant_id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date,
+           balance_dismissed_at,
+           tenants(id, full_name, email, phone),
+           rooms(room_number,
+                 properties(building_name, street_address, unit_number)),
+           payments(amount, paid_on, payment_type)`,
+        )
+        .eq("status", "ended")
+        .order("move_out_date", { ascending: false, nullsFirst: false })
+        .returns<Row[]>(),
+      fetchLedgerSidecars(supabase),
+    ]);
+  const admin = isMaster(user?.email); // "Total paid" is admin-only
+  const canUndismiss = canEditLedger(user?.email);
   const today = todayISO();
 
   const rows = (data ?? []).map((r) => {

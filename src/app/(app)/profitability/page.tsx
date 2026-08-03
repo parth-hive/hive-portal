@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { canViewProfitability } from "@/lib/access";
+import { getSessionUser } from "@/lib/session";
 import { todayISO } from "@/lib/date";
 import {
   loadProfitability,
@@ -59,10 +60,6 @@ function fmtMoney(n: number): string {
 
 export default async function ProfitabilityPage({ searchParams }: PageProps) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  if (!canViewProfitability(user?.email)) notFound();
 
   const sp = await searchParams;
   const today = todayISO();
@@ -74,8 +71,13 @@ export default async function ProfitabilityPage({ searchParams }: PageProps) {
     "summary") as ViewKey;
 
   // All figures come from the shared computation (also behind the Telegram
-  // bot's get_profitability), so every consumer always agrees.
-  const data = await loadProfitability(supabase, year, today);
+  // bot's get_profitability), so every consumer always agrees. The load runs
+  // alongside the identity check; RLS still guards the reads themselves.
+  const [user, data] = await Promise.all([
+    getSessionUser(),
+    loadProfitability(supabase, year, today),
+  ]);
+  if (!canViewProfitability(user?.email)) notFound();
   const props = data.units;
   const {
     monthlyRevenue,

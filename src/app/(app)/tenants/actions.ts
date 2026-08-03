@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/session";
 import type { Database } from "@/lib/supabase/types";
 import { one } from "@/lib/relations";
 import { updateRoomsWithNotification } from "@/lib/notifications";
@@ -24,12 +25,8 @@ import { AGREEMENTS_BUCKET } from "@/lib/agreement-send";
 // Accrual-affecting mutations (rent amounts, tenancy dates, deleting
 // payments/tenants) change what a tenant owes just as directly as a charge
 // row — same two-operator restriction as charges.
-async function requireLedgerAdmin(
-  supabase: Awaited<ReturnType<typeof createClient>>,
-): Promise<string | null> {
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+async function requireLedgerAdmin(): Promise<string | null> {
+  const user = await getSessionUser();
   return canEditLedger(user?.email) ? null : LEDGER_ADMIN_ERROR;
 }
 
@@ -138,7 +135,7 @@ export async function createTenant(
   }
 
   const supabase = await createClient();
-  const denied = await requireLedgerAdmin(supabase);
+  const denied = await requireLedgerAdmin();
   if (denied) return { error: denied };
   const { data: tenant, error: tErr } = await supabase
     .from("tenants")
@@ -359,7 +356,7 @@ export async function updateTenant(
   if (!full_name) return { error: "Name is required." };
 
   const supabase = await createClient();
-  const denied = await requireLedgerAdmin(supabase);
+  const denied = await requireLedgerAdmin();
   if (denied) return { error: denied };
   const { error } = await supabase
     .from("tenants")
@@ -395,7 +392,7 @@ export async function setTenancyStartDate(
   const value = date && date.trim() ? date.trim() : null;
   if (!value) return { error: "Lease start date is required." };
   const supabase = await createClient();
-  const denied = await requireLedgerAdmin(supabase);
+  const denied = await requireLedgerAdmin();
   if (denied) return { error: denied };
   // The profile shows lease_start_date ?? start_date, so edit whichever is
   // currently displayed. Before any renewal that's start_date (the move-in,
@@ -472,7 +469,7 @@ export async function setTenancyRentAmount(
         : { security_deposit: amount };
 
   const supabase = await createClient();
-  const denied = await requireLedgerAdmin(supabase);
+  const denied = await requireLedgerAdmin();
   if (denied) return { error: denied };
 
   // The rate-history row and tenancy terms are committed together by the
@@ -509,7 +506,7 @@ export async function setTenancyLeaseEndDate(
 ): Promise<{ ok: true } | { error: string }> {
   const value = date && date.trim() ? date.trim() : null;
   const supabase = await createClient();
-  const denied = await requireLedgerAdmin(supabase);
+  const denied = await requireLedgerAdmin();
   if (denied) return { error: denied };
   const { error } = await supabase
     .from("tenancies")
@@ -535,7 +532,7 @@ export async function endTenancy(formData: FormData) {
   if (!tenancy_id || !move_out_date) return;
 
   const supabase = await createClient();
-  if (await requireLedgerAdmin(supabase)) return;
+  if (await requireLedgerAdmin()) return;
   const result = await applyMoveOut(supabase, tenancy_id, move_out_date);
   if (result.error) throw new Error(result.error);
 
@@ -554,7 +551,7 @@ export async function setTenancyMoveOutDate(
 ): Promise<{ ok: true } | { error: string }> {
   const value = date && date.trim() ? date.trim() : null;
   const supabase = await createClient();
-  const denied = await requireLedgerAdmin(supabase);
+  const denied = await requireLedgerAdmin();
   if (denied) return { error: denied };
 
   if (value) {
@@ -592,7 +589,7 @@ export async function reactivateTenancy(formData: FormData) {
   if (!tenancy_id) return;
 
   const supabase = await createClient();
-  if (await requireLedgerAdmin(supabase)) return;
+  if (await requireLedgerAdmin()) return;
 
   const { data: tenancy } = await supabase
     .from("tenancies")
@@ -639,7 +636,7 @@ export async function deleteTenant(formData: FormData) {
   const supabase = await createClient();
   // Deleting a tenant is operator-only; payment history blocks it entirely
   // (payments are on delete RESTRICT — the books outlive the tenant).
-  if (await requireLedgerAdmin(supabase)) return;
+  if (await requireLedgerAdmin()) return;
 
   // Free up any rooms that were occupied by this tenant
   const { data: rooms } = await supabase
@@ -683,9 +680,7 @@ export async function dismissEndedBalance(formData: FormData) {
   if (!tenancy_id) return;
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!canEditLedger(user?.email)) throw new Error(LEDGER_ADMIN_ERROR);
 
   await supabase
@@ -704,9 +699,7 @@ export async function undismissEndedBalance(formData: FormData) {
   if (!tenancy_id) return;
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!canEditLedger(user?.email)) throw new Error(LEDGER_ADMIN_ERROR);
 
   await supabase
@@ -730,9 +723,7 @@ export async function settleEndedBalance(formData: FormData) {
   if (!tenancy_id) return;
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!canEditLedger(user?.email)) throw new Error(LEDGER_ADMIN_ERROR);
 
   const { data: t } = await supabase
@@ -818,9 +809,7 @@ export async function recordPayment(
     };
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!user) return { error: "You are not signed in." };
   if (payment_type === "refund" && !canEditLedger(user.email)) {
     return { error: LEDGER_ADMIN_ERROR };
@@ -848,7 +837,7 @@ export async function deletePayment(formData: FormData) {
   if (!payment_id) return;
 
   const supabase = await createClient();
-  if (await requireLedgerAdmin(supabase)) return;
+  if (await requireLedgerAdmin()) return;
   await supabase.from("payments").delete().eq("id", payment_id);
 
   revalidatePath("/tenants");
@@ -881,9 +870,7 @@ export async function addCharge(
     return { error: "Charge date can't be in the future." };
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!canEditLedger(user?.email)) return { error: LEDGER_ADMIN_ERROR };
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const { error } = await (supabase as any)
@@ -912,9 +899,7 @@ export async function addCharge(
 export async function acknowledgeOverageAlerts(ids: string[]) {
   if (ids.length === 0) return;
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   // The popup is operator-facing; only the ledger admins may dismiss it.
   if (!canEditLedger(user?.email)) return;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -936,9 +921,7 @@ export async function deleteCharge(formData: FormData) {
   if (ids.length === 0) return;
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!canEditLedger(user?.email)) return;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   await (supabase as any).from("tenancy_charges").delete().in("id", ids);
@@ -963,9 +946,7 @@ export async function sendBalanceReminders(
   const doSms = channel === "sms" || channel === "both";
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!canEditLedger(user?.email)) return { error: LEDGER_ADMIN_ERROR };
 
   const now = new Date();

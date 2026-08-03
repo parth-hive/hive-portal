@@ -102,49 +102,51 @@ export default async function ReconciliationMatchPage({ params }: PageProps) {
 
   if (!run || !match) notFound();
 
-  // The tenant's real pays_as (original casing) — the match row only stores
-  // the normalized key.
-  let paysAs = match.pays_as;
-  if (match.tenant_id) {
-    const { data: tenant } = await supabase
-      .from("tenants")
-      .select("pays_as, full_name")
-      .eq("id", match.tenant_id)
-      .maybeSingle<{ pays_as: string | null; full_name: string }>();
-    if (tenant) paysAs = tenant.pays_as?.trim() || tenant.full_name;
-  }
-
-  // Bank / other-file deposits this run attributed to the tenant's tenancy.
-  let deposits: DepositRow[] = [];
-  if (match.tenancy_id) {
-    const { data } = await supabase
-      .from("reconciliation_deposits")
-      .select(
-        "id, external_ref, payer_key, raw_description, amount, deposit_date, payment_id",
-      )
-      .eq("run_id", id)
-      .eq("tenancy_id", match.tenancy_id)
-      .order("deposit_date", { ascending: true })
-      .returns<DepositRow[]>();
-    deposits = data ?? [];
-  }
-
-  // Rent recorded outside a bank posting during the month — these count
-  // toward the tenant's actual too (mirrors loadMonthTenancies in actions).
   const { start, end } = monthBounds(run.month);
-  let recorded: { id: string; paid_on: string; amount: number; method: string | null; notes: string | null }[] = [];
-  if (match.tenancy_id) {
-    const { data } = await supabase
-      .from("payments")
-      .select("id, paid_on, amount, method, notes")
-      .eq("tenancy_id", match.tenancy_id)
-      .eq("payment_type", "rent")
-      .is("external_ref", null)
-      .gte("paid_on", start)
-      .lte("paid_on", end)
-      .order("paid_on", { ascending: true });
-    recorded = data ?? [];
-  }
+  const [tenantRes, depositsRes, recordedRes] = await Promise.all([
+    // The tenant's real pays_as (original casing) — the match row only stores
+    // the normalized key.
+    match.tenant_id
+      ? supabase
+          .from("tenants")
+          .select("pays_as, full_name")
+          .eq("id", match.tenant_id)
+          .maybeSingle<{ pays_as: string | null; full_name: string }>()
+      : Promise.resolve({ data: null }),
+    // Bank / other-file deposits this run attributed to the tenant's tenancy.
+    match.tenancy_id
+      ? supabase
+          .from("reconciliation_deposits")
+          .select(
+            "id, external_ref, payer_key, raw_description, amount, deposit_date, payment_id",
+          )
+          .eq("run_id", id)
+          .eq("tenancy_id", match.tenancy_id)
+          .order("deposit_date", { ascending: true })
+          .returns<DepositRow[]>()
+      : Promise.resolve({ data: null }),
+    // Rent recorded outside a bank posting during the month — these count
+    // toward the tenant's actual too (mirrors loadMonthTenancies in actions).
+    match.tenancy_id
+      ? supabase
+          .from("payments")
+          .select("id, paid_on, amount, method, notes")
+          .eq("tenancy_id", match.tenancy_id)
+          .eq("payment_type", "rent")
+          .is("external_ref", null)
+          .gte("paid_on", start)
+          .lte("paid_on", end)
+          .order("paid_on", { ascending: true })
+      : Promise.resolve({ data: null }),
+  ]);
+
+  let paysAs = match.pays_as;
+  const tenant = tenantRes.data;
+  if (tenant) paysAs = tenant.pays_as?.trim() || tenant.full_name;
+
+  const deposits: DepositRow[] = depositsRes.data ?? [];
+  const recorded: { id: string; paid_on: string; amount: number; method: string | null; notes: string | null }[] =
+    recordedRes.data ?? [];
 
   const depositTotal = deposits.reduce((s, d) => s + Number(d.amount), 0);
   const recordedTotal = recorded.reduce((s, p) => s + Number(p.amount), 0);

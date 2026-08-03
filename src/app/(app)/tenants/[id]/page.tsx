@@ -19,6 +19,7 @@ import { RentAmountEdit } from "./rent-edit";
 import { TenantBackLink } from "./tenant-back-link";
 import { computeLedger, buildLedgerEntries, type RentChange } from "@/lib/rent";
 import { canEditLedger } from "@/lib/access";
+import { getSessionUser } from "@/lib/session";
 import { todayISO } from "@/lib/date";
 
 export const dynamic = "force-dynamic";
@@ -123,14 +124,10 @@ export default async function TenantDetailPage({
     label: "Rent Tracker",
   };
   const supabase = await createClient();
-  // Ledger charges (add/delete) are operator-only; payments stay open to all.
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const ledgerAdmin = canEditLedger(user?.email);
 
-  const [{ data: tenant }, { data: tenancies }, { data: payments }] =
+  const [user, { data: tenant }, { data: tenancies }, { data: payments }] =
     await Promise.all([
+      getSessionUser(),
       supabase
         .from("tenants")
         .select(
@@ -161,6 +158,9 @@ export default async function TenantDetailPage({
     ]);
 
   if (!tenant) notFound();
+
+  // Ledger charges (add/delete) are operator-only; payments stay open to all.
+  const ledgerAdmin = canEditLedger(user?.email);
 
   const active = tenancies?.find((t) => t.status === "active") ?? null;
   const past = (tenancies ?? []).filter((t) => t.status !== "active");

@@ -1,8 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient as createServerClient } from "@/lib/supabase/server";
 import { createClient } from "@supabase/supabase-js";
+import { getSessionUser } from "@/lib/session";
 import { isMaster } from "@/lib/access";
 
 type Result = { ok: true; deleted: number } | { error: string };
@@ -17,10 +17,7 @@ function admin() {
 
 /** Master-only: confirm the caller is the master operator. */
 async function requireMaster(): Promise<string | null> {
-  const supabase = await createServerClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   return isMaster(user?.email) ? null : "Not authorized.";
 }
 

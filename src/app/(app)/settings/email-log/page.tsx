@@ -3,6 +3,7 @@ import { createClient } from "@/lib/supabase/server";
 import { EMAIL_TYPE_LABELS, type EmailType } from "@/lib/email-log";
 import { resendUsage } from "@/lib/resend-quota";
 import { isMaster, isOperator } from "@/lib/access";
+import { getSessionUser } from "@/lib/session";
 import { ClearLogButton } from "../clear-log-button";
 import { clearEmailLog } from "../log-actions";
 
@@ -43,9 +44,7 @@ type PageProps = {
 
 export default async function EmailLogPage({ searchParams }: PageProps) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   const master = isMaster(user?.email);
   if (!isOperator(user?.email)) {
     return (
@@ -63,25 +62,6 @@ export default async function EmailLogPage({ searchParams }: PageProps) {
     );
   }
 
-  // Resend free-tier usage: today's & this month's sends vs the caps, plus the
-  // number of emails currently deferred to the queue. Counting fails open before
-  // the migration is applied, so these read as 0 until db:push.
-  const [usage, backlogRes] = await Promise.all([
-    resendUsage(),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (supabase as any)
-      .from("email_queue")
-      .select("id", { count: "exact", head: true })
-      .eq("status", "pending"),
-  ]);
-  const backlog = (backlogRes?.count as number | null) ?? 0;
-  const dailyPct = Math.min(
-    100,
-    Math.round((usage.today / Math.max(1, usage.dailyCap)) * 100),
-  );
-  const atDaily = usage.today >= usage.dailyCap;
-  const atMonthly = usage.month >= usage.monthlyCap;
-
   const sp = await searchParams;
   const typeFilter = isType(sp.type) ? sp.type : null;
   const statusFilter =
@@ -96,7 +76,27 @@ export default async function EmailLogPage({ searchParams }: PageProps) {
     .limit(200);
   if (typeFilter) query = query.eq("type", typeFilter);
   if (statusFilter) query = query.eq("status", statusFilter);
-  const { data, error } = await query;
+
+  // Resend free-tier usage: today's & this month's sends vs the caps, plus the
+  // number of emails currently deferred to the queue. Counting fails open before
+  // the migration is applied, so these read as 0 until db:push.
+  const [usage, backlogRes, { data, error }] = await Promise.all([
+    resendUsage(),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any)
+      .from("email_queue")
+      .select("id", { count: "exact", head: true })
+      .eq("status", "pending"),
+    query,
+  ]);
+  const backlog = (backlogRes?.count as number | null) ?? 0;
+  const dailyPct = Math.min(
+    100,
+    Math.round((usage.today / Math.max(1, usage.dailyCap)) * 100),
+  );
+  const atDaily = usage.today >= usage.dailyCap;
+  const atMonthly = usage.month >= usage.monthlyCap;
+
   const rows = (data ?? []) as LogRow[];
 
   // Build a filter href that swaps one param while keeping the other.

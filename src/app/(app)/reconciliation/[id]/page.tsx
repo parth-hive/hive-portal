@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { canEditLedger, isMaster } from "@/lib/access";
+import { getSessionUser } from "@/lib/session";
 import { formatDate, todayISO } from "@/lib/date";
 import { computeLedger } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
@@ -136,15 +137,38 @@ export default async function ReconciliationRunPage({
   };
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   const canPost = canEditLedger(user?.email);
   if (!canPost) notFound();
   const admin = canPost;
   const master = isMaster(user?.email);
 
-  const [{ data: run }, { data: matches }] = await Promise.all([
+  // Shape of the assign-tenant options query, used further down for the
+  // unmatched-deposit form.
+  type PropRel = {
+    building_name: string | null;
+    street_address: string;
+    unit_number: string;
+  };
+  type AssignRow = {
+    id: string;
+    tenants: { full_name: string } | { full_name: string }[] | null;
+    rooms:
+      | { room_number: string | null; properties: PropRel | PropRel[] | null }
+      | {
+          room_number: string | null;
+          properties: PropRel | PropRel[] | null;
+        }[]
+      | null;
+  };
+
+  const [
+    { data: run },
+    { data: matches },
+    { data: ignoredData },
+    { data: reversalRows },
+    { data: ten },
+  ] = await Promise.all([
     supabase
       .from("reconciliation_runs")
       .select(
@@ -166,25 +190,34 @@ export default async function ReconciliationRunPage({
       .order("status", { ascending: true })
       .order("tenant_name", { ascending: true })
       .returns<Match[]>(),
+    // Known not-rent payers, shown (with undo) whenever any exist.
+    supabase
+      .from("ignored_payers")
+      .select("payer_key, display_name")
+      .order("display_name"),
+    // Unresolved chargeback alerts for this run, enriched below with the
+    // suspected original payment's tenant and date.
+    supabase
+      .from("reconciliation_reversals")
+      .select("id, raw_description, amount, deposit_date, suspect_payment_id")
+      .eq("run_id", id)
+      .is("resolved_at", null)
+      .order("created_at"),
+    // Active tenancies to choose from when assigning an unmatched deposit.
+    supabase
+      .from("tenancies")
+      .select(
+        `id, tenants(full_name),
+         rooms(room_number, properties(building_name, street_address, unit_number))`,
+      )
+      .eq("status", "active")
+      .returns<AssignRow[]>(),
   ]);
 
   if (!run) notFound();
 
-  // Known not-rent payers, shown (with undo) whenever any exist.
-  const { data: ignoredData } = await supabase
-    .from("ignored_payers")
-    .select("payer_key, display_name")
-    .order("display_name");
   const ignoredPayers = ignoredData ?? [];
 
-  // Unresolved chargeback alerts for this run, enriched with the suspected
-  // original payment's tenant and date.
-  const { data: reversalRows } = await supabase
-    .from("reconciliation_reversals")
-    .select("id, raw_description, amount, deposit_date, suspect_payment_id")
-    .eq("run_id", id)
-    .is("resolved_at", null)
-    .order("created_at");
   const suspectIds = (reversalRows ?? [])
     .map((r) => r.suspect_payment_id)
     .filter((x): x is string => !!x);
@@ -359,35 +392,11 @@ export default async function ReconciliationRunPage({
     (a, b) => groupOf(a) - groupOf(b) || a.tenant_name.localeCompare(b.tenant_name),
   );
 
-  // Active tenancies to choose from when assigning an unmatched deposit.
+  // Options for assigning an unmatched deposit (query hoisted above).
   const hasUnmatched =
     !!run.unmatched_deposits && run.unmatched_deposits.length > 0;
   let assignTenants: AssignTenantOption[] = [];
   if (hasUnmatched) {
-    type PropRel = {
-      building_name: string | null;
-      street_address: string;
-      unit_number: string;
-    };
-    type Row = {
-      id: string;
-      tenants: { full_name: string } | { full_name: string }[] | null;
-      rooms:
-        | { room_number: string | null; properties: PropRel | PropRel[] | null }
-        | {
-            room_number: string | null;
-            properties: PropRel | PropRel[] | null;
-          }[]
-        | null;
-    };
-    const { data: ten } = await supabase
-      .from("tenancies")
-      .select(
-        `id, tenants(full_name),
-         rooms(room_number, properties(building_name, street_address, unit_number))`,
-      )
-      .eq("status", "active")
-      .returns<Row[]>();
     assignTenants = (ten ?? [])
       .map((t) => {
         const tenant = one(t.tenants);

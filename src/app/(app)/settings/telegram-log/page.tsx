@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { canEditLedger } from "@/lib/access";
+import { getSessionUser } from "@/lib/session";
 import {
   TELEGRAM_KIND_LABELS,
   type TelegramLogKind,
@@ -121,9 +122,7 @@ type PageProps = {
 
 export default async function TelegramLogPage({ searchParams }: PageProps) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   const operator = canEditLedger(user?.email);
 
   if (!operator) {

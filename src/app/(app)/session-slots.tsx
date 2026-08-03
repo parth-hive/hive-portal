@@ -1,8 +1,8 @@
 import { cache } from "react";
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import type { User } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { getSessionUser, type SessionUser } from "@/lib/session";
 import { canViewProfitability, isMaster } from "@/lib/access";
 import { NamePrompt } from "./name-prompt";
 import { NavIcon } from "./nav-icons";
@@ -13,15 +13,7 @@ import { NavIcon } from "./nav-icons";
 // never shows (see the "Interaction with loading.js" caveat in
 // node_modules/next/dist/docs/01-app/03-api-reference/03-file-conventions/layout.md).
 
-const getSessionUser = cache(async (): Promise<User | null> => {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  return user;
-});
-
-function displayNameOf(user: User | null): string {
+function displayNameOf(user: SessionUser | null): string {
   if (!user) return "";
   return typeof user.user_metadata?.display_name === "string"
     ? user.user_metadata.display_name.trim()

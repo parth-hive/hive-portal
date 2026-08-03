@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
-import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/session";
 import { isMaster } from "@/lib/access";
 
 function admin() {
@@ -14,10 +14,7 @@ function admin() {
 }
 
 async function assertMaster() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!isMaster(user?.email)) {
     throw new Error("Forbidden");
   }

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/session";
 import {
   AGREEMENTS_BUCKET,
   OPERATOR_SIGNATURE_PATH,
@@ -18,9 +19,7 @@ type ActionResult = { ok: boolean; error?: string };
 
 async function requireUser() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   return { supabase, user };
 }
 

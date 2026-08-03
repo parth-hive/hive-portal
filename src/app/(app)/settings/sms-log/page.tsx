@@ -2,6 +2,7 @@ import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { SMS_TYPE_LABELS, type SmsType } from "@/lib/sms-log";
 import { isMaster, isOperator } from "@/lib/access";
+import { getSessionUser } from "@/lib/session";
 import { ClearLogButton } from "../clear-log-button";
 import { clearSmsLog } from "../log-actions";
 
@@ -42,9 +43,7 @@ type PageProps = {
 
 export default async function SmsLogPage({ searchParams }: PageProps) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   const master = isMaster(user?.email);
   if (!isOperator(user?.email)) {
     return (

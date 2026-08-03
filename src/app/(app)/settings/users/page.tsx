@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
-import { createClient } from "@/lib/supabase/server";
 import { isMaster } from "@/lib/access";
+import { getSessionUser } from "@/lib/session";
 import { InviteUserForm } from "./invite-form";
 import { deleteUser } from "./actions";
 
@@ -27,10 +27,7 @@ function fmtWhen(iso: string | null | undefined): string {
 }
 
 export default async function UsersPage() {
-  const supabase = await createClient();
-  const {
-    data: { user: currentUser },
-  } = await supabase.auth.getUser();
+  const currentUser = await getSessionUser();
   if (!isMaster(currentUser?.email)) {
     redirect("/");
   }

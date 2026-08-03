@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/session";
 import { one } from "@/lib/relations";
 import { SearchInput } from "@/components/search-input";
 import { BalanceFilter } from "./balance-filter";
@@ -106,67 +107,83 @@ export default async function TenantsPage({ searchParams }: PageProps) {
       : null;
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  // Only admins see the aggregate collection totals and per-tenant "paid"
-  // amounts. Everyone else still sees each tenant's rent and pending balance.
-  const admin = isMaster(user?.email);
   // Rent is collected on a 27th→26th cycle (tenants pay from the 27th), so
   // "this month" runs from the 27th of the prior month to the 26th.
   const { start: monthStart, end: monthEnd } = currentRentCycle();
 
-  const { data, error } = await supabase
-    .from("tenancies")
-    .select(
-      `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date, tenant_id,
-       tenants(id, full_name, email, phone),
-       rooms(id, room_number,
-             properties(id, building_name, street_address, unit_number)),
-       payments(id, amount, paid_on, payment_type)`,
-    )
-    .eq("status", "active")
-    .order("start_date", { ascending: false })
-    .returns<Row[]>();
+  // Everything below is independent — one parallel round-trip instead of
+  // seven serial ones. (fetchLedgerSidecars is request-cached, so the copy
+  // getReminderInfo fetches internally reuses this one.)
+  const [
+    user,
+    { data, error },
+    { data: allProps },
+    { data: endedData },
+    { data: upcomingData },
+    { charges, allocations, rentChanges },
+    reminderInfo,
+    { data: overageAlertRows },
+  ] = await Promise.all([
+    getSessionUser(),
+    supabase
+      .from("tenancies")
+      .select(
+        `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date, tenant_id,
+         tenants(id, full_name, email, phone),
+         rooms(id, room_number,
+               properties(id, building_name, street_address, unit_number)),
+         payments(id, amount, paid_on, payment_type)`,
+      )
+      .eq("status", "active")
+      .order("start_date", { ascending: false })
+      .returns<Row[]>(),
+    // The full portfolio — vacant properties still get a (empty) group below.
+    supabase
+      .from("properties")
+      .select("id, building_name, street_address, unit_number"),
+    // Ended tenancies — their outstanding balances feed the "Moved out with
+    // balance" section so departed debt stays visible until dismissed.
+    supabase
+      .from("tenancies")
+      .select(
+        `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date,
+         balance_dismissed_at,
+         tenants(id, full_name),
+         rooms(room_number,
+               properties(building_name, street_address, unit_number)),
+         payments(amount, paid_on, payment_type)`,
+      )
+      .eq("status", "ended")
+      .order("move_out_date", { ascending: false }),
+    // Future-dated tenancies — invisible to the active groups until the daily
+    // cron activates them, so they get their own "Upcoming move-ins" section.
+    supabase
+      .from("tenancies")
+      .select(
+        `id, start_date, monthly_rent,
+         tenants(id, full_name),
+         rooms(room_number,
+               properties(building_name, street_address, unit_number))`,
+      )
+      .eq("status", "upcoming")
+      .order("start_date", { ascending: true }),
+    // Ad-hoc charges + credit allocations feed the running ledger balance.
+    fetchLedgerSidecars(supabase),
+    // Balance-reminder button state (outstanding count + per-channel last-sent).
+    getReminderInfo(supabase),
+    // Utility-overage shares that hit already-moved-out tenants (admin-only UI).
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any)
+      .from("utility_overage_alerts")
+      .select("id, tenant_name, unit_label, amount, period_label")
+      .is("acknowledged_at", null)
+      .order("created_at", { ascending: true }),
+  ]);
 
+  // Only admins see the aggregate collection totals and per-tenant "paid"
+  // amounts. Everyone else still sees each tenant's rent and pending balance.
+  const admin = isMaster(user?.email);
   const rows = data ?? [];
-
-  // The full portfolio — vacant properties still get a (empty) group below.
-  const { data: allProps } = await supabase
-    .from("properties")
-    .select("id, building_name, street_address, unit_number");
-
-  // Ended tenancies — their outstanding balances feed the "Moved out with
-  // balance" section so departed debt stays visible until dismissed.
-  const { data: endedData } = await supabase
-    .from("tenancies")
-    .select(
-      `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date,
-       balance_dismissed_at,
-       tenants(id, full_name),
-       rooms(room_number,
-             properties(building_name, street_address, unit_number)),
-       payments(amount, paid_on, payment_type)`,
-    )
-    .eq("status", "ended")
-    .order("move_out_date", { ascending: false });
-
-  // Future-dated tenancies — invisible to the active groups until the daily
-  // cron activates them, so they get their own "Upcoming move-ins" section.
-  const { data: upcomingData } = await supabase
-    .from("tenancies")
-    .select(
-      `id, start_date, monthly_rent,
-       tenants(id, full_name),
-       rooms(room_number,
-             properties(building_name, street_address, unit_number))`,
-    )
-    .eq("status", "upcoming")
-    .order("start_date", { ascending: true });
-
-  // Ad-hoc charges + credit allocations feed the running ledger balance.
-  const { charges, allocations, rentChanges } =
-    await fetchLedgerSidecars(supabase);
   const today = todayISO();
 
   // Departed tenants who still owe: same ledger math as the active rows.
@@ -432,20 +449,13 @@ export default async function TenantsPage({ searchParams }: PageProps) {
     lastBalanceText,
     lastBalanceEmailText,
     lastBalanceSmsText,
-  } = await getReminderInfo(supabase);
+  } = reminderInfo;
 
   // Utility-overage shares that hit already-moved-out tenants pop up for the
   // admin until acknowledged (their share was not posted to any ledger).
-  let overageAlerts: OverageAlert[] = [];
-  if (admin) {
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const { data: alertRows } = await (supabase as any)
-      .from("utility_overage_alerts")
-      .select("id, tenant_name, unit_label, amount, period_label")
-      .is("acknowledged_at", null)
-      .order("created_at", { ascending: true });
-    overageAlerts = (alertRows ?? []) as OverageAlert[];
-  }
+  const overageAlerts: OverageAlert[] = admin
+    ? ((overageAlertRows ?? []) as OverageAlert[])
+    : [];
 
   return (
     <div className="mx-auto w-full max-w-6xl">

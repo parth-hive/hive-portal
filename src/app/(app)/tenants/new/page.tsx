@@ -83,7 +83,19 @@ export default async function NewTenantPage({ searchParams }: PageProps) {
     )
     .order("available_from", { ascending: true, nullsFirst: true });
 
-  const { data } = await q.returns<RoomRow[]>();
+  const [{ data }, { data: pendingData }] = await Promise.all([
+    q.returns<RoomRow[]>(),
+    // Listings the admin pulled off Inventory ("delete listing") that are
+    // waiting to be filled with a tenant.
+    supabase
+      .from("rooms")
+      .select(
+        "id, room_number, total_rent, properties(building_name, street_address, unit_number)",
+      )
+      .eq("pending_tenant", true)
+      .order("room_number", { ascending: true })
+      .returns<RoomRow[]>(),
+  ]);
 
   const rooms = (data ?? []).map((r) => {
     const p = one(r.properties);
@@ -98,17 +110,6 @@ export default async function NewTenantPage({ searchParams }: PageProps) {
       total_rent: r.total_rent,
     };
   });
-
-  // Listings the admin pulled off Inventory ("delete listing") that are waiting
-  // to be filled with a tenant.
-  const { data: pendingData } = await supabase
-    .from("rooms")
-    .select(
-      "id, room_number, total_rent, properties(building_name, street_address, unit_number)",
-    )
-    .eq("pending_tenant", true)
-    .order("room_number", { ascending: true })
-    .returns<RoomRow[]>();
 
   const pending = (pendingData ?? []).map((r) => {
     const p = one(r.properties);

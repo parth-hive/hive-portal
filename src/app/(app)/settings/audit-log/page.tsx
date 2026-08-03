@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { isOperator } from "@/lib/access";
+import { getSessionUser } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -79,9 +80,7 @@ export default async function AuditLogPage({
   searchParams: SearchParams;
 }) {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   const operator = isOperator(user?.email);
   if (!operator) {
     return (

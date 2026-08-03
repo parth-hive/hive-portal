@@ -1,6 +1,6 @@
 import { createClient as createServiceClient } from "@supabase/supabase-js";
-import { createClient } from "@/lib/supabase/server";
 import { canEditLedger } from "@/lib/access";
+import { getSessionUser } from "@/lib/session";
 import { one } from "@/lib/relations";
 import { isOverThreshold } from "@/lib/utility-bills";
 import { UtilitiesView } from "./utilities-view";
@@ -11,20 +11,14 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 export default async function UtilitiesPage() {
-  // Charging the over-$200 overage writes to tenant ledgers — operator-only.
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const canCharge = canEditLedger(user?.email);
-
   const sb = createServiceClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
     { auth: { persistSession: false, autoRefreshToken: false } },
   );
 
-  const [{ data: props }, billsRes] = await Promise.all([
+  const [user, { data: props }, billsRes] = await Promise.all([
+    getSessionUser(),
     sb
       .from("properties")
       .select("id, building_name, street_address, unit_number")
@@ -36,6 +30,9 @@ export default async function UtilitiesPage() {
       .order("statement_date", { ascending: false, nullsFirst: false })
       .order("created_at", { ascending: false }),
   ]);
+
+  // Charging the over-$200 overage writes to tenant ledgers — operator-only.
+  const canCharge = canEditLedger(user?.email);
 
   const units: UnitOpt[] = (props ?? []).map((p) => ({
     id: p.id,

@@ -111,47 +111,6 @@ export default async function InventoryPage({ searchParams }: PageProps) {
 
   const supabase = await createClient();
   const today = todayStr();
-  const { data, error } = await supabase
-    .from("rooms")
-    .select(
-      `id, room_number, base_rent, bundle_fee, total_rent, available_from, status,
-       marketing_description, photos_url, has_private_bathroom, has_ac,
-       listing_action,
-       properties(id, building_name, street_address, unit_number, neighborhood,
-                  unit_amenities, building_amenities),
-       tenancies(id, status, start_date, move_out_date, tenants(id, full_name))`,
-    )
-    .or(
-      `status.eq.available,and(status.eq.occupied,available_from.gte.${today})`,
-    )
-    .eq("pending_tenant", false)
-    .order("available_from", { ascending: true, nullsFirst: true })
-    .returns<Omit<Row, "ads">[]>();
-
-  // All ads across every room (room_ads post-dates the generated types). Used
-  // both to attach each room's ads and to tally ads-per-poster below.
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data: adRowsData } = await (supabase as any)
-    .from("room_ads")
-    .select("id, room_id, url, posted_by")
-    .order("created_at", { ascending: true });
-  const allAds = (adRowsData ?? []) as {
-    id: string;
-    room_id: string;
-    url: string;
-    posted_by: string | null;
-  }[];
-  const adsByRoom = new Map<string, AdRow[]>();
-  for (const a of allAds) {
-    const list = adsByRoom.get(a.room_id) ?? [];
-    list.push({ id: a.id, url: a.url, posted_by: a.posted_by });
-    adsByRoom.set(a.room_id, list);
-  }
-
-  const rooms: Row[] = (data ?? []).map((r) => ({
-    ...r,
-    ads: adsByRoom.get(r.id) ?? [],
-  }));
 
   // Rooms that aren't currently listed — candidates for "+ Add Inventory".
   // Anything not matching the inventory filter above: reserved/maintenance, or
@@ -175,15 +134,69 @@ export default async function InventoryPage({ searchParams }: PageProps) {
         }[]
       | null;
   };
-  const { data: allRoomsData } = await supabase
-    .from("rooms")
-    .select(
-      `id, room_number, status, available_from, pending_tenant,
-       properties(building_name, street_address, unit_number),
-       tenancies(id, status, tenant_id, tenants(full_name))`,
-    )
-    .order("room_number", { ascending: true })
-    .returns<AddableRow[]>();
+
+  // All four reads are independent — one parallel round-trip.
+  const [
+    { data, error },
+    { data: adRowsData },
+    { data: allRoomsData },
+    { data: recipientData },
+  ] = await Promise.all([
+    supabase
+      .from("rooms")
+      .select(
+        `id, room_number, base_rent, bundle_fee, total_rent, available_from, status,
+         marketing_description, photos_url, has_private_bathroom, has_ac,
+         listing_action,
+         properties(id, building_name, street_address, unit_number, neighborhood,
+                    unit_amenities, building_amenities),
+         tenancies(id, status, start_date, move_out_date, tenants(id, full_name))`,
+      )
+      .or(
+        `status.eq.available,and(status.eq.occupied,available_from.gte.${today})`,
+      )
+      .eq("pending_tenant", false)
+      .order("available_from", { ascending: true, nullsFirst: true })
+      .returns<Omit<Row, "ads">[]>(),
+    // All ads across every room (room_ads post-dates the generated types). Used
+    // both to attach each room's ads and to tally ads-per-poster below.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any)
+      .from("room_ads")
+      .select("id, room_id, url, posted_by")
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("rooms")
+      .select(
+        `id, room_number, status, available_from, pending_tenant,
+         properties(building_name, street_address, unit_number),
+         tenancies(id, status, tenant_id, tenants(full_name))`,
+      )
+      .order("room_number", { ascending: true })
+      .returns<AddableRow[]>(),
+    supabase
+      .from("notification_recipients")
+      .select("id, email, label")
+      .returns<{ id: string; email: string; label: string | null }[]>(),
+  ]);
+
+  const allAds = (adRowsData ?? []) as {
+    id: string;
+    room_id: string;
+    url: string;
+    posted_by: string | null;
+  }[];
+  const adsByRoom = new Map<string, AdRow[]>();
+  for (const a of allAds) {
+    const list = adsByRoom.get(a.room_id) ?? [];
+    list.push({ id: a.id, url: a.url, posted_by: a.posted_by });
+    adsByRoom.set(a.room_id, list);
+  }
+
+  const rooms: Row[] = (data ?? []).map((r) => ({
+    ...r,
+    ads: adsByRoom.get(r.id) ?? [],
+  }));
 
   const inInventory = (status: string, af: string | null) =>
     status === "available" ||
@@ -220,10 +233,7 @@ export default async function InventoryPage({ searchParams }: PageProps) {
   // list (so configured people show even with zero ads) and then unioned with
   // anyone who has posted an ad but isn't on that list — matching a recipient to
   // their posts by either their label or email.
-  const { data: recipientData } = await supabase
-    .from("notification_recipients")
-    .select("id, email, label")
-    .returns<{ id: string; email: string; label: string | null }[]>();
+  // (recipientData is fetched in the parallel block above.)
 
   // Only rooms currently listed count toward the tally.
   const inventoryRoomIds = new Set(rooms.map((r) => r.id));

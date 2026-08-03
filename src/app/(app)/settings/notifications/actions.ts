@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/session";
 import { isOperator } from "@/lib/access";
 
 export type RecipientFormState = { error?: string } | undefined;
@@ -19,10 +20,7 @@ function adminClient() {
 // page already redirects everyone else; this closes the direct server-action
 // invocation path).
 async function assertOperator(): Promise<boolean> {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   return isOperator(user?.email);
 }
 

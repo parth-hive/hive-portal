@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
 import { isMaster } from "@/lib/access";
+import { getSessionUser } from "@/lib/session";
 import {
   getCollectionSummary,
   getMonthlyCollections,
@@ -60,10 +60,10 @@ export default async function ReportsPage({
 }: {
   searchParams: SearchParams;
 }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const [user, propertyOptions] = await Promise.all([
+    getSessionUser(),
+    getPropertyOptions(),
+  ]);
   if (!isMaster(user?.email)) {
     redirect("/");
   }
@@ -80,7 +80,6 @@ export default async function ReportsPage({
       ? sp.neighborhood
       : "";
 
-  const propertyOptions = await getPropertyOptions();
   const neighborhoods = Array.from(
     new Set(
       propertyOptions

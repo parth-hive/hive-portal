@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/session";
 import { isMaster } from "@/lib/access";
 import { todayISO } from "@/lib/date";
 import {
@@ -18,12 +18,9 @@ import {
 export type BoardActionState = { error?: string; success?: string } | undefined;
 
 async function caller() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!user) throw new Error("Not signed in.");
-  const meta = (user.user_metadata ?? {}) as Record<string, unknown>;
+  const meta = user.user_metadata;
   const name =
     (typeof meta.display_name === "string" && meta.display_name.trim()) ||
     (typeof meta.full_name === "string" && meta.full_name.trim()) ||

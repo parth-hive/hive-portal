@@ -53,9 +53,11 @@ export async function updateSession(request: NextRequest) {
     },
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  // getClaims verifies the JWT locally (WebCrypto + cached JWKS — the project
+  // uses asymmetric ES256 keys), so the middleware adds no auth round-trip.
+  // Token refresh still happens through the cookie handlers when it expires.
+  const { data } = await supabase.auth.getClaims();
+  const user = data?.claims ?? null;
 
   const path = request.nextUrl.pathname;
   const isPublic = PUBLIC_PATHS.some((p) => path === p || path.startsWith(p + "/"));

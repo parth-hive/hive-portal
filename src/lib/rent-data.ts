@@ -8,6 +8,7 @@
  * Supabase types (same pattern as `rent_reminder_batches`).
  */
 
+import { cache } from "react";
 import type { createClient } from "@/lib/supabase/server";
 import type { LedgerAllocation, LedgerCharge, RentChange } from "@/lib/rent";
 
@@ -45,9 +46,11 @@ function groupByTenancy<T extends { tenancy_id: string }>(
   return map;
 }
 
-export async function fetchLedgerSidecars(
+// cache() dedupes per request+client: /tenants used to fetch all three tables
+// twice per render (page + reminder-info) — now the second call is free.
+export const fetchLedgerSidecars = cache(async (
   supabase: SupabaseServer,
-): Promise<LedgerSidecars> {
+): Promise<LedgerSidecars> => {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const sb = supabase as any;
   const [{ data: charges }, { data: allocations }, { data: rentChanges }] =
@@ -69,4 +72,4 @@ export async function fetchLedgerSidecars(
       rentChanges,
     ),
   };
-}
+});

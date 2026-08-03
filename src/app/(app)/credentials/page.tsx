@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { createClient } from "@/lib/supabase/server";
 import { isMaster } from "@/lib/access";
+import { getSessionUser } from "@/lib/session";
 import { one } from "@/lib/relations";
 import { SearchInput } from "@/components/search-input";
 import { AddCredential } from "./add-credential";
@@ -55,14 +56,9 @@ export default async function CredentialsPage({ searchParams }: PageProps) {
   const activeCategory = isCategory(params.category) ? params.category : null;
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  // Only admins (masters) can reveal/copy passwords or manage credentials;
-  // the plaintext is fetched on demand and never shipped with the page.
-  const admin = isMaster(user?.email);
 
-  const [{ data: credentials }, { data: properties }] = await Promise.all([
+  const [user, { data: credentials }, { data: properties }] = await Promise.all([
+    getSessionUser(),
     supabase
       .from("credentials")
       .select(
@@ -78,6 +74,10 @@ export default async function CredentialsPage({ searchParams }: PageProps) {
       .select("id, building_name, street_address, unit_number")
       .order("street_address", { ascending: true }),
   ]);
+
+  // Only admins (masters) can reveal/copy passwords or manage credentials;
+  // the plaintext is fetched on demand and never shipped with the page.
+  const admin = isMaster(user?.email);
 
   const propertyOptions: PropertyOption[] = (properties ?? []).map((p) => ({
     id: p.id,

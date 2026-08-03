@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
+import { getSessionUser } from "@/lib/session";
 import { canViewProfitability } from "@/lib/access";
 
 export type LineItemFormState = { error?: string } | undefined;
@@ -13,9 +14,7 @@ export async function addLineItem(
   formData: FormData,
 ): Promise<LineItemFormState> {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!canViewProfitability(user?.email)) return { error: OWNER_ONLY_ERROR };
 
   const year = Number(String(formData.get("year") ?? ""));
@@ -49,9 +48,7 @@ export async function deleteLineItem(formData: FormData) {
   if (!id) return;
 
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!canViewProfitability(user?.email)) throw new Error(OWNER_ONLY_ERROR);
 
   await supabase.from("profitability_line_items").delete().eq("id", id);

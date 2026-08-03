@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient as createServiceClient } from "@supabase/supabase-js";
 import { createClient } from "@/lib/supabase/server";
 import { isOperator } from "@/lib/access";
+import { getSessionUser } from "@/lib/session";
 import { formatDate } from "@/lib/date";
 import { AddRecipientForm } from "./add-form";
 import { toggleRecipient, deleteRecipient } from "./actions";
@@ -26,26 +27,25 @@ type Recipient = {
 
 export default async function NotificationsPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   if (!isOperator(user?.email)) redirect("/");
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const { data } = await (supabase as any)
-    .from("notification_recipients")
-    .select("id, email, label, enabled, created_at")
-    .order("enabled", { ascending: false })
-    .order("created_at", { ascending: true });
+  // Recipients can only be people who already have a portal account: pull the
+  // recipient list and the system (auth) users in parallel.
+  const [{ data }, { data: usersData }] = await Promise.all([
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (supabase as any)
+      .from("notification_recipients")
+      .select("id, email, label, enabled, created_at")
+      .order("enabled", { ascending: false })
+      .order("created_at", { ascending: true }),
+    adminClient().auth.admin.listUsers({
+      page: 1,
+      perPage: 200,
+    }),
+  ]);
 
   const recipients: Recipient[] = (data ?? []) as Recipient[];
-
-  // Recipients can only be people who already have a portal account. Pull the
-  // list of system (auth) users and offer the ones not already on the list.
-  const { data: usersData } = await adminClient().auth.admin.listUsers({
-    page: 1,
-    perPage: 200,
-  });
   const alreadyAdded = new Set(recipients.map((r) => r.email.toLowerCase()));
   const systemUsers = (usersData?.users ?? [])
     .map((u) => u.email)

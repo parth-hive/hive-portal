@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { isMaster } from "@/lib/access";
+import { getSessionUser } from "@/lib/session";
 import { one } from "@/lib/relations";
 import { formatDate } from "@/lib/date";
 import { cleaningScheduleFor, todayISO } from "@/lib/cleaning";
@@ -47,14 +48,9 @@ function leaseEndPill(endIso: string, todayIso: string) {
 export default async function PropertyDetailPage({ params }: PageProps) {
   const { id } = await params;
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  // Only admins (masters) can reveal/copy passwords or manage credentials;
-  // the plaintext is fetched on demand and never shipped with the page.
-  const admin = isMaster(user?.email);
 
   const [
+    user,
     { data: property },
     { data: rooms },
     { data: cleanings },
@@ -62,6 +58,7 @@ export default async function PropertyDetailPage({ params }: PageProps) {
     { data: residents },
     { data: propertyCleaners },
   ] = await Promise.all([
+    getSessionUser(),
     supabase
       .from("properties")
       .select(
@@ -117,6 +114,10 @@ export default async function PropertyDetailPage({ params }: PageProps) {
   ]);
 
   if (!property) notFound();
+
+  // Only admins (masters) can reveal/copy passwords or manage credentials;
+  // the plaintext is fetched on demand and never shipped with the page.
+  const admin = isMaster(user?.email);
 
   type CleanerRel = { name: string; enabled: boolean };
   const cleanerNames = (

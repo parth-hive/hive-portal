@@ -1,6 +1,6 @@
 import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
 import { isMaster, isOperator } from "@/lib/access";
+import { getSessionUser } from "@/lib/session";
 import { boardAdmin } from "@/lib/board";
 import { ChangePasswordForm } from "./change-password-form";
 import { BoardPrefToggle } from "./board-pref-toggle";
@@ -64,10 +64,7 @@ const ADMIN_LINKS: AdminLink[] = [
 ];
 
 export default async function AdminSettingsPage() {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
+  const user = await getSessionUser();
   const master = isMaster(user?.email);
   const operator = isOperator(user?.email);
   const visibleLinks = ADMIN_LINKS.filter(

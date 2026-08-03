@@ -5,6 +5,7 @@ import { one } from "@/lib/relations";
 import { RunRow } from "./run-row";
 import { BulkPaymentForm, type BulkTenant } from "./bulk-payment-form";
 import { canEditLedger } from "@/lib/access";
+import { getSessionUser } from "@/lib/session";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
 import { rateForMonthISO } from "@/lib/rent";
 
@@ -39,27 +40,6 @@ function monthLabel(monthIso: string) {
 
 export default async function ReconciliationListPage() {
   const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-  const admin = canEditLedger(user?.email);
-  if (!admin) {
-    return (
-      <div className="mx-auto w-full max-w-3xl rounded-2xl bg-white px-6 py-12 text-center text-sm text-muted shadow-sm">
-        Bank reconciliation is restricted to the financial operators.
-      </div>
-    );
-  }
-  const { data, error } = await supabase
-    .from("reconciliation_runs")
-    .select(
-      "id, month, total_expected, total_actual, match_count, mismatch_count, missing_count, created_at",
-    )
-    .order("month", { ascending: false })
-    .order("created_at", { ascending: false })
-    .returns<Run[]>();
-
-  const runs = data ?? [];
 
   // Active tenancies for the bulk "Record payments" form, with how much rent
   // they've already paid this cycle (27th → 26th, by transaction date).
@@ -79,18 +59,42 @@ export default async function ReconciliationListPage() {
       | null;
     payments: { amount: number; paid_on: string; payment_type: string }[];
   };
-  const { data: tenancyData } = await supabase
-    .from("tenancies")
-    .select(
-      `id, monthly_rent,
-       tenants(full_name),
-       rooms(room_number, properties(building_name, street_address, unit_number)),
-       payments(amount, paid_on, payment_type)`,
-    )
-    .eq("status", "active")
-    .returns<TenancyRow[]>();
 
-  const { rentChanges } = await fetchLedgerSidecars(supabase);
+  // The reads run alongside the identity check; RLS still guards them, and
+  // their results are discarded when access is denied.
+  const [user, { data, error }, { data: tenancyData }, { rentChanges }] =
+    await Promise.all([
+      getSessionUser(),
+      supabase
+        .from("reconciliation_runs")
+        .select(
+          "id, month, total_expected, total_actual, match_count, mismatch_count, missing_count, created_at",
+        )
+        .order("month", { ascending: false })
+        .order("created_at", { ascending: false })
+        .returns<Run[]>(),
+      supabase
+        .from("tenancies")
+        .select(
+          `id, monthly_rent,
+           tenants(full_name),
+           rooms(room_number, properties(building_name, street_address, unit_number)),
+           payments(amount, paid_on, payment_type)`,
+        )
+        .eq("status", "active")
+        .returns<TenancyRow[]>(),
+      fetchLedgerSidecars(supabase),
+    ]);
+  const admin = canEditLedger(user?.email);
+  if (!admin) {
+    return (
+      <div className="mx-auto w-full max-w-3xl rounded-2xl bg-white px-6 py-12 text-center text-sm text-muted shadow-sm">
+        Bank reconciliation is restricted to the financial operators.
+      </div>
+    );
+  }
+
+  const runs = data ?? [];
   const today = todayISO();
   const bulkTenants: BulkTenant[] = (tenancyData ?? [])
     .map((t) => {
