@@ -97,11 +97,13 @@ export default async function PropertyDetailPage({ params }: PageProps) {
       .eq("property_id", id)
       .order("category", { ascending: true })
       .order("service_name", { ascending: true }),
-    // Active residents of this property — for the Residents widget.
+    // Active residents of this property — for the Residents widget and the
+    // delete flow (which needs a move-out date per active tenancy).
     supabase
       .from("tenancies")
       .select(
-        `status, rooms!inner(room_number, property_id),
+        `id, status, start_date, move_out_date,
+         rooms!inner(room_number, property_id),
          tenants(id, full_name, age, profession, linkedin_url, instagram_url)`,
       )
       .eq("rooms.property_id", id)
@@ -490,7 +492,17 @@ export default async function PropertyDetailPage({ params }: PageProps) {
       </section>
 
       <section className="mt-16 border-t border-stone/60 pt-6">
-        <DeletePropertyButton id={property.id} label={propertyLabel} />
+        <DeletePropertyButton
+          id={property.id}
+          label={propertyLabel}
+          activeTenants={(residents ?? []).map((r) => ({
+            tenancyId: r.id,
+            name: one(r.tenants)?.full_name ?? "Tenant",
+            roomNumber: one(r.rooms)?.room_number ?? null,
+            startDate: r.start_date,
+            moveOutDate: r.move_out_date,
+          }))}
+        />
       </section>
     </div>
   );

@@ -4,6 +4,9 @@ import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { canEditLedger } from "@/lib/access";
+import { one } from "@/lib/relations";
+import { todayISO } from "@/lib/date";
+import { applyMoveOut } from "@/lib/move-out";
 import {
   normalizeUnitAmenities,
   normalizeBuildingAmenities,
@@ -243,21 +246,137 @@ export async function updateProperty(
   return undefined;
 }
 
-export async function deleteProperty(formData: FormData) {
+// Deleting a property must not silently erase active tenants. The client
+// collects a move-out date per active tenancy (`moveout_<tenancyId>` fields);
+// the outcome depends on those dates and on whether money ever moved:
+//  - any date today/future → record the move-outs, keep the property until
+//    everyone is gone ({ notice });
+//  - payment history exists → record the move-outs, keep the property for the
+//    books ({ error });
+//  - all dates past + no payment history → delete outright (cascade), clearing
+//    unpaid ledger charges (e.g. the auto security-deposit row) first.
+export type DeletePropertyState =
+  | { error?: string; notice?: string }
+  | undefined;
+
+const BOOKS_ERROR =
+  "This property has tenancies with payment history, which can't be deleted. The property must stay for the books.";
+
+export async function deleteProperty(
+  formData: FormData,
+): Promise<DeletePropertyState> {
   const id = String(formData.get("id") ?? "");
   if (!id) return;
 
   const supabase = await createClient();
   if (!(await isPropertyOperator(supabase))) {
-    throw new Error("Only the financial operators can delete properties.");
+    return { error: "Only the financial operators can delete properties." };
   }
+
+  const { data: tenancyRows, error: tenancyError } = await supabase
+    .from("tenancies")
+    .select("id, status, tenants(full_name), rooms!inner(property_id)")
+    .eq("rooms.property_id", id);
+  if (tenancyError) return { error: tenancyError.message };
+
+  const tenancyIds = (tenancyRows ?? []).map((t) => t.id);
+  const active = (tenancyRows ?? []).filter((t) => t.status === "active");
+
+  // Every active tenant needs a move-out date before the property can go.
+  const moveOuts = active.map((t) => ({
+    tenancy_id: t.id,
+    name: one(t.tenants)?.full_name ?? "Tenant",
+    date: String(formData.get(`moveout_${t.id}`) ?? "").trim(),
+  }));
+  const missing = moveOuts.filter((m) => !m.date);
+  if (missing.length > 0) {
+    return {
+      error: `Enter a move-out date for every active tenant (missing: ${missing
+        .map((m) => m.name)
+        .join(", ")}).`,
+    };
+  }
+
+  // "For the books" = money actually moved. Unpaid charges alone don't count.
+  let hasBooks = false;
+  if (tenancyIds.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const sb = supabase as any;
+    const [payments, credits, rentHistory] = await Promise.all([
+      supabase
+        .from("payments")
+        .select("id", { count: "exact", head: true })
+        .in("tenancy_id", tenancyIds),
+      sb
+        .from("credit_allocations")
+        .select("id", { count: "exact", head: true })
+        .in("tenancy_id", tenancyIds),
+      sb
+        .from("tenancy_rent_history")
+        .select("id", { count: "exact", head: true })
+        .in("tenancy_id", tenancyIds),
+    ]);
+    hasBooks =
+      (payments.count ?? 0) > 0 ||
+      (credits.count ?? 0) > 0 ||
+      (rentHistory.count ?? 0) > 0;
+  }
+
+  const today = todayISO();
+  const someoneStillHere = moveOuts.some((m) => m.date >= today);
+
+  if (someoneStillHere || hasBooks) {
+    // The property stays (for now) — record the move-outs with full room
+    // side effects so /inventory and notifications reflect them.
+    for (const m of moveOuts) {
+      const result = await applyMoveOut(supabase, m.tenancy_id, m.date);
+      if (result.error) return { error: `${m.name}: ${result.error}` };
+    }
+    revalidatePath("/properties");
+    revalidatePath(`/properties/${id}`);
+    revalidatePath("/tenants");
+    revalidatePath("/inventory");
+
+    if (hasBooks) {
+      return {
+        error:
+          moveOuts.length > 0
+            ? `Move-out dates saved. ${BOOKS_ERROR}`
+            : BOOKS_ERROR,
+      };
+    }
+    const lastDay = moveOuts.reduce(
+      (max, m) => (m.date > max ? m.date : max),
+      "",
+    );
+    return {
+      notice: `Move-out dates saved — tenants are here through ${lastDay}. Delete the property again once everyone has moved out.`,
+    };
+  }
+
+  // Deleting now: no money ever moved, and everyone is already out. Skip
+  // applyMoveOut — its room-availability notifications would advertise rooms
+  // that are about to disappear. Clear unpaid ledger charges (RESTRICT FK)
+  // so the cascade can proceed.
+  if (tenancyIds.length > 0) {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const { error: chargesError } = await (supabase as any)
+      .from("tenancy_charges")
+      .delete()
+      .in("tenancy_id", tenancyIds);
+    if (chargesError) {
+      return { error: `Failed to clear ledger charges: ${chargesError.message}` };
+    }
+  }
+
   const { error } = await supabase.from("properties").delete().eq("id", id);
   if (error) {
-    throw new Error(
-      error.code === "23503"
-        ? "This property has tenancies with payment history, which can't be deleted. The property must stay for the books."
-        : `Failed to delete property: ${error.message}`,
-    );
+    return {
+      error:
+        error.code === "23503"
+          ? BOOKS_ERROR
+          : `Failed to delete property: ${error.message}`,
+    };
   }
   revalidatePath("/properties");
   redirect("/properties");
