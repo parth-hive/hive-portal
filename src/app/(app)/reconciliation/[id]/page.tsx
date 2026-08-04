@@ -378,19 +378,35 @@ export default async function ReconciliationRunPage({
       matchesQuery(m),
   );
 
-  // Row order: settled matches first, then matches still owing, then matches
-  // in credit, then mismatches, then missing — tenant name within each group.
+  // Row order: problems first, worst first.
+  //   0 missing money AND the tenant still owes — chase these
+  //   1 amount mismatches — investigate
+  //   2 matched but a balance remains (partial) — follow up
+  //   3 ending in credit — double-check (overpayment or a ledger error)
+  //   4 all clear: settled, incl. "missing" rows whose rent simply arrived in
+  //     an earlier statement
+  // Groups 0–3 sort by the money at stake (biggest first); group 4 by name.
+  const balanceOf = (m: Match): number | undefined =>
+    m.tenancy_id ? balanceAfter.get(m.tenancy_id) : undefined;
   const groupOf = (m: Match): number => {
-    if (m.status === "mismatch") return 3;
-    if (m.status === "missing") return 4;
-    const b = m.tenancy_id ? balanceAfter.get(m.tenancy_id) : undefined;
-    if (b === undefined) return 2;
-    if (Math.abs(b) <= 0.005) return 0;
-    return b > 0.005 ? 1 : 2;
+    const b = balanceOf(m);
+    const owes = b === undefined || b > 0.005; // unknown ledger → treat as open
+    if (m.status === "missing") return owes ? 0 : 4;
+    if (m.status === "mismatch") return 1;
+    if (owes) return 2;
+    return b < -0.005 ? 3 : 4;
   };
-  const sorted = [...filtered].sort(
-    (a, b) => groupOf(a) - groupOf(b) || a.tenant_name.localeCompare(b.tenant_name),
-  );
+  const sorted = [...filtered].sort((a, b) => {
+    const ga = groupOf(a);
+    const gb = groupOf(b);
+    if (ga !== gb) return ga - gb;
+    if (ga <= 3) {
+      const ba = Math.abs(balanceOf(a) ?? 0);
+      const bb = Math.abs(balanceOf(b) ?? 0);
+      if (Math.abs(ba - bb) > 0.005) return bb - ba;
+    }
+    return a.tenant_name.localeCompare(b.tenant_name);
+  });
 
   // Options for assigning an unmatched deposit (query hoisted above).
   const hasUnmatched =
