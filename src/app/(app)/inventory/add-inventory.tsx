@@ -109,7 +109,7 @@ export function AddInventory({
       onClick={() => setOpen(true)}
       className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-accent-dark"
     >
-      + Add Inventory
+      + Add
     </button>
   );
 
