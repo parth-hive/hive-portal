@@ -47,6 +47,14 @@ export async function enqueueCleanerScheduleChange(
   const touchesThisWeek = dates.some((d) => !!d && d >= start && d <= end);
   if (!touchesThisWeek) return;
 
+  // Paused/retired properties are off the cleaning schedule — no notices.
+  const { data: prop } = await supabase
+    .from("properties")
+    .select("paused_at, archived_at")
+    .eq("id", propertyId)
+    .maybeSingle();
+  if (prop?.paused_at || prop?.archived_at) return;
+
   const { data: links } = await supabase
     .from("property_cleaners")
     .select("cleaners(id, enabled)")

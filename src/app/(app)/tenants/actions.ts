@@ -730,7 +730,7 @@ export async function settleEndedBalance(formData: FormData) {
     .from("tenancies")
     .select(
       `id, tenant_id, status, monthly_rent, first_month_rent, security_deposit,
-       start_date, move_out_date,
+       start_date, move_out_date, paused_at,
        payments(amount, paid_on, payment_type)`,
     )
     .eq("id", tenancy_id)
@@ -966,6 +966,7 @@ export async function sendBalanceReminders(
     security_deposit: number | null;
     start_date: string;
     move_out_date: string | null;
+    paused_at: string | null;
     tenants:
       | { full_name: string; email: string | null; phone: string | null }
       | { full_name: string; email: string | null; phone: string | null }[]
@@ -986,7 +987,7 @@ export async function sendBalanceReminders(
   const { data, error } = await supabase
     .from("tenancies")
     .select(
-      `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date,
+      `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date, paused_at,
        tenants(full_name, email, phone),
        rooms(properties(is_new_york)),
        payments(id, amount, paid_on, payment_type, notes)`,
@@ -1012,6 +1013,8 @@ export async function sendBalanceReminders(
     if (row.move_out_date && row.move_out_date <= today) continue;
     // Skip tenancies that haven't started yet.
     if (row.start_date > today) continue;
+    // Paused tenancies are excluded from all reminders, email and SMS.
+    if (row.paused_at) continue;
 
     const { netBalance } = computeLedger(
       row,
@@ -1095,4 +1098,50 @@ export async function sendBalanceReminders(
     );
   }
   return { success: parts.join(" ") };
+}
+
+// ----------------------------------------------------------------------------
+// Pause / resume a tenancy. Paused tenancies accrue no new rent (months that
+// begin after the pause bill nothing — see rentDue), receive no automatic
+// communication (rent reminders, late fees, lease reminders) and are excluded
+// from manual balance reminders, email and SMS alike.
+// ----------------------------------------------------------------------------
+
+export async function pauseTenancy(formData: FormData) {
+  const tenancy_id = String(formData.get("tenancy_id") ?? "");
+  const tenant_id = String(formData.get("tenant_id") ?? "");
+  if (!tenancy_id) return;
+  const supabase = await createClient();
+  const user = await getSessionUser();
+  if (!canEditLedger(user?.email)) throw new Error(LEDGER_ADMIN_ERROR);
+
+  const { error } = await supabase
+    .from("tenancies")
+    .update({ paused_at: new Date().toISOString(), pause_source: "tenant" })
+    .eq("id", tenancy_id)
+    .is("paused_at", null);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/tenants");
+  revalidatePath("/");
+  if (tenant_id) revalidatePath(`/tenants/${tenant_id}`);
+}
+
+export async function resumeTenancy(formData: FormData) {
+  const tenancy_id = String(formData.get("tenancy_id") ?? "");
+  const tenant_id = String(formData.get("tenant_id") ?? "");
+  if (!tenancy_id) return;
+  const supabase = await createClient();
+  const user = await getSessionUser();
+  if (!canEditLedger(user?.email)) throw new Error(LEDGER_ADMIN_ERROR);
+
+  const { error } = await supabase
+    .from("tenancies")
+    .update({ paused_at: null, pause_source: null })
+    .eq("id", tenancy_id);
+  if (error) throw new Error(error.message);
+
+  revalidatePath("/tenants");
+  revalidatePath("/");
+  if (tenant_id) revalidatePath(`/tenants/${tenant_id}`);
 }

@@ -289,6 +289,14 @@ async function handleAvailableFromChange(
   ) as PropertyShape | null;
   if (!property) return;
 
+  // Paused/retired properties get no auto-scheduled move-out cleaning.
+  const { data: propFlags } = await supabase
+    .from("properties")
+    .select("paused_at, archived_at")
+    .eq("id", property.id)
+    .maybeSingle();
+  if (propFlags?.paused_at || propFlags?.archived_at) return;
+
   const today = todayISO();
 
   // 1. Find the existing pending move-out cleaning for this room (if any).

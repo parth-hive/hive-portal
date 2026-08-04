@@ -85,6 +85,7 @@ export async function applyMonthlyLateFees(
     security_deposit: number | null;
     start_date: string;
     move_out_date: string | null;
+    paused_at: string | null;
     tenants: { full_name: string } | { full_name: string }[] | null;
     rooms: RoomRel | RoomRel[] | null;
     payments: { amount: number; paid_on: string; payment_type: string }[];
@@ -92,7 +93,7 @@ export async function applyMonthlyLateFees(
   const { data: tenancies, error } = await supabase
     .from("tenancies")
     .select(
-      `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date,
+      `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date, paused_at,
        tenants(full_name),
        rooms(properties(is_new_york)),
        payments(amount, paid_on, payment_type)`,
@@ -132,6 +133,9 @@ export async function applyMonthlyLateFees(
     // tenancy has started.
     if (row.move_out_date && row.move_out_date <= today) continue;
     if (row.start_date > today) continue;
+
+    // Paused tenancies never receive automatic late fees.
+    if (row.paused_at) continue;
 
     // New York units are exempt from automatic late fees.
     if (one(one(row.rooms)?.properties)?.is_new_york) continue;

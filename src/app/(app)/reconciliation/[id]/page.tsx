@@ -281,6 +281,7 @@ export default async function ReconciliationRunPage({
       monthly_rent: number;
       first_month_rent: number | null;
       security_deposit: number | null;
+      paused_at: string | null;
       payments: { amount: number; paid_on: string; payment_type: string }[];
     };
     const [{ data: tenancyRows }, sidecars, { data: runDeps }] =
@@ -288,7 +289,7 @@ export default async function ReconciliationRunPage({
         supabase
           .from("tenancies")
           .select(
-            `id, start_date, move_out_date, monthly_rent, first_month_rent, security_deposit,
+            `id, start_date, move_out_date, monthly_rent, first_month_rent, security_deposit, paused_at,
              payments(amount, paid_on, payment_type)`,
           )
           .in("id", tenancyIds)

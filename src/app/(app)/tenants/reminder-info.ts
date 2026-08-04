@@ -46,6 +46,7 @@ export type ReminderTenancy = {
   security_deposit: number | null;
   start_date: string;
   move_out_date: string | null;
+  paused_at: string | null;
   payments: { amount: number; paid_on: string; payment_type: string }[];
 };
 
@@ -64,7 +65,7 @@ export async function getReminderInfo(
         : supabase
             .from("tenancies")
             .select(
-              `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date,
+              `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date, paused_at,
                payments(amount, paid_on, payment_type)`,
             )
             .eq("status", "active")
@@ -94,6 +95,8 @@ export async function getReminderInfo(
   for (const row of tenancies ?? []) {
     if (row.move_out_date && row.move_out_date <= today) continue;
     if (row.start_date > today) continue;
+    // Mirrors sendBalanceReminders: paused tenancies get no reminders.
+    if (row.paused_at) continue;
     const { netBalance } = computeLedger(
       row,
       row.payments ?? [],

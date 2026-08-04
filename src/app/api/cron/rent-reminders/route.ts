@@ -153,7 +153,7 @@ export async function GET(req: NextRequest) {
   const { data: tenancies, error } = await supabase
     .from("tenancies")
     .select(
-      `id, tenant_id, start_date, move_out_date, status,
+      `id, tenant_id, start_date, move_out_date, paused_at, status,
        monthly_rent, first_month_rent, security_deposit,
        tenants!inner(id, email, phone),
        rooms!inner(properties!inner(is_new_york)),
@@ -188,6 +188,7 @@ export async function GET(req: NextRequest) {
     tenant_id: string;
     start_date: string;
     move_out_date: string | null;
+    paused_at: string | null;
     monthly_rent: number | string;
     first_month_rent: number | string | null;
     security_deposit: number | string | null;
@@ -236,7 +237,8 @@ export async function GET(req: NextRequest) {
   for (const row of (tenancies ?? []) as Row[]) {
     const tenant = Array.isArray(row.tenants) ? row.tenants[0] : row.tenants;
     const email = tenant?.email?.trim();
-    if (!email || row.move_out_date || row.start_date > todayISO()) {
+    // Paused tenancies get no reminders — email or SMS, clean or owing.
+    if (!email || row.move_out_date || row.start_date > todayISO() || row.paused_at) {
       skipped++;
       continue;
     }

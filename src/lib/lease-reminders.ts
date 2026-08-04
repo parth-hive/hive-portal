@@ -91,6 +91,8 @@ async function runMilestone(
        rooms(room_number, properties(building_name, street_address, unit_number))`,
     )
     .eq("status", "active")
+    // Paused tenancies are excluded from every automatic reminder.
+    .is("paused_at", null)
     .is(column, null)
     .not("lease_end_date", "is", null)
     .gte("lease_end_date", windowStart)

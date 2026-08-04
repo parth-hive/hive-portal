@@ -32,6 +32,7 @@ export type TenancyRow = {
   security_deposit: number | null;
   start_date: string;
   move_out_date: string | null;
+  paused_at: string | null;
   lease_end_date: string | null;
   rooms:
     | {
@@ -70,7 +71,9 @@ export const getDashProperties = cache(async () => {
   return supabase
     .from("properties")
     .select("id, building_name, street_address, unit_number, neighborhood")
-    .is("archived_at", null);
+    .is("archived_at", null)
+    // Only feeds the cleaning worklist; paused properties skip cleaning.
+    .is("paused_at", null);
 });
 
 export const getDashRooms = cache(async () => {
@@ -98,7 +101,7 @@ export const getDashTenancies = cache(async () => {
   return supabase
     .from("tenancies")
     .select(
-      `id, tenant_id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date, lease_end_date, status,
+      `id, tenant_id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date, paused_at, lease_end_date, status,
        rooms(room_number, properties(building_name, street_address, unit_number)),
        tenants(full_name, email, phone)`,
     )

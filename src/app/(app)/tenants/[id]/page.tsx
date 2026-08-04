@@ -19,6 +19,7 @@ import { RentAmountEdit } from "./rent-edit";
 import { TenantBackLink } from "./tenant-back-link";
 import { computeLedger, buildLedgerEntries, type RentChange } from "@/lib/rent";
 import { canEditLedger } from "@/lib/access";
+import { pauseTenancy, resumeTenancy } from "../actions";
 import { getSessionUser } from "@/lib/session";
 import { todayISO } from "@/lib/date";
 
@@ -53,6 +54,8 @@ type Tenancy = {
   security_deposit: number | null;
   start_date: string;
   move_out_date: string | null;
+  paused_at: string | null;
+  pause_source: "tenant" | "property" | null;
   lease_start_date: string | null;
   lease_end_date: string | null;
   status: "active" | "ended" | "upcoming";
@@ -138,7 +141,7 @@ export default async function TenantDetailPage({
       supabase
         .from("tenancies")
         .select(
-          `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date, lease_start_date, lease_end_date, status,
+          `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date, paused_at, pause_source, lease_start_date, lease_end_date, status,
            lease_pdf_path,
            rooms(id, room_number,
                  properties(id, building_name, street_address, unit_number))`,
@@ -236,13 +239,52 @@ export default async function TenantDetailPage({
           <TenantBackLink fallbackHref={back.href} label={back.label} />
           <h1 className="mt-2 text-3xl tracking-tight text-ink">
             {tenant.full_name}
+            {active?.paused_at && (
+              <span className="ml-3 align-middle rounded-full bg-accent/15 px-3 py-1 text-xs font-medium uppercase tracking-wide text-accent-text">
+                Paused{active.pause_source === "property" ? " (property)" : ""}
+              </span>
+            )}
           </h1>
           {active && (
             <p className="mt-1 text-sm text-muted">
               {unitTitle(active)} · {one(active.rooms)?.room_number ?? "—"}
             </p>
           )}
+          {active?.paused_at && (
+            <p className="mt-1 text-sm text-accent-text">
+              Paused since {formatDate(active.paused_at.slice(0, 10))} — no new
+              rent accrues, and this tenant is excluded from all reminders,
+              late fees, and other automatic actions.
+            </p>
+          )}
         </div>
+        {ledgerAdmin && active && (
+          <form action={active.paused_at ? resumeTenancy : pauseTenancy}>
+            <input type="hidden" name="tenancy_id" value={active.id} />
+            <input type="hidden" name="tenant_id" value={tenant.id} />
+            {active.paused_at ? (
+              <button
+                type="submit"
+                className="rounded-full border border-stone bg-white px-4 py-2 text-sm text-ink hover:bg-warm"
+                title={
+                  active.pause_source === "property"
+                    ? "This pause came from the property — resuming here lifts it for this tenant only."
+                    : undefined
+                }
+              >
+                Resume actions
+              </button>
+            ) : (
+              <button
+                type="submit"
+                className="rounded-full border border-accent bg-accent/10 px-4 py-2 text-sm text-accent-text hover:bg-accent/20"
+                title="Stop rent accrual, reminders, late fees, and every automatic action for this tenant."
+              >
+                Pause actions
+              </button>
+            )}
+          </form>
+        )}
       </header>
 
       <div className="mt-8 grid gap-6 md:grid-cols-2">

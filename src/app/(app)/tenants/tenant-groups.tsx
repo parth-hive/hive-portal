@@ -15,6 +15,8 @@ export type DisplayRow = {
   due: number;
   paid: number;
   balance: number;
+  /** Paused tenancies accrue no rent and get no reminders. */
+  paused?: boolean;
 };
 
 export type DisplayGroup = {
@@ -228,6 +230,14 @@ export function TenantGroups({
                             >
                               {r.tenant_name}
                             </Link>
+                            {r.paused && (
+                              <span
+                                className="ml-2 rounded-full bg-accent/15 px-2 py-0.5 text-[11px] font-medium uppercase tracking-wide text-accent-text"
+                                title="Paused — no new rent accrues; excluded from all reminders and automatic actions."
+                              >
+                                Paused
+                              </span>
+                            )}
                             {(r.tenant_email || r.tenant_phone) && (
                               <p className="text-sm text-muted">
                                 {[r.tenant_email, r.tenant_phone]

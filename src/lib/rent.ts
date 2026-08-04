@@ -44,6 +44,14 @@ export type LedgerTenancy = {
   monthly_rent: number | string;
   first_month_rent: number | string | null;
   security_deposit: number | string | null;
+  /**
+   * When set, the tenancy is paused: months that BEGIN on or after this
+   * timestamp accrue no rent (months already underway stay billed). Required
+   * — not optional — so every query feeding the ledger is forced to select
+   * it; an optional field would let a forgotten select silently bill paused
+   * tenants on one page and not another.
+   */
+  paused_at: string | null;
 };
 
 export type LedgerPayment = {
@@ -161,8 +169,12 @@ function rentDue(
   if (t.move_out_date) end = Math.min(end, monthIndex(t.move_out_date));
   if (end < effStart) return 0;
 
+  const pausedDay = t.paused_at ? t.paused_at.slice(0, 10) : null;
   let total = 0;
   for (let idx = effStart; idx <= end; idx++) {
+    // Paused tenancies accrue nothing for months that begin on/after the
+    // pause date; a month already underway when the pause landed stays billed.
+    if (pausedDay && firstOfMonthISO(idx) >= pausedDay) continue;
     // The tenancy's real first month gets first_month_rent — but only when
     // that month is inside the ledger window. If the tenancy predates the
     // anchor, the first counted month is just a regular monthly charge.
@@ -351,7 +363,10 @@ export function buildLedgerEntries(
   const effStart = Math.max(anchorIdx, startIdx);
   let end = monthIndex(todayIso);
   if (t.move_out_date) end = Math.min(end, monthIndex(t.move_out_date));
+  // Mirror rentDue's pause rule so the chronological view matches netBalance.
+  const pausedDay = t.paused_at ? t.paused_at.slice(0, 10) : null;
   for (let idx = effStart; t.start_date <= todayIso && idx <= end; idx++) {
+    if (pausedDay && firstOfMonthISO(idx) >= pausedDay) continue;
     const amount =
       idx === startIdx && startIdx >= anchorIdx && t.first_month_rent !== null
         ? num(t.first_month_rent)

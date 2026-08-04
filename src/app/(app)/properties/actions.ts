@@ -397,6 +397,83 @@ export async function deleteProperty(
   redirect("/properties");
 }
 
+// Pause every action on a property: stamps all its current (active/upcoming)
+// tenancies as paused (pause_source = 'property') — no new rent accrual, no
+// automatic or manual reminders — and takes the unit off the cleaning
+// schedule entirely. Resume clears only the property-stamped pauses, so a
+// tenant paused individually stays paused.
+export async function pauseProperty(formData: FormData) {
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
+  const supabase = await createClient();
+  if (!(await isPropertyOperator())) {
+    throw new Error("Only the financial operators can pause properties.");
+  }
+  const now = new Date().toISOString();
+
+  const { error } = await supabase
+    .from("properties")
+    .update({ paused_at: now })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+
+  const { data: tens } = await supabase
+    .from("tenancies")
+    .select("id, rooms!inner(property_id)")
+    .eq("rooms.property_id", id)
+    .in("status", ["active", "upcoming"])
+    .is("paused_at", null);
+  const ids = (tens ?? []).map((t) => t.id);
+  if (ids.length > 0) {
+    const { error: stampError } = await supabase
+      .from("tenancies")
+      .update({ paused_at: now, pause_source: "property" })
+      .in("id", ids);
+    if (stampError) throw new Error(stampError.message);
+  }
+
+  revalidatePath("/properties");
+  revalidatePath(`/properties/${id}`);
+  revalidatePath("/tenants");
+  revalidatePath("/cleaning");
+  revalidatePath("/");
+}
+
+export async function resumeProperty(formData: FormData) {
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
+  const supabase = await createClient();
+  if (!(await isPropertyOperator())) {
+    throw new Error("Only the financial operators can resume properties.");
+  }
+
+  const { error } = await supabase
+    .from("properties")
+    .update({ paused_at: null })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+
+  const { data: tens } = await supabase
+    .from("tenancies")
+    .select("id, rooms!inner(property_id)")
+    .eq("rooms.property_id", id)
+    .eq("pause_source", "property");
+  const ids = (tens ?? []).map((t) => t.id);
+  if (ids.length > 0) {
+    const { error: clearError } = await supabase
+      .from("tenancies")
+      .update({ paused_at: null, pause_source: null })
+      .in("id", ids);
+    if (clearError) throw new Error(clearError.message);
+  }
+
+  revalidatePath("/properties");
+  revalidatePath(`/properties/${id}`);
+  revalidatePath("/tenants");
+  revalidatePath("/cleaning");
+  revalidatePath("/");
+}
+
 // Bring a retired property back: it reappears on /properties, the Rent
 // Tracker (as a vacant group if empty), inventory, and cleaning.
 export async function restoreProperty(formData: FormData) {

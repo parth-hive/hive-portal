@@ -25,8 +25,18 @@ export async function runCleaningSchedule(supabase: SupabaseClient) {
     if (!cur || r.cleaning_date > cur) latest.set(r.property_id, r.cleaning_date);
   }
 
+  // Paused or retired properties fall out of the cadence entirely.
+  const { data: excluded } = await supabase
+    .from("properties")
+    .select("id, paused_at, archived_at")
+    .or("paused_at.not.is.null,archived_at.not.is.null");
+  const skipIds = new Set(
+    ((excluded ?? []) as { id: string }[]).map((p) => p.id),
+  );
+
   const inserts: { property_id: string; cleaning_date: string }[] = [];
   for (const [propertyId, last] of latest) {
+    if (skipIds.has(propertyId)) continue;
     if (hasUpcoming.has(propertyId)) continue; // already has a next cleaning
     let next = addDaysISO(last, CLEANING_CADENCE_DAYS);
     while (next < today) next = addDaysISO(next, CLEANING_CADENCE_DAYS);

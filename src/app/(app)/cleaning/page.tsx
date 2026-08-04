@@ -114,6 +114,8 @@ async function ScheduleSection() {
         .from("properties")
         .select("id, building_name, street_address, unit_number")
         .is("archived_at", null)
+        // Paused properties are excluded from cleaning entirely.
+        .is("paused_at", null)
         .order("street_address", { ascending: true }),
       supabase.from("cleaners").select("id, name"),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

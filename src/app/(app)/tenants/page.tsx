@@ -198,6 +198,7 @@ async function SideListsSection() {
     security_deposit: number | null;
     start_date: string;
     move_out_date: string | null;
+    paused_at: string | null;
     balance_dismissed_at: string | null;
     tenants:
       | { id: string; full_name: string }
@@ -331,6 +332,7 @@ async function TenantTrackerSection() {
       due: r.due,
       paid: r.paidThisMonth,
       balance: r.balance,
+      paused: !!r.paused_at,
       groupLabel: p ? unitLabel(p) : "Unassigned",
       propertyId: p?.id ?? null,
       haystack: [

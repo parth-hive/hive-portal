@@ -12,6 +12,7 @@ const tenancy = (overrides: Partial<LedgerTenancy> = {}): LedgerTenancy => ({
   monthly_rent: 1_325,
   first_month_rent: null,
   security_deposit: null,
+  paused_at: null,
   ...overrides,
 });
 
@@ -35,6 +36,20 @@ describe("rent ledger financial controls", () => {
         "2026-07-15",
       ),
     ).toEqual([]);
+  });
+
+  it("stops accruing rent for months that begin after the pause date", () => {
+    const paused = tenancy({ paused_at: "2026-07-15T12:00:00Z" });
+    const ledger = computeLedger(paused, [], [], [], "2026-09-10");
+
+    // June and July accrue (July was already underway when the pause landed);
+    // August and September begin after it and bill nothing.
+    expect(ledger.rent.owed).toBe(2 * 1_325);
+
+    const rentLines = buildLedgerEntries(paused, [], [], "2026-09-10").filter(
+      (e) => e.id.startsWith("rent-"),
+    );
+    expect(rentLines).toHaveLength(2);
   });
 
   it("keeps future-dated payments and charges out until their date", () => {

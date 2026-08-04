@@ -75,6 +75,7 @@ type TenancyForMonth = {
   id: string;
   start_date: string;
   move_out_date: string | null;
+  paused_at: string | null;
   monthly_rent: number;
   first_month_rent: number | null;
   /** Rent-rate history so past months bill the rate in effect back then. */
@@ -85,6 +86,8 @@ function dueForMonth(t: TenancyForMonth, monthStart: string, monthEnd: string): 
   // Tenancy doesn't overlap the month.
   if (t.start_date > monthEnd) return 0;
   if (t.move_out_date && t.move_out_date < monthStart) return 0;
+  // Mirrors rentDue's pause freeze: paused months owe nothing.
+  if (t.paused_at && monthStart >= t.paused_at.slice(0, 10)) return 0;
   const isStartingMonth =
     t.start_date >= monthStart && t.start_date <= monthEnd;
   if (isStartingMonth && t.first_month_rent !== null) {
@@ -97,6 +100,7 @@ type RawTenancy = {
   id: string;
   start_date: string;
   move_out_date: string | null;
+  paused_at: string | null;
   monthly_rent: number;
   first_month_rent: number | null;
 };
@@ -153,7 +157,7 @@ const loadFilteredHistory = cache(async (propertyIds?: string[]) => {
 
     const { data: tenancies } = await supabase
       .from("tenancies")
-      .select("id, start_date, move_out_date, monthly_rent, first_month_rent")
+      .select("id, start_date, move_out_date, paused_at, monthly_rent, first_month_rent")
       .in("room_id", roomIds);
 
     const tenancyIds = (tenancies ?? []).map((t) => t.id);
@@ -174,7 +178,7 @@ const loadFilteredHistory = cache(async (propertyIds?: string[]) => {
   const [{ data: tenancies }, { data: payments }] = await Promise.all([
     supabase
       .from("tenancies")
-      .select("id, start_date, move_out_date, monthly_rent, first_month_rent"),
+      .select("id, start_date, move_out_date, paused_at, monthly_rent, first_month_rent"),
     supabase
       .from("payments")
       .select("amount, paid_on, payment_type")

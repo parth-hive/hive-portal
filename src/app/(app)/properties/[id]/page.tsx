@@ -7,7 +7,7 @@ import { one } from "@/lib/relations";
 import { formatDate } from "@/lib/date";
 import { cleaningScheduleFor, todayISO } from "@/lib/cleaning";
 import { DeletePropertyButton } from "./delete-button";
-import { restoreProperty } from "../actions";
+import { restoreProperty, pauseProperty, resumeProperty } from "../actions";
 import { AddRoom } from "./add-room";
 import { RoomRow } from "./room-row";
 import { AddCleaning } from "../../cleaning/add-cleaning";
@@ -63,7 +63,7 @@ export default async function PropertyDetailPage({ params }: PageProps) {
     supabase
       .from("properties")
       .select(
-        `id, archived_at, building_name, street_address, unit_number, cross_street,
+        `id, archived_at, paused_at, building_name, street_address, unit_number, cross_street,
          neighborhood, bedrooms, bathrooms,
          unit_rent, unit_lease_start, unit_lease_end,
          amenity_fees_yearly, misc_fees_yearly,
@@ -201,6 +201,11 @@ export default async function PropertyDetailPage({ params }: PageProps) {
                 Deleted
               </span>
             )}
+            {property.paused_at && (
+              <span className="ml-3 align-middle rounded-full bg-accent/15 px-3 py-1 text-xs font-medium uppercase tracking-wide text-accent-text">
+                Paused
+              </span>
+            )}
           </h1>
           <p className="mt-1 text-sm text-muted">
             {property.building_name && `${property.street_address} · `}
@@ -209,6 +214,26 @@ export default async function PropertyDetailPage({ params }: PageProps) {
           </p>
         </div>
         <div className="flex gap-2">
+          <form action={property.paused_at ? resumeProperty : pauseProperty}>
+            <input type="hidden" name="id" value={property.id} />
+            {property.paused_at ? (
+              <button
+                type="submit"
+                className="rounded-full border border-stone bg-white px-4 py-2 text-sm text-ink hover:bg-warm"
+                title="Lift the pause for this property and its tenants (individually-paused tenants stay paused)."
+              >
+                Resume actions
+              </button>
+            ) : (
+              <button
+                type="submit"
+                className="rounded-full border border-accent bg-accent/10 px-4 py-2 text-sm text-accent-text hover:bg-accent/20"
+                title="Pause every tenant here (no rent accrual, no reminders, no late fees) and take the unit off the cleaning schedule."
+              >
+                Pause actions
+              </button>
+            )}
+          </form>
           {property.archived_at && (
             <form action={restoreProperty}>
               <input type="hidden" name="id" value={property.id} />

@@ -35,8 +35,12 @@ export function expectedForMonth(
   monthStart: string,
   monthEnd: string,
   rentChanges: RentChange[],
+  pausedAt: string | null = null,
 ): number {
   if (startDate > monthEnd) return 0;
+  // Paused tenancies expect nothing for months that begin after the pause —
+  // mirrors rentDue's freeze so recon and the ledger agree.
+  if (pausedAt && monthStart >= pausedAt.slice(0, 10)) return 0;
   if (
     startDate >= monthStart &&
     startDate <= monthEnd &&
@@ -56,6 +60,7 @@ export type TenancyInfo = {
   monthly_rent: number;
   first_month_rent: number | null;
   start_date: string;
+  paused_at: string | null;
   property_label: string | null;
   room_label: string | null;
   rent_changes: RentChange[];
@@ -90,13 +95,14 @@ export async function loadMonthTenancies(
     first_month_rent: number | null;
     start_date: string;
     move_out_date: string | null;
+    paused_at: string | null;
     tenants: TenantRel | TenantRel[] | null;
     rooms: RoomRel | RoomRel[] | null;
   };
   const { data, error } = await supabase
     .from("tenancies")
     .select(
-      `id, tenant_id, monthly_rent, first_month_rent, start_date, move_out_date,
+      `id, tenant_id, monthly_rent, first_month_rent, start_date, move_out_date, paused_at,
        tenants(id, full_name, pays_as),
        rooms(room_number,
              properties(building_name, street_address, unit_number))`,
@@ -190,6 +196,7 @@ export async function loadMonthTenancies(
         first_month_rent:
           t.first_month_rent != null ? Number(t.first_month_rent) : null,
         start_date: t.start_date,
+        paused_at: t.paused_at,
         property_label: property
           ? `${property.building_name?.trim() || property.street_address} Apt ${property.unit_number}`
           : null,
@@ -280,6 +287,7 @@ export function buildMatches(
       monthStart,
       monthEnd,
       t.rent_changes,
+      t.paused_at,
     );
     // Sum the deposits under every key this tenancy claims — a tenant can pay
     // under their own name one month and a remembered alias the next.

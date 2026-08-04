@@ -58,9 +58,11 @@ export async function getCleanerWeekSchedule(
   const { data } = await supabase
     .from("cleaning_records")
     .select(
-      "id, property_id, cleaning_date, kind, notes, rooms(room_number), properties(building_name, street_address, unit_number)",
+      "id, property_id, cleaning_date, kind, notes, rooms(room_number), properties!inner(building_name, street_address, unit_number, paused_at, archived_at)",
     )
     .in("property_id", propertyIds)
+    .is("properties.paused_at", null)
+    .is("properties.archived_at", null)
     .gte("cleaning_date", from)
     .lte("cleaning_date", to)
     .returns<Row[]>();

@@ -901,6 +901,7 @@ export type Database = {
           misc_fees_yearly: number | null
           neighborhood: string | null
           notes: string | null
+          paused_at: string | null
           street_address: string
           unit_amenities: string[]
           unit_lease_end: string | null
@@ -928,6 +929,7 @@ export type Database = {
           misc_fees_yearly?: number | null
           neighborhood?: string | null
           notes?: string | null
+          paused_at?: string | null
           street_address: string
           unit_amenities?: string[]
           unit_lease_end?: string | null
@@ -955,6 +957,7 @@ export type Database = {
           misc_fees_yearly?: number | null
           neighborhood?: string | null
           notes?: string | null
+          paused_at?: string | null
           street_address?: string
           unit_amenities?: string[]
           unit_lease_end?: string | null
@@ -1692,6 +1695,8 @@ export type Database = {
           monthly_rent: number
           move_out_date: string | null
           notes: string | null
+          pause_source: string | null
+          paused_at: string | null
           room_id: string
           security_deposit: number | null
           start_date: string
@@ -1713,6 +1718,8 @@ export type Database = {
           monthly_rent: number
           move_out_date?: string | null
           notes?: string | null
+          pause_source?: string | null
+          paused_at?: string | null
           room_id: string
           security_deposit?: number | null
           start_date: string
@@ -1734,6 +1741,8 @@ export type Database = {
           monthly_rent?: number
           move_out_date?: string | null
           notes?: string | null
+          pause_source?: string | null
+          paused_at?: string | null
           room_id?: string
           security_deposit?: number | null
           start_date?: string

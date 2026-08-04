@@ -37,6 +37,7 @@ export type ActiveTenancyRow = {
   security_deposit: number | null;
   start_date: string;
   move_out_date: string | null;
+  paused_at: string | null;
   tenant_id: string;
   tenants: TenantRel | TenantRel[] | null;
   rooms: RoomRel | RoomRel[] | null;
@@ -53,7 +54,7 @@ export const getActiveTenancies = cache(async () => {
   return supabase
     .from("tenancies")
     .select(
-      `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date, tenant_id,
+      `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date, paused_at, tenant_id,
        tenants(id, full_name, email, phone),
        rooms(id, room_number,
              properties(id, building_name, street_address, unit_number)),
@@ -82,7 +83,7 @@ export const getEndedTenancies = cache(async () => {
   return supabase
     .from("tenancies")
     .select(
-      `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date,
+      `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date, paused_at,
        balance_dismissed_at,
        tenants(id, full_name),
        rooms(room_number,

@@ -278,7 +278,7 @@ export async function listActiveTenants(args: {
     .from("tenancies")
     .select(
       `id, monthly_rent, first_month_rent, security_deposit, start_date,
-       move_out_date, tenant_id,
+       move_out_date, paused_at, tenant_id,
        tenants(id, full_name, email, phone),
        rooms(room_number,
              properties(id, building_name, street_address, unit_number)),
@@ -1182,7 +1182,7 @@ export async function listMovedOutBalances() {
     .from("tenancies")
     .select(
       `id, tenant_id, monthly_rent, first_month_rent, security_deposit,
-       start_date, move_out_date, balance_dismissed_at,
+       start_date, move_out_date, paused_at, balance_dismissed_at,
        tenants(full_name),
        rooms(room_number, properties(building_name, street_address, unit_number)),
        payments(amount, paid_on, payment_type)`,
@@ -1275,7 +1275,7 @@ export async function settleMovedOutBalance(args: { tenancy_id: string }) {
     .from("tenancies")
     .select(
       `id, tenant_id, status, monthly_rent, first_month_rent, security_deposit,
-       start_date, move_out_date,
+       start_date, move_out_date, paused_at,
        tenants(full_name),
        payments(amount, paid_on, payment_type)`,
     )
@@ -1898,6 +1898,7 @@ export async function sendBalanceReminders(args: {
     security_deposit: number | null;
     start_date: string;
     move_out_date: string | null;
+    paused_at: string | null;
     tenants:
       | { full_name: string; email: string | null; phone: string | null }
       | { full_name: string; email: string | null; phone: string | null }[]
@@ -1918,7 +1919,7 @@ export async function sendBalanceReminders(args: {
   let query = supabase
     .from("tenancies")
     .select(
-      `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date,
+      `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date, paused_at,
        tenants(full_name, email, phone),
        rooms(properties(is_new_york)),
        payments(id, amount, paid_on, payment_type, notes)`,
@@ -1944,6 +1945,8 @@ export async function sendBalanceReminders(args: {
   for (const row of data ?? []) {
     if (row.move_out_date && row.move_out_date <= today) continue;
     if (row.start_date > today) continue;
+    // Paused tenancies are excluded from all reminders, email and SMS.
+    if (row.paused_at) continue;
 
     const { netBalance } = computeLedger(
       row,
