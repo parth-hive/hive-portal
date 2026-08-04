@@ -76,11 +76,13 @@ export default async function NewTenantPage({ searchParams }: PageProps) {
   const q = supabase
     .from("rooms")
     .select(
-      "id, room_number, total_rent, status, available_from, properties(building_name, street_address, unit_number)",
+      "id, room_number, total_rent, status, available_from, properties!inner(building_name, street_address, unit_number)",
     )
     .or(
       `status.eq.available,and(status.eq.occupied,available_from.gte.${today})${defaultRoomId ? `,id.eq.${defaultRoomId}` : ""}`,
     )
+    // No new tenants in retired properties.
+    .is("properties.archived_at", null)
     .order("available_from", { ascending: true, nullsFirst: true });
 
   const [{ data }, { data: pendingData }] = await Promise.all([

@@ -7,6 +7,7 @@ import { one } from "@/lib/relations";
 import { formatDate } from "@/lib/date";
 import { cleaningScheduleFor, todayISO } from "@/lib/cleaning";
 import { DeletePropertyButton } from "./delete-button";
+import { restoreProperty } from "../actions";
 import { AddRoom } from "./add-room";
 import { RoomRow } from "./room-row";
 import { AddCleaning } from "../../cleaning/add-cleaning";
@@ -62,7 +63,7 @@ export default async function PropertyDetailPage({ params }: PageProps) {
     supabase
       .from("properties")
       .select(
-        `id, building_name, street_address, unit_number, cross_street,
+        `id, archived_at, building_name, street_address, unit_number, cross_street,
          neighborhood, bedrooms, bathrooms,
          unit_rent, unit_lease_start, unit_lease_end,
          amenity_fees_yearly, misc_fees_yearly,
@@ -195,6 +196,11 @@ export default async function PropertyDetailPage({ params }: PageProps) {
             <span className="font-display text-accent-text">
               Apt {property.unit_number}
             </span>
+            {property.archived_at && (
+              <span className="ml-3 align-middle rounded-full bg-ink/80 px-3 py-1 text-xs font-medium uppercase tracking-wide text-cream">
+                Deleted
+              </span>
+            )}
           </h1>
           <p className="mt-1 text-sm text-muted">
             {property.building_name && `${property.street_address} · `}
@@ -203,6 +209,17 @@ export default async function PropertyDetailPage({ params }: PageProps) {
           </p>
         </div>
         <div className="flex gap-2">
+          {property.archived_at && (
+            <form action={restoreProperty}>
+              <input type="hidden" name="id" value={property.id} />
+              <button
+                type="submit"
+                className="rounded-full border border-stone bg-white px-4 py-2 text-sm text-ink hover:bg-warm"
+              >
+                Restore property
+              </button>
+            </form>
+          )}
           <Link
             href={`/properties/${property.id}/edit`}
             className="rounded-full border border-stone bg-white px-4 py-2 text-sm text-ink hover:bg-warm"

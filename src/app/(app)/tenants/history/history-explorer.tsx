@@ -1,42 +1,14 @@
 "use client";
 
-import Link from "next/link";
 import { useMemo } from "react";
-import { formatDate } from "@/lib/date";
 import { useDeferredParam, useUrlParamState } from "@/lib/use-url-param";
-import { undismissEndedBalance } from "../actions";
+import {
+  HistoryGroups,
+  type HistoryGroup,
+  type HistoryRow,
+} from "./history-groups";
 
-export type HistoryRow = {
-  id: string;
-  tenant_id: string;
-  tenant_name: string;
-  email: string | null;
-  unit: string;
-  room: string;
-  start_date: string;
-  move_out_date: string | null;
-  months: number | null;
-  monthly_rent: number;
-  total_paid: number;
-  dismissed: boolean;
-  balance: number;
-  /** Lowercased search haystack (name + email + unit + room). */
-  haystack: string;
-};
-
-function fmtMoney(n: number | null) {
-  if (n === null || n === undefined) return "—";
-  return `$${Number(n).toLocaleString(undefined, { maximumFractionDigits: 0 })}`;
-}
-
-function formatDuration(months: number | null) {
-  if (months === null) return "—";
-  if (months < 1) return "< 1 mo";
-  if (months < 12) return `${months} mo`;
-  const y = Math.floor(months / 12);
-  const m = months % 12;
-  return m === 0 ? `${y}y` : `${y}y ${m}m`;
-}
+export type { HistoryRow };
 
 /** All / With-balance pills, backed by ?bal= in the URL (shallow, no server). */
 export function BalanceToggle({ owingCount }: { owingCount: number }) {
@@ -70,6 +42,10 @@ export function BalanceToggle({ owingCount }: { owingCount: number }) {
   );
 }
 
+/** Client-side filter over the full move-out history, grouped by property in
+ *  the Rent Tracker's style — retired ("deleted") properties included, each
+ *  past tenant under their unit. Reads ?q= and ?bal= from the URL, so typing
+ *  re-filters instantly with zero server round trips. */
 export function HistoryExplorer({
   rows,
   admin,
@@ -82,126 +58,64 @@ export function HistoryExplorer({
   const query = useDeferredParam("q").trim().toLowerCase();
   const balanceOnly = useDeferredParam("bal") === "1";
 
-  const { scoped, filtered } = useMemo(() => {
-    const scoped = balanceOnly ? rows.filter((r) => r.balance > 0.005) : rows;
-    const filtered = query
-      ? scoped.filter((r) => r.haystack.includes(query))
-      : scoped;
-    return { scoped, filtered };
+  const groups: HistoryGroup[] = useMemo(() => {
+    const visible = rows.filter((r) => {
+      if (balanceOnly && r.balance <= 0.005) return false;
+      if (!query) return true;
+      return r.haystack.includes(query);
+    });
+
+    const map = new Map<string, HistoryGroup>();
+    for (const r of visible) {
+      let g = map.get(r.groupLabel);
+      if (!g) {
+        g = {
+          label: r.groupLabel,
+          propertyId: r.propertyId,
+          archived: r.archived,
+          rows: [],
+          subBalance: 0,
+          subPaid: 0,
+        };
+        map.set(r.groupLabel, g);
+      }
+      g.rows.push(r);
+      g.subBalance += r.balance;
+      g.subPaid += r.total_paid;
+    }
+
+    return Array.from(map.values()).sort((a, b) =>
+      a.label === "Unassigned"
+        ? 1
+        : b.label === "Unassigned"
+          ? -1
+          : a.label.localeCompare(b.label),
+    );
+    // Rows keep the server's most-recent-move-out-first order within groups.
   }, [rows, balanceOnly, query]);
 
-  if (scoped.length === 0) {
+  if (groups.length === 0) {
     return (
       <p className="mt-10 rounded-2xl bg-white px-6 py-12 text-center text-sm text-muted shadow-sm">
-        {balanceOnly ? "No past tenants owe anything." : "No move-outs yet."}
-      </p>
-    );
-  }
-
-  if (filtered.length === 0) {
-    return (
-      <p className="mt-10 rounded-2xl bg-white px-6 py-12 text-center text-sm text-muted shadow-sm">
-        No history entries match &ldquo;{query}&rdquo;.
+        {balanceOnly && !query
+          ? "No past tenants owe anything."
+          : query
+            ? `No history entries match “${query}”.`
+            : "No move-outs yet."}
       </p>
     );
   }
 
   return (
-    <section className="mt-6 overflow-x-auto rounded-xl bg-white shadow-sm ring-1 ring-stone/40">
-      <table className="w-full min-w-[900px] text-sm">
-        <thead className="bg-warm/60 text-left text-xs uppercase tracking-wide text-muted">
-          <tr>
-            <th className="px-3 py-2 font-medium">Tenant</th>
-            <th className="px-3 py-2 font-medium">Unit / Room</th>
-            <th className="px-3 py-2 font-medium">Move-in</th>
-            <th className="px-3 py-2 font-medium">Move-out</th>
-            <th className="px-3 py-2 font-medium">Stay</th>
-            <th className="px-3 py-2 text-right font-medium">Monthly</th>
-            {admin && (
-              <th className="px-3 py-2 text-right font-medium">Total paid</th>
-            )}
-            <th className="px-3 py-2 text-right font-medium">Balance</th>
-          </tr>
-        </thead>
-        <tbody>
-          {filtered.map((r, i) => (
-            <tr
-              key={r.id}
-              className={`border-t border-stone/30 ${i % 2 === 1 ? "bg-cream/40" : "bg-white"} hover:bg-warm/30`}
-            >
-              <td className="px-3 py-2.5">
-                <Link
-                  href={`/tenants/${r.tenant_id}`}
-                  className="text-ink hover:text-accent-text"
-                >
-                  {r.tenant_name}
-                </Link>
-                {r.email && <div className="text-xs text-muted">{r.email}</div>}
-              </td>
-              <td className="px-3 py-2.5 text-ink">
-                {r.unit}
-                <div className="text-xs text-muted">{r.room}</div>
-              </td>
-              <td className="px-3 py-2.5 tabular-nums text-ink">
-                {formatDate(r.start_date)}
-              </td>
-              <td className="px-3 py-2.5 tabular-nums text-ink">
-                {formatDate(r.move_out_date)}
-              </td>
-              <td className="px-3 py-2.5 text-muted">
-                {formatDuration(r.months)}
-              </td>
-              <td className="px-3 py-2.5 text-right tabular-nums text-ink">
-                {fmtMoney(r.monthly_rent)}
-              </td>
-              {admin && (
-                <td className="px-3 py-2.5 text-right tabular-nums text-ink">
-                  {fmtMoney(r.total_paid)}
-                </td>
-              )}
-              <td className="px-3 py-2.5 text-right tabular-nums">
-                {r.balance > 0.005 ? (
-                  <span className="inline-flex items-center gap-1.5">
-                    <Link
-                      href={`/tenants/${r.tenant_id}`}
-                      title="Open the ledger to resolve"
-                      className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-xs font-semibold text-red-700 hover:bg-red-100"
-                    >
-                      owes {fmtMoney(r.balance)}
-                    </Link>
-                    {r.dismissed && (
-                      <span
-                        className="rounded-full bg-warm px-2 py-0.5 text-xs text-muted"
-                        title="Dismissed from the Rent Tracker — the debt is still on the ledger."
-                      >
-                        dismissed
-                      </span>
-                    )}
-                    {r.dismissed && canUndismiss && (
-                      <form action={undismissEndedBalance}>
-                        <input type="hidden" name="tenancy_id" value={r.id} />
-                        <button
-                          type="submit"
-                          title="Put this balance back on the Rent Tracker's moved-out list."
-                          className="rounded-full bg-white px-2 py-0.5 text-xs text-muted shadow-sm hover:text-ink"
-                        >
-                          Undo
-                        </button>
-                      </form>
-                    )}
-                  </span>
-                ) : r.balance < -0.005 ? (
-                  <span className="text-xs text-accent-text">
-                    {fmtMoney(-r.balance)} credit
-                  </span>
-                ) : (
-                  <span className="text-xs text-muted">Settled</span>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </section>
+    // key forces a remount when the filter toggles so the expand/collapse
+    // state re-initializes (collapsed by default, expanded when owing-only) —
+    // same interaction as the Rent Tracker.
+    <HistoryGroups
+      key={balanceOnly ? "owing" : "all"}
+      groups={groups}
+      admin={admin}
+      canUndismiss={canUndismiss}
+      defaultExpanded={balanceOnly}
+    />
   );
 }

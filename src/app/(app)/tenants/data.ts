@@ -64,12 +64,15 @@ export const getActiveTenancies = cache(async () => {
     .returns<ActiveTenancyRow[]>();
 });
 
-// The full portfolio — vacant properties still get a (empty) group.
+// The full CURRENT portfolio — vacant properties still get a (empty) group.
+// Retired (archived) properties stay off the tracker; their active tenancies,
+// if any remain, still show via getActiveTenancies until the move-out passes.
 export const getAllProperties = cache(async () => {
   const supabase = await getCachedClient();
   return supabase
     .from("properties")
-    .select("id, building_name, street_address, unit_number");
+    .select("id, building_name, street_address, unit_number")
+    .is("archived_at", null);
 });
 
 // Ended tenancies — their outstanding balances feed the "Moved out with

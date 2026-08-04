@@ -148,7 +148,7 @@ export default async function InventoryPage({ searchParams }: PageProps) {
         `id, room_number, base_rent, bundle_fee, total_rent, available_from, status,
          marketing_description, photos_url, has_private_bathroom, has_ac,
          listing_action,
-         properties(id, building_name, street_address, unit_number, neighborhood,
+         properties!inner(id, building_name, street_address, unit_number, neighborhood,
                     unit_amenities, building_amenities),
          tenancies(id, status, start_date, move_out_date, tenants(id, full_name))`,
       )
@@ -156,6 +156,8 @@ export default async function InventoryPage({ searchParams }: PageProps) {
         `status.eq.available,and(status.eq.occupied,available_from.gte.${today})`,
       )
       .eq("pending_tenant", false)
+      // Rooms of retired properties are not for rent.
+      .is("properties.archived_at", null)
       .order("available_from", { ascending: true, nullsFirst: true })
       .returns<Omit<Row, "ads">[]>(),
     // All ads across every room (room_ads post-dates the generated types). Used
@@ -169,9 +171,10 @@ export default async function InventoryPage({ searchParams }: PageProps) {
       .from("rooms")
       .select(
         `id, room_number, status, available_from, pending_tenant,
-         properties(building_name, street_address, unit_number),
+         properties!inner(building_name, street_address, unit_number),
          tenancies(id, status, tenant_id, tenants(full_name))`,
       )
+      .is("properties.archived_at", null)
       .order("room_number", { ascending: true })
       .returns<AddableRow[]>(),
     supabase

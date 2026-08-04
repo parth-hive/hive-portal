@@ -51,28 +51,38 @@ export type TenancyRow = {
 
 export const getPropertyCount = cache(async () => {
   const supabase = await getCachedClient();
-  return supabase.from("properties").select("*", { count: "exact", head: true });
+  return supabase
+    .from("properties")
+    .select("*", { count: "exact", head: true })
+    .is("archived_at", null);
 });
 
 export const getRoomCount = cache(async () => {
   const supabase = await getCachedClient();
-  return supabase.from("rooms").select("*", { count: "exact", head: true });
+  return supabase
+    .from("rooms")
+    .select("id, properties!inner(id)", { count: "exact", head: true })
+    .is("properties.archived_at", null);
 });
 
 export const getDashProperties = cache(async () => {
   const supabase = await getCachedClient();
   return supabase
     .from("properties")
-    .select("id, building_name, street_address, unit_number, neighborhood");
+    .select("id, building_name, street_address, unit_number, neighborhood")
+    .is("archived_at", null);
 });
 
 export const getDashRooms = cache(async () => {
   const supabase = await getCachedClient();
-  return supabase.from("rooms").select(
-    `id, room_number, status, available_from,
-     total_rent, pending_tenant, listing_action,
-     properties(building_name, street_address, unit_number)`,
-  );
+  return supabase
+    .from("rooms")
+    .select(
+      `id, room_number, status, available_from,
+       total_rent, pending_tenant, listing_action,
+       properties!inner(building_name, street_address, unit_number, archived_at)`,
+    )
+    .is("properties.archived_at", null);
 });
 
 export const getDashCleanings = cache(async () => {

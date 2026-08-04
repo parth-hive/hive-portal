@@ -113,6 +113,7 @@ async function ScheduleSection() {
       supabase
         .from("properties")
         .select("id, building_name, street_address, unit_number")
+        .is("archived_at", null)
         .order("street_address", { ascending: true }),
       supabase.from("cleaners").select("id, name"),
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

@@ -28,6 +28,8 @@ async function PropertiesSection() {
     .select(
       "id, building_name, street_address, unit_number, cross_street, neighborhood, bedrooms, leaseholders(name), rooms(id, status)",
     )
+    // Retired properties live on the Past Tenants page, not here.
+    .is("archived_at", null)
     .order("street_address", { ascending: true })
     .order("unit_number", { ascending: true })
     .returns<PropertyRow[]>();

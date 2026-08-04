@@ -246,11 +246,13 @@ export async function updateProperty(
 // Deleting a property must not silently erase active tenants. The client
 // collects a move-out date per active tenancy (`moveout_<tenancyId>` fields);
 // the outcome depends on those dates and on whether money ever moved:
-//  - any date today/future → record the move-outs, keep the property until
-//    everyone is gone ({ notice });
-//  - payment history exists → record the move-outs, keep the property for the
-//    books ({ error });
-//  - all dates past + no payment history → delete outright (cascade), clearing
+//  - payment history exists → record the move-outs and ARCHIVE the property
+//    (archived_at): its ledgers stay for the books, it leaves the Rent
+//    Tracker once the last tenant's move-out passes, and it lives on the
+//    Past Tenants page under its own group. Restorable.
+//  - no payment history, any date today/future → record the move-outs, keep
+//    the property until everyone is gone ({ notice });
+//  - no payment history, all dates past → delete outright (cascade), clearing
 //    unpaid ledger charges (e.g. the auto security-deposit row) first.
 export type DeletePropertyState =
   | { error?: string; notice?: string }
@@ -329,23 +331,39 @@ export async function deleteProperty(
       const result = await applyMoveOut(supabase, m.tenancy_id, m.date);
       if (result.error) return { error: `${m.name}: ${result.error}` };
     }
+
+    if (hasBooks) {
+      // Money moved, so the records must survive — retire the property
+      // instead of deleting. It keeps its Rent Tracker group only while
+      // tenants remain; after the last move-out it lives on Past Tenants.
+      const { error: archiveError } = await supabase
+        .from("properties")
+        .update({ archived_at: new Date().toISOString() })
+        .eq("id", id);
+      if (archiveError) {
+        return { error: `Failed to retire the property: ${archiveError.message}` };
+      }
+    }
+
     revalidatePath("/properties");
     revalidatePath(`/properties/${id}`);
     revalidatePath("/tenants");
+    revalidatePath("/tenants/history");
     revalidatePath("/inventory");
+    revalidatePath("/cleaning");
+    revalidatePath("/");
 
-    if (hasBooks) {
-      return {
-        error:
-          moveOuts.length > 0
-            ? `Move-out dates saved. ${BOOKS_ERROR}`
-            : BOOKS_ERROR,
-      };
-    }
     const lastDay = moveOuts.reduce(
       (max, m) => (m.date > max ? m.date : max),
       "",
     );
+    if (hasBooks) {
+      return {
+        notice: someoneStillHere
+          ? `Property retired — it stays on the Rent Tracker until the last move-out (${lastDay}), then moves to Past Tenants.`
+          : "Property retired — its history now lives on the Past Tenants page.",
+      };
+    }
     return {
       notice: `Move-out dates saved — tenants are here through ${lastDay}. Delete the property again once everyone has moved out.`,
     };
@@ -377,4 +395,27 @@ export async function deleteProperty(
   }
   revalidatePath("/properties");
   redirect("/properties");
+}
+
+// Bring a retired property back: it reappears on /properties, the Rent
+// Tracker (as a vacant group if empty), inventory, and cleaning.
+export async function restoreProperty(formData: FormData) {
+  const id = String(formData.get("id") ?? "");
+  if (!id) return;
+  const supabase = await createClient();
+  if (!(await isPropertyOperator())) {
+    throw new Error("Only the financial operators can restore properties.");
+  }
+  const { error } = await supabase
+    .from("properties")
+    .update({ archived_at: null })
+    .eq("id", id);
+  if (error) throw new Error(error.message);
+  revalidatePath("/properties");
+  revalidatePath(`/properties/${id}`);
+  revalidatePath("/tenants");
+  revalidatePath("/tenants/history");
+  revalidatePath("/inventory");
+  revalidatePath("/cleaning");
+  revalidatePath("/");
 }

@@ -87,9 +87,12 @@ export function DeletePropertyButton({ id, label, activeTenants }: Props) {
                 Delete this property?
               </h3>
               <div className="mt-2 text-sm text-muted">
-                <strong>{label}</strong> and every room, tenancy, and payment
-                record inside it will be permanently removed. This cannot be
-                undone.
+                <strong>{label}</strong> will be removed from the portfolio.
+                If any rent was ever collected here, the property is retired
+                instead of erased: it leaves the Rent Tracker once the last
+                tenant is out, and its full history stays on the Past Tenants
+                page (restorable). Only a property where no money ever moved
+                is permanently deleted.
               </div>
 
               {activeTenants.length > 0 && (

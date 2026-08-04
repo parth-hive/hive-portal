@@ -24,9 +24,11 @@ type TenantRel = {
   phone: string | null;
 };
 type PropertyRel = {
+  id: string;
   building_name: string | null;
   street_address: string;
   unit_number: string;
+  archived_at: string | null;
 };
 type RoomRel = {
   room_number: string | null;
@@ -82,7 +84,7 @@ const loadHistory = cache(async () => {
            balance_dismissed_at,
            tenants(id, full_name, email, phone),
            rooms(room_number,
-                 properties(building_name, street_address, unit_number)),
+                 properties(id, building_name, street_address, unit_number, archived_at)),
            payments(amount, paid_on, payment_type)`,
         )
         .eq("status", "ended")
@@ -113,6 +115,9 @@ const loadHistory = cache(async () => {
     const tenantName = tenant?.full_name ?? "—";
     const roomNumber = room?.room_number ?? "—";
     return {
+      groupLabel: property ? unit : "Unassigned",
+      propertyId: property?.id ?? null,
+      archived: !!property?.archived_at,
       id: r.id,
       tenant_id: r.tenant_id,
       tenant_name: tenantName,
@@ -205,7 +210,8 @@ export default function TenantHistoryPage() {
             Tenant <span className="font-display text-accent-text">history</span>
           </h1>
           <p className="mt-1 text-sm text-muted">
-            Every tenant who has moved out. Sorted by most recent move-out.
+            Every tenant who has moved out, grouped by property — including
+            properties since deleted from the portfolio.
           </p>
         </div>
         <Suspense fallback={null}>

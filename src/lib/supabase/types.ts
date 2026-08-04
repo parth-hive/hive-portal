@@ -885,6 +885,7 @@ export type Database = {
         Row: {
           amenities_notes: string | null
           amenity_fees_yearly: number | null
+          archived_at: string | null
           bathrooms: number | null
           bedrooms: number | null
           building_amenities: string[]
@@ -911,6 +912,7 @@ export type Database = {
         Insert: {
           amenities_notes?: string | null
           amenity_fees_yearly?: number | null
+          archived_at?: string | null
           bathrooms?: number | null
           bedrooms?: number | null
           building_amenities?: string[]
@@ -937,6 +939,7 @@ export type Database = {
         Update: {
           amenities_notes?: string | null
           amenity_fees_yearly?: number | null
+          archived_at?: string | null
           bathrooms?: number | null
           bedrooms?: number | null
           building_amenities?: string[]
