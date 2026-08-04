@@ -115,7 +115,9 @@ export default async function AuditLogPage({
     .from("audit_log")
     .select(
       "id, user_id, user_email, action, table_name, record_id, before_data, after_data, changed_columns, created_at",
-      { count: "exact" },
+      // "estimated": planner estimate for the page count — an exact count on
+      // this 100k+ row table measured ~1.3s per load, all for a pager label.
+      { count: "estimated" },
     )
     .order("created_at", { ascending: false })
     .range(offset, offset + PAGE_SIZE - 1);
