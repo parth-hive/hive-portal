@@ -7,6 +7,8 @@
  * Uses Tailwind's built-in `animate-pulse` and the cream/warm palette so it
  * blends with the surrounding shell.
  */
+import { KpiRowSkeleton, TableSkeleton } from "./section-skeletons";
+
 export function PageLoader() {
   return (
     <div
@@ -24,29 +26,12 @@ export function PageLoader() {
         <div className="h-9 w-28 rounded-full bg-warm" />
       </div>
 
-      {/* Stat cards. */}
-      <div className="mt-6 grid gap-4 sm:grid-cols-3">
-        {[0, 1, 2].map((i) => (
-          <div key={i} className="rounded-2xl bg-white p-5 shadow-sm">
-            <div className="h-3 w-24 rounded bg-warm/70" />
-            <div className="mt-3 h-7 w-20 rounded-lg bg-warm" />
-          </div>
-        ))}
+      <div className="mt-6">
+        <KpiRowSkeleton />
       </div>
 
-      {/* Table / list block. */}
-      <div className="mt-6 overflow-hidden rounded-2xl bg-white shadow-sm">
-        <div className="h-11 bg-warm/40" />
-        <div className="divide-y divide-stone/20">
-          {Array.from({ length: 6 }).map((_, i) => (
-            <div key={i} className="flex items-center gap-4 px-5 py-4">
-              <div className="h-4 flex-1 rounded bg-warm/80" />
-              <div className="hidden h-4 w-24 rounded bg-warm/60 sm:block" />
-              <div className="h-4 w-16 rounded bg-warm/60" />
-              <div className="h-4 w-16 rounded bg-warm/60" />
-            </div>
-          ))}
-        </div>
+      <div className="mt-6">
+        <TableSkeleton />
       </div>
 
       <span className="sr-only">Loading…</span>

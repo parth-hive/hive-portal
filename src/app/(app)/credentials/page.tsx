@@ -1,17 +1,16 @@
-import Link from "next/link";
-import { createClient } from "@/lib/supabase/server";
+import { cache, Suspense } from "react";
+import { getCachedClient } from "@/lib/supabase/server";
 import { isMaster } from "@/lib/access";
 import { getSessionUser } from "@/lib/session";
 import { one } from "@/lib/relations";
 import { SearchInput } from "@/components/search-input";
+import { TableSkeleton } from "@/components/section-skeletons";
 import { AddCredential } from "./add-credential";
-import { type CredentialRowData } from "./credential-row";
-import { CredentialGroups } from "./credential-groups";
 import {
-  CATEGORY_LABELS,
-  CATEGORY_ORDER,
-  type PropertyOption,
-} from "./constants";
+  CredentialsExplorer,
+  type CredentialExplorerRow,
+} from "./credentials-explorer";
+import { CATEGORY_LABELS, type PropertyOption } from "./constants";
 import type { Database } from "@/lib/supabase/types";
 
 export const dynamic = "force-dynamic";
@@ -42,23 +41,33 @@ function propertyLabel(p: PropertyRel) {
   return `${p.building_name?.trim() || p.street_address} Apt ${p.unit_number}`;
 }
 
-function isCategory(v: string | undefined): v is Category {
-  return !!v && CATEGORY_ORDER.includes(v as Category);
+const getPropertyOptions = cache(async (): Promise<PropertyOption[]> => {
+  const supabase = await getCachedClient();
+  const { data } = await supabase
+    .from("properties")
+    .select("id, building_name, street_address, unit_number")
+    .order("street_address", { ascending: true });
+  return (data ?? []).map((p) => ({
+    id: p.id,
+    label: `${p.building_name?.trim() || p.street_address} Apt ${p.unit_number}`,
+  }));
+});
+
+async function AddCredentialSlot() {
+  const [user, propertyOptions] = await Promise.all([
+    getSessionUser(),
+    getPropertyOptions(),
+  ]);
+  if (!isMaster(user?.email)) return null;
+  return <AddCredential properties={propertyOptions} />;
 }
 
-type PageProps = {
-  searchParams: Promise<{ q?: string; category?: string }>;
-};
+async function CredentialsSection() {
+  const supabase = await getCachedClient();
 
-export default async function CredentialsPage({ searchParams }: PageProps) {
-  const params = await searchParams;
-  const query = (params.q ?? "").trim().toLowerCase();
-  const activeCategory = isCategory(params.category) ? params.category : null;
-
-  const supabase = await createClient();
-
-  const [user, { data: credentials }, { data: properties }] = await Promise.all([
+  const [user, propertyOptions, { data: credentials }] = await Promise.all([
     getSessionUser(),
+    getPropertyOptions(),
     supabase
       .from("credentials")
       .select(
@@ -69,65 +78,53 @@ export default async function CredentialsPage({ searchParams }: PageProps) {
       .order("category", { ascending: true })
       .order("service_name", { ascending: true })
       .returns<Row[]>(),
-    supabase
-      .from("properties")
-      .select("id, building_name, street_address, unit_number")
-      .order("street_address", { ascending: true }),
   ]);
 
   // Only admins (masters) can reveal/copy passwords or manage credentials;
   // the plaintext is fetched on demand and never shipped with the page.
   const admin = isMaster(user?.email);
 
-  const propertyOptions: PropertyOption[] = (properties ?? []).map((p) => ({
-    id: p.id,
-    label: `${p.building_name?.trim() || p.street_address} Apt ${p.unit_number}`,
-  }));
-
-  const all: CredentialRowData[] = (credentials ?? []).map((c) => {
+  const all: CredentialExplorerRow[] = (credentials ?? []).map((c) => {
     const p = one(c.properties);
+    const property_label = p ? propertyLabel(p) : null;
     return {
       id: c.id,
       category: c.category,
       service_name: c.service_name,
       property_id: c.property_id,
-      property_label: p ? propertyLabel(p) : null,
+      property_label,
       username: c.username,
       hasPassword: !!c.password_cipher,
       login_url: c.login_url,
       account_number: c.account_number,
       owner_label: c.owner_label,
       notes: c.notes,
+      haystack: [
+        c.service_name,
+        property_label,
+        c.owner_label,
+        c.username,
+        c.account_number,
+        c.login_url,
+        c.notes,
+        CATEGORY_LABELS[c.category],
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase(),
     };
   });
 
-  const countsByCategory = CATEGORY_ORDER.reduce(
-    (acc, c) => {
-      acc[c] = all.filter((r) => r.category === c).length;
-      return acc;
-    },
-    {} as Record<Category, number>,
+  return (
+    <CredentialsExplorer
+      all={all}
+      properties={propertyOptions}
+      admin={admin}
+    />
   );
+}
 
-  const filtered = all.filter((r) => {
-    if (activeCategory && r.category !== activeCategory) return false;
-    if (!query) return true;
-    const haystack = [
-      r.service_name,
-      r.property_label,
-      r.owner_label,
-      r.username,
-      r.account_number,
-      r.login_url,
-      r.notes,
-      CATEGORY_LABELS[r.category],
-    ]
-      .filter(Boolean)
-      .join(" ")
-      .toLowerCase();
-    return haystack.includes(query);
-  });
-
+export default function CredentialsPage() {
   return (
     <div className="mx-auto w-full max-w-7xl">
       <header className="flex flex-wrap items-end justify-between gap-3 border-b border-stone/60 pb-4">
@@ -140,7 +137,9 @@ export default async function CredentialsPage({ searchParams }: PageProps) {
             credentials also surface on each property&apos;s detail page.
           </p>
         </div>
-        {admin && <AddCredential properties={propertyOptions} />}
+        <Suspense fallback={null}>
+          <AddCredentialSlot />
+        </Suspense>
       </header>
 
       <div className="mt-4">
@@ -150,86 +149,15 @@ export default async function CredentialsPage({ searchParams }: PageProps) {
         />
       </div>
 
-      <ul className="mt-3 flex flex-wrap gap-1.5">
-        <li>
-          <Link
-            href="/credentials"
-            className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition ${
-              activeCategory === null
-                ? "border-ink bg-ink text-white"
-                : "border-stone bg-white text-ink hover:bg-warm"
-            }`}
-          >
-            All ({all.length})
-          </Link>
-        </li>
-        {CATEGORY_ORDER.map((c) => {
-          const isActive = activeCategory === c;
-          const count = countsByCategory[c];
-          if (count === 0 && !isActive) return null;
-          return (
-            <li key={c}>
-              <Link
-                href={
-                  isActive ? "/credentials" : `/credentials?category=${c}`
-                }
-                className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs transition ${
-                  isActive
-                    ? "border-ink bg-ink text-white"
-                    : "border-stone bg-white text-ink hover:bg-warm"
-                }`}
-              >
-                {CATEGORY_LABELS[c]} ({count})
-              </Link>
-            </li>
-          );
-        })}
-      </ul>
-
-      {all.length === 0 && (
-        <p className="mt-10 rounded-xl bg-white px-6 py-10 text-center text-sm text-muted shadow-sm">
-          No credentials yet. Click <em>Add credential</em> to enter one.
-        </p>
-      )}
-
-      {all.length > 0 && filtered.length === 0 && (
-        <p className="mt-10 rounded-xl bg-white px-6 py-10 text-center text-sm text-muted shadow-sm">
-          No credentials match the filter.{" "}
-          <Link href="/credentials" className="text-accent-text">
-            Clear
-          </Link>
-          .
-        </p>
-      )}
-
-      {filtered.length > 0 && (() => {
-        // Group filtered rows by property label. Properties appear first
-        // alphabetically; "General (no property)" goes last.
-        const byProperty = new Map<string, CredentialRowData[]>();
-        for (const c of filtered) {
-          const key = c.property_label ?? "__general__";
-          if (!byProperty.has(key)) byProperty.set(key, []);
-          byProperty.get(key)!.push(c);
+      <Suspense
+        fallback={
+          <div className="mt-6">
+            <TableSkeleton />
+          </div>
         }
-        const groups = Array.from(byProperty.entries())
-          .sort(([a], [b]) => {
-            if (a === "__general__") return 1;
-            if (b === "__general__") return -1;
-            return a.localeCompare(b);
-          })
-          .map(([key, items]) => ({
-            label: key === "__general__" ? "General (no property)" : key,
-            items,
-          }));
-
-        return (
-          <CredentialGroups
-            groups={groups}
-            properties={propertyOptions}
-            canReveal={admin}
-          />
-        );
-      })()}
+      >
+        <CredentialsSection />
+      </Suspense>
     </div>
   );
 }

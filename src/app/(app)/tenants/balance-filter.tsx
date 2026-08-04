@@ -1,33 +1,21 @@
 "use client";
 
-import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { useTransition } from "react";
+import { useSearchParams } from "next/navigation";
+import { useSetUrlParams } from "@/lib/use-url-param";
 
 /**
  * Pill toggle that filters the tenant list down to tenancies with an
- * outstanding balance. Writes ?owing=1 to the URL so the server component
- * can read it and filter; preserves any active ?q= search.
+ * outstanding balance. Writes ?owing=1 shallowly — the TenantsExplorer reads
+ * it and re-filters client-side, no server round trip. Preserves ?q=.
  */
 export function BalanceFilter() {
-  const router = useRouter();
-  const pathname = usePathname();
   const searchParams = useSearchParams();
-  const [, startTransition] = useTransition();
+  const setParams = useSetUrlParams();
   const active = searchParams.get("owing") === "1";
 
   function toggle() {
-    const next = new URLSearchParams(searchParams.toString());
-    if (active) {
-      next.delete("owing");
-      // The balance sort only exists inside the owing view.
-      next.delete("sort");
-    } else {
-      next.set("owing", "1");
-    }
-    const qs = next.toString();
-    startTransition(() => {
-      router.replace(qs ? `${pathname}?${qs}` : pathname);
-    });
+    // The balance sort only exists inside the owing view.
+    setParams(active ? { owing: null, sort: null } : { owing: "1" });
   }
 
   return (

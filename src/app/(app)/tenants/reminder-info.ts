@@ -39,31 +39,36 @@ function fmtWhen(iso: string | null): string | null {
  * late-fee amounts owed) is positive, skipping tenancies already ended or not
  * started.
  */
+export type ReminderTenancy = {
+  id: string;
+  monthly_rent: number;
+  first_month_rent: number | null;
+  security_deposit: number | null;
+  start_date: string;
+  move_out_date: string | null;
+  payments: { amount: number; paid_on: string; payment_type: string }[];
+};
+
 export async function getReminderInfo(
   supabase: SupabaseServer,
+  // Callers that already loaded the active tenancies (the Rent Tracker) pass
+  // them in so the roster isn't fetched twice per render.
+  preloadedTenancies?: ReminderTenancy[],
 ): Promise<ReminderInfo> {
   const today = todayISO();
 
-  type ReminderTenancy = {
-    id: string;
-    monthly_rent: number;
-    first_month_rent: number | null;
-    security_deposit: number | null;
-    start_date: string;
-    move_out_date: string | null;
-    payments: { amount: number; paid_on: string; payment_type: string }[];
-  };
-
   const [{ data: tenancies }, { data: lastGeneral }, lastBalanceBatchesRes] =
     await Promise.all([
-      supabase
-        .from("tenancies")
-        .select(
-          `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date,
-           payments(amount, paid_on, payment_type)`,
-        )
-        .eq("status", "active")
-        .returns<ReminderTenancy[]>(),
+      preloadedTenancies
+        ? Promise.resolve({ data: preloadedTenancies })
+        : supabase
+            .from("tenancies")
+            .select(
+              `id, monthly_rent, first_month_rent, security_deposit, start_date, move_out_date,
+               payments(amount, paid_on, payment_type)`,
+            )
+            .eq("status", "active")
+            .returns<ReminderTenancy[]>(),
       supabase
         .from("rent_reminder_emails")
         .select("sent_at")

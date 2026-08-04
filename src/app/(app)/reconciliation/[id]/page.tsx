@@ -7,7 +7,7 @@ import { formatDate, todayISO } from "@/lib/date";
 import { computeLedger } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
 import { AutoRefresh } from "@/components/auto-refresh";
-import { SearchInput } from "@/components/search-input";
+import { ServerSearchInput } from "@/components/server-search-input";
 import { DeleteRunButton } from "./delete-run";
 import { AddStatementForm } from "./add-statement-form";
 import { LedgerQuickAdd } from "./ledger-quick-add";
@@ -548,7 +548,7 @@ export default async function ReconciliationRunPage({
       </section>
 
       <div className="mt-6">
-        <SearchInput
+        <ServerSearchInput
           placeholder="Search by tenant, payer, unit, or room…"
           ariaLabel="Search reconciliation rows"
         />

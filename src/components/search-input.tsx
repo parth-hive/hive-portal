@@ -1,12 +1,12 @@
 "use client";
 
-import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { useEffect, useState, useTransition } from "react";
+import { useUrlParamState } from "@/lib/use-url-param";
 
 /**
- * Debounced search input. Reads ?q= from the URL on first render and writes
- * back as the user types (300 ms debounce). Built so a server component can
- * read `searchParams.q` and filter its query.
+ * Debounced search input backed by ?q= in the URL, written shallowly via
+ * history.replaceState — typing never triggers a server round trip. Client
+ * components on the same page read the param (useDeferredParam) and filter
+ * their already-loaded rows.
  */
 export function SearchInput({
   placeholder,
@@ -15,29 +15,7 @@ export function SearchInput({
   placeholder: string;
   ariaLabel: string;
 }) {
-  const router = useRouter();
-  const pathname = usePathname();
-  const searchParams = useSearchParams();
-  const [, startTransition] = useTransition();
-  const [value, setValue] = useState(searchParams.get("q") ?? "");
-
-  useEffect(() => {
-    const handle = setTimeout(() => {
-      const next = new URLSearchParams(searchParams.toString());
-      const trimmed = value.trim();
-      if (trimmed === "") {
-        next.delete("q");
-      } else {
-        next.set("q", trimmed);
-      }
-      const qs = next.toString();
-      startTransition(() => {
-        router.replace(qs ? `${pathname}?${qs}` : pathname);
-      });
-    }, 300);
-    return () => clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [value]);
+  const [value, setValue] = useUrlParamState("q", { debounceMs: 150 });
 
   return (
     <label className="relative block w-full sm:w-80">

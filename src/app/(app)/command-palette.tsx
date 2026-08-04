@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { createPortal } from "react-dom";
-import { createClient } from "@/lib/supabase/client";
 import { useHydrated } from "@/lib/use-hydrated";
 
 type Item = {
@@ -51,7 +50,6 @@ function score(item: Item, q: string): number {
 
 export function CommandPalette() {
   const router = useRouter();
-  const supabase = useMemo(() => createClient(), []);
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIdx, setActiveIdx] = useState(0);
@@ -77,10 +75,14 @@ export function CommandPalette() {
     return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
-  // Fetch the searchable index lazily on first open.
+  // Fetch the searchable index lazily on first open. The supabase-js client
+  // is dynamically imported here too, so its ~200K of code stays out of the
+  // shared layout chunk shipped with every page.
   useEffect(() => {
     if (!open || loaded) return;
     (async () => {
+      const { createClient } = await import("@/lib/supabase/client");
+      const supabase = createClient();
       const [{ data: properties }, { data: tenants }, { data: rooms }] =
         await Promise.all([
           supabase
@@ -130,7 +132,7 @@ export function CommandPalette() {
       setDynamic([...propItems, ...tenantItems, ...roomItems]);
       setLoaded(true);
     })();
-  }, [open, loaded, supabase]);
+  }, [open, loaded]);
 
   useEffect(() => {
     if (open) queueMicrotask(() => inputRef.current?.focus());

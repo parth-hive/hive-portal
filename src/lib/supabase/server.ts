@@ -1,5 +1,6 @@
 import { createServerClient } from "@supabase/ssr";
 import { cookies } from "next/headers";
+import { cache } from "react";
 import type { Database } from "./types";
 
 export async function createClient() {
@@ -27,3 +28,11 @@ export async function createClient() {
     },
   );
 }
+
+/**
+ * Request-stable client: every caller in the same request gets the same
+ * instance. Required wherever the client is passed to argument-keyed
+ * React cache() helpers (e.g. fetchLedgerSidecars) from more than one
+ * component — a fresh client per call would silently defeat the dedupe.
+ */
+export const getCachedClient = cache(createClient);
