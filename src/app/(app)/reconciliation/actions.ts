@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getSessionUser } from "@/lib/session";
 import { canEditLedger, isMaster, LEDGER_ADMIN_ERROR } from "@/lib/access";
 import { one } from "@/lib/relations";
-import { todayISO } from "@/lib/date";
+import { addDaysISO, todayISO } from "@/lib/date";
 import { LEDGER_PAYMENT_CUTOFF } from "@/lib/rent";
 import {
   parseBankFile,
@@ -25,15 +25,24 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 
 export type RunFormState = { error?: string } | undefined;
 
+/** Earliest deposit date a run for the month starting at `start` accepts.
+ *  Mirrors post_reconciliation_run's `(month - interval '6 days')` bound —
+ *  rent for month M is routinely paid in the last days of M−1. Keep the two
+ *  in sync or valid uploads get rejected (or stranded at posting time). */
+function periodWindowStart(start: string): string {
+  return addDaysISO(start, -6);
+}
+
 function invalidPeriodRow(
   rows: Deposit[],
   start: string,
   end: string,
 ): Deposit | undefined {
   const today = todayISO();
+  const windowStart = periodWindowStart(start);
   return rows.find(
     (row) =>
-      !row.date || row.date < start || row.date > end || row.date > today,
+      !row.date || row.date < windowStart || row.date > end || row.date > today,
   );
 }
 
@@ -163,7 +172,8 @@ export async function runReconciliation(
     const bad = badDeposit ?? badReversal!;
     return {
       error:
-        `Every bank row must have a non-future date inside ${month.slice(0, 7)}. ` +
+        `Every bank row must have a non-future date between ${periodWindowStart(start)} and ${end} ` +
+        `(rent for ${month.slice(0, 7)} may arrive up to 6 days early). ` +
         `Found ${bad.date ?? "a missing date"} in "${bad.raw.slice(0, 80)}".`,
     };
   }
@@ -421,7 +431,8 @@ export async function addStatementToRun(
     const bad = badDeposit ?? badReversal!;
     return {
       error:
-        `Every bank row must have a non-future date inside ${run.month.slice(0, 7)}. ` +
+        `Every bank row must have a non-future date between ${periodWindowStart(start)} and ${end} ` +
+        `(rent for ${run.month.slice(0, 7)} may arrive up to 6 days early). ` +
         `Found ${bad.date ?? "a missing date"} in "${bad.raw.slice(0, 80)}".`,
     };
   }
