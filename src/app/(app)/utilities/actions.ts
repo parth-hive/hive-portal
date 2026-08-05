@@ -1029,6 +1029,14 @@ async function computeOverageSplit(
     leftover -= 1;
   }
 
+  // Auto-posted charges land in whole dollars: tenants pay round Zelle
+  // amounts, so cent-level shares just strand penny credits on the ledger.
+  // Each share rounds to the nearest dollar AFTER the exact cent split (the
+  // shares no longer sum to the assigned overage — the difference is the
+  // price of clean ledgers). Operator-edited shares from the preview popup
+  // are manual entries and keep their cents.
+  for (const r of rounded) r.cents = Math.round(r.cents / 100) * 100;
+
   const today = todayISO();
   const entries: SplitEntry[] = rounded.map(({ tenancyId, cents }) => {
     const t = (tenancies ?? []).find((x) => x.id === tenancyId)!;

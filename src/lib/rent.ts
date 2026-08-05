@@ -265,7 +265,9 @@ export function computeLedger(
   // remainder forgiven): it credits the account without recording money
   // received, so collections analytics stay truthful. An 'adjustment' is the
   // same mechanic for the month-end small-balance write-off (< $5 residue
-  // forgiven before balance reminders go out).
+  // forgiven before balance reminders go out); a NEGATIVE adjustment runs the
+  // other way, absorbing a small credit residue (rounded-up payment) so the
+  // account settles to exactly $0.
   const refunded = paidOf("refund");
   const settled = chargedOf("settlement") + chargedOf("adjustment");
   const netBalance = cents(
@@ -403,14 +405,17 @@ export function buildLedgerEntries(
     // Settlement and adjustment are credit lines: they reduce the running
     // balance like a payment does, but record forgiveness (move-out write-off
     // / small-balance write-off), not money received. Mirrors the `- settled`
-    // term in computeLedger.
+    // term in computeLedger. A NEGATIVE adjustment is the mirror image — it
+    // absorbs a small credit residue (tenant rounded a payment up), so it
+    // posts on the charge (debit) side.
     if (c.kind === "settlement" || c.kind === "adjustment") {
+      const amt = num(c.amount);
       rows.push({
         id: c.id,
         date: c.charged_on,
         description: KIND_LABEL[c.kind] + (c.note ? ` · ${c.note}` : ""),
-        charge: 0,
-        payment: num(c.amount),
+        charge: amt < 0 ? -amt : 0,
+        payment: amt < 0 ? 0 : amt,
         deletable: "charge",
         refIds: [c.id],
       });
