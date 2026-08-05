@@ -24,6 +24,13 @@ import { todayISO } from "@/lib/date";
 export const LEDGER_ANCHOR = "2026-06-01";
 
 /**
+ * Balances under this are written off at month end instead of chased: the
+ * reminder passes post an 'adjustment' credit for the residue and treat the
+ * account as settled, so nobody gets a balance reminder over pocket change.
+ */
+export const SMALL_BALANCE_WRITE_OFF_MAX = 5;
+
+/**
  * Rent payments count from here. Rent is collected on a 27th→26th cycle
  * (see currentRentCycle), so the anchor month's rent legitimately arrives
  * from the 27th of the prior month — cutting payments off at the anchor
@@ -256,9 +263,11 @@ export function computeLedger(
   // what's owed, mirroring the debit row in buildLedgerEntries.
   // A 'settlement' charge is the move-out write-off (deposit applied,
   // remainder forgiven): it credits the account without recording money
-  // received, so collections analytics stay truthful.
+  // received, so collections analytics stay truthful. An 'adjustment' is the
+  // same mechanic for the month-end small-balance write-off (< $5 residue
+  // forgiven before balance reminders go out).
   const refunded = paidOf("refund");
-  const settled = chargedOf("settlement");
+  const settled = chargedOf("settlement") + chargedOf("adjustment");
   const netBalance = cents(
     rent.balance +
       deposit.balance +
@@ -289,6 +298,7 @@ export const KIND_LABEL: Record<string, string> = {
   refund: "Refund",
   other: "Other",
   settlement: "Settlement",
+  adjustment: "Adjustment",
 };
 
 const MONTH_NAMES = [
@@ -390,14 +400,15 @@ export function buildLedgerEntries(
   >();
   for (const c of charges) {
     if (c.charged_on > todayIso) continue;
-    // Settlement is a credit line: it reduces the running balance like a
-    // payment does, but records forgiveness (deposit applied + write-off),
-    // not money received. Mirrors the `- settled` term in computeLedger.
-    if (c.kind === "settlement") {
+    // Settlement and adjustment are credit lines: they reduce the running
+    // balance like a payment does, but record forgiveness (move-out write-off
+    // / small-balance write-off), not money received. Mirrors the `- settled`
+    // term in computeLedger.
+    if (c.kind === "settlement" || c.kind === "adjustment") {
       rows.push({
         id: c.id,
         date: c.charged_on,
-        description: "Settlement" + (c.note ? ` · ${c.note}` : ""),
+        description: KIND_LABEL[c.kind] + (c.note ? ` · ${c.note}` : ""),
         charge: 0,
         payment: num(c.amount),
         deletable: "charge",
