@@ -637,9 +637,16 @@ function OverviewView({
                         ) : null;
                       },
                     )}
-                    {theirs.some((t) => t.urgent) && (
+                    {/* Only urgent tasks still in flight — a completed task
+                        (review approved) is no longer a fire to flag. */}
+                    {theirs.some((t) => t.urgent && t.status !== "completed") && (
                       <span className="rounded-full border border-red-200 bg-red-50 px-2 py-0.5 text-red-700">
-                        {theirs.filter((t) => t.urgent).length} urgent
+                        {
+                          theirs.filter(
+                            (t) => t.urgent && t.status !== "completed",
+                          ).length
+                        }{" "}
+                        urgent
                       </span>
                     )}
                   </div>
