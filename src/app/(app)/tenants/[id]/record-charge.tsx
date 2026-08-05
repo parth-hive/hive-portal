@@ -9,16 +9,21 @@ const fieldInput =
   "rounded-lg border border-stone bg-white px-3 py-2 text-sm text-ink focus:border-accent focus:outline-none";
 const fieldLabel = "text-xs font-medium uppercase tracking-wide text-muted";
 
-export function RecordCharge({
+/**
+ * The "Add a charge" form card. The open/close toggle lives in
+ * {@link LedgerActions}; this renders only when open and closes itself after
+ * a successful save (unmounting doubles as the form reset).
+ */
+export function ChargeForm({
   tenancyId,
   tenantId,
+  onClose,
 }: {
   tenancyId: string;
   tenantId: string;
+  onClose: () => void;
 }) {
-  const [open, setOpen] = useState(false);
   const [kind, setKind] = useState("security_deposit");
-  const formRef = useRef<HTMLFormElement>(null);
   const today = todayISO();
 
   const bound = addCharge.bind(null, tenancyId, tenantId) as (
@@ -31,34 +36,22 @@ export function RecordCharge({
   );
   useFormToast({ pending, state, successMessage: "Charge added" });
 
+  const submitted = useRef(false);
   useEffect(() => {
-    if (state === undefined && open) {
-      formRef.current?.reset();
+    if (pending) {
+      submitted.current = true;
+      return;
     }
-  }, [state, open]);
-
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="rounded-full border border-stone bg-white px-4 py-2 text-sm font-medium text-ink shadow-sm transition hover:bg-warm"
-      >
-        Add charge
-      </button>
-    );
-  }
+    if (submitted.current && !state?.error) onClose();
+    submitted.current = false;
+  }, [pending, state, onClose]);
 
   return (
-    <form
-      ref={formRef}
-      action={action}
-      className="mt-3 rounded-2xl bg-cream/60 p-5"
-    >
-      <p className="text-xs uppercase tracking-wide text-muted">
+    <form action={action} className="rounded-2xl bg-white p-5 shadow-sm">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted">
         Add a charge
       </p>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <label className="flex flex-col gap-1.5">
           <span className={fieldLabel}>Type *</span>
           <select
@@ -119,7 +112,7 @@ export function RecordCharge({
         </button>
         <button
           type="button"
-          onClick={() => setOpen(false)}
+          onClick={onClose}
           className="text-xs uppercase tracking-wide text-muted hover:text-ink"
         >
           Cancel

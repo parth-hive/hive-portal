@@ -1,6 +1,6 @@
 "use client";
 
-import { useActionState, useEffect, useRef, useState } from "react";
+import { useActionState, useEffect, useRef } from "react";
 import { recordPayment, type PaymentFormState } from "../actions";
 import { useFormToast } from "@/components/use-form-toast";
 import { todayISO } from "@/lib/date";
@@ -9,17 +9,22 @@ const fieldInput =
   "rounded-lg border border-stone bg-white px-3 py-2 text-sm text-ink focus:border-accent focus:outline-none";
 const fieldLabel = "text-xs font-medium uppercase tracking-wide text-muted";
 
-export function RecordPayment({
+/**
+ * The "Record a payment" form card. The open/close toggle lives in
+ * {@link LedgerActions}; this renders only when open and closes itself after
+ * a successful save (unmounting doubles as the form reset).
+ */
+export function PaymentForm({
   tenancyId,
   tenantId,
   defaultAmount,
+  onClose,
 }: {
   tenancyId: string;
   tenantId: string;
   defaultAmount: number;
+  onClose: () => void;
 }) {
-  const [open, setOpen] = useState(false);
-  const formRef = useRef<HTMLFormElement>(null);
   const today = todayISO();
 
   const bound = recordPayment.bind(null, tenancyId, tenantId) as (
@@ -32,34 +37,22 @@ export function RecordPayment({
   );
   useFormToast({ pending, state, successMessage: "Payment recorded" });
 
+  const submitted = useRef(false);
   useEffect(() => {
-    if (state === undefined && open) {
-      formRef.current?.reset();
+    if (pending) {
+      submitted.current = true;
+      return;
     }
-  }, [state, open]);
-
-  if (!open) {
-    return (
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        className="rounded-full bg-ink px-4 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-accent-dark"
-      >
-        Record payment
-      </button>
-    );
-  }
+    if (submitted.current && !state?.error) onClose();
+    submitted.current = false;
+  }, [pending, state, onClose]);
 
   return (
-    <form
-      ref={formRef}
-      action={action}
-      className="rounded-2xl bg-white p-5 shadow-sm"
-    >
-      <p className="text-xs uppercase tracking-wide text-muted">
+    <form action={action} className="rounded-2xl bg-white p-5 shadow-sm">
+      <p className="text-xs font-medium uppercase tracking-wide text-muted">
         Record a payment
       </p>
-      <div className="mt-3 grid gap-3 sm:grid-cols-2">
+      <div className="mt-3 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
         <label className="flex flex-col gap-1.5">
           <span className={fieldLabel}>Paid on *</span>
           <input
@@ -97,7 +90,7 @@ export function RecordPayment({
             <option value="other">Other</option>
           </select>
         </label>
-        <label className="flex flex-col gap-1.5 sm:col-span-2">
+        <label className="flex flex-col gap-1.5">
           <span className={fieldLabel}>Notes</span>
           <input type="text" name="notes" className={fieldInput} />
         </label>
@@ -115,7 +108,7 @@ export function RecordPayment({
         </button>
         <button
           type="button"
-          onClick={() => setOpen(false)}
+          onClick={onClose}
           className="text-xs uppercase tracking-wide text-muted hover:text-ink"
         >
           Cancel

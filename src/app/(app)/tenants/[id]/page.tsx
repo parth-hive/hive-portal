@@ -4,8 +4,7 @@ import { createClient } from "@/lib/supabase/server";
 import { one } from "@/lib/relations";
 import { formatDate } from "@/lib/date";
 import { TenantInfo } from "./tenant-info";
-import { RecordPayment } from "./record-payment";
-import { RecordCharge } from "./record-charge";
+import { LedgerActions } from "./ledger-actions";
 import {
   EndTenancyForm,
   DeleteTenantButton,
@@ -442,46 +441,34 @@ export default async function TenantDetailPage({
 
       {ledgerTenancy && ledger && (
         <section className="mt-10">
-          <header className="flex flex-wrap items-end justify-between gap-3">
-            <div>
-              <h2 className="text-xl tracking-tight text-ink">
-                <span className="font-display text-accent-text">Ledger</span>
-                {!active && (
-                  <span className="ml-2 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 align-middle text-xs font-medium text-amber-800">
-                    past tenancy — moved out{" "}
-                    {ledgerTenancy.move_out_date
-                      ? formatDate(ledgerTenancy.move_out_date)
-                      : ""}
-                  </span>
-                )}
-              </h2>
-              <p className="mt-1 text-xs text-muted">
-                Every rent charge, fee, and payment in one running balance.
-                {ledger.availableCredit > 0.005
-                  ? ` ${fmtMoney(ledger.availableCredit)} in credit.`
-                  : ""}
-              </p>
-            </div>
-            <div className="flex flex-wrap items-center gap-3">
-              <a
-                href={`/tenants/${tenant.id}/ledger/export`}
-                className="rounded-full border border-stone bg-white px-3 py-1.5 text-xs uppercase tracking-wide text-ink hover:bg-warm"
-              >
-                Download ledger ↓
-              </a>
-              {ledgerAdmin && (
-                <RecordCharge
-                  tenancyId={ledgerTenancy.id}
-                  tenantId={tenant.id}
-                />
-              )}
-              <RecordPayment
-                tenancyId={ledgerTenancy.id}
-                tenantId={tenant.id}
-                defaultAmount={Number(ledgerTenancy.monthly_rent)}
-              />
-            </div>
-          </header>
+          <LedgerActions
+            heading={
+              <div>
+                <h2 className="text-xl tracking-tight text-ink">
+                  <span className="font-display text-accent-text">Ledger</span>
+                  {!active && (
+                    <span className="ml-2 rounded-full border border-amber-200 bg-amber-50 px-2 py-0.5 align-middle text-xs font-medium text-amber-800">
+                      past tenancy — moved out{" "}
+                      {ledgerTenancy.move_out_date
+                        ? formatDate(ledgerTenancy.move_out_date)
+                        : ""}
+                    </span>
+                  )}
+                </h2>
+                <p className="mt-1 text-xs text-muted">
+                  Every rent charge, fee, and payment in one running balance.
+                  {ledger.availableCredit > 0.005
+                    ? ` ${fmtMoney(ledger.availableCredit)} in credit.`
+                    : ""}
+                </p>
+              </div>
+            }
+            exportHref={`/tenants/${tenant.id}/ledger/export`}
+            tenancyId={ledgerTenancy.id}
+            tenantId={tenant.id}
+            defaultAmount={Number(ledgerTenancy.monthly_rent)}
+            canAddCharge={ledgerAdmin}
+          />
 
           {/* Summary — fee totals charged so far, plus the overall balance/credit. */}
           <h3 className="mt-4 px-1 text-xs font-medium uppercase tracking-wide text-muted">
