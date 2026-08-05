@@ -138,6 +138,37 @@ export async function createTenant(
   const supabase = await createClient();
   const denied = await requireLedgerAdmin();
   if (denied) return { error: denied };
+
+  // Submit-time double-booking guard. The room picker filters taken rooms
+  // the same way, but another tenant can land in the room between the page
+  // render and this submit. Runs before anything is created so a clash needs
+  // no cleanup. Same slot rule as the picker: an upcoming tenancy claims the
+  // room outright; an active one blocks unless its move-out precedes the new
+  // start date.
+  if (room_id && start_date) {
+    const { data: occupants, error: occErr } = await supabase
+      .from("tenancies")
+      .select("status, move_out_date, tenants(full_name)")
+      .eq("room_id", room_id)
+      .in("status", ["active", "upcoming"]);
+    if (occErr) return { error: occErr.message };
+    const clash = (occupants ?? []).find(
+      (t) =>
+        t.status === "upcoming" ||
+        !t.move_out_date ||
+        t.move_out_date >= start_date,
+    );
+    if (clash) {
+      const who = one(clash.tenants)?.full_name ?? "another tenant";
+      return {
+        error:
+          clash.status === "upcoming"
+            ? `That room is already reserved for ${who} (upcoming move-in). Pick another room.`
+            : `That room is occupied by ${who}${clash.move_out_date ? ` through ${clash.move_out_date}` : ""}. Pick another room.`,
+      };
+    }
+  }
+
   const { data: tenant, error: tErr } = await supabase
     .from("tenants")
     .insert({
@@ -296,6 +327,7 @@ export async function createTenant(
 
   revalidatePath("/tenants");
   revalidatePath("/inventory");
+  revalidatePath("/tenants/new");
   revalidatePath("/properties");
   redirect(`/tenants/${tenant.id}`);
 }
@@ -540,6 +572,7 @@ export async function endTenancy(formData: FormData) {
   revalidatePath("/tenants");
   if (tenant_id) revalidatePath(`/tenants/${tenant_id}`);
   revalidatePath("/inventory");
+  revalidatePath("/tenants/new");
 }
 
 // Inline edit for the move-out date badge. A new date reruns the same
@@ -579,6 +612,7 @@ export async function setTenancyMoveOutDate(
   revalidatePath("/tenants");
   if (tenantId) revalidatePath(`/tenants/${tenantId}`);
   revalidatePath("/inventory");
+  revalidatePath("/tenants/new");
   return { ok: true };
 }
 
@@ -626,6 +660,7 @@ export async function reactivateTenancy(formData: FormData) {
   revalidatePath("/tenants");
   if (tenant_id) revalidatePath(`/tenants/${tenant_id}`);
   revalidatePath("/inventory");
+  revalidatePath("/tenants/new");
 }
 
 // ----- Delete tenant (and their tenancies + payments via cascades) -----
@@ -668,6 +703,7 @@ export async function deleteTenant(formData: FormData) {
 
   revalidatePath("/tenants");
   revalidatePath("/inventory");
+  revalidatePath("/tenants/new");
   redirect("/tenants");
 }
 

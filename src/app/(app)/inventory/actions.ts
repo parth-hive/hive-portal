@@ -36,6 +36,7 @@ export async function setListingAction(roomId: string, action: Action) {
   });
 
   revalidatePath("/inventory");
+  revalidatePath("/tenants/new");
   revalidatePath(`/inventory/${roomId}`);
 }
 
@@ -90,6 +91,7 @@ export async function addRoomAd(
   if (error) return { error: error.message };
 
   revalidatePath("/inventory");
+  revalidatePath("/tenants/new");
   revalidatePath(`/inventory/${roomId}`);
   return undefined;
 }
@@ -109,6 +111,7 @@ export async function deleteRoomAd(
   if (error) return { error: error.message };
 
   revalidatePath("/inventory");
+  revalidatePath("/tenants/new");
   revalidatePath(`/inventory/${roomId}`);
   return { ok: true };
 }
@@ -142,6 +145,7 @@ export async function setRoomRent(
   if (error) return { error: error.message };
 
   revalidatePath("/inventory");
+  revalidatePath("/tenants/new");
   revalidatePath(`/inventory/${roomId}`);
   return undefined;
 }
@@ -161,6 +165,7 @@ export async function setRoomPhotosUrl(
     .eq("id", roomId);
   if (error) return { error: error.message };
   revalidatePath("/inventory");
+  revalidatePath("/tenants/new");
   revalidatePath(`/inventory/${roomId}`);
   return { ok: true };
 }
@@ -208,6 +213,7 @@ export async function setRoomAmenities(
   }
 
   revalidatePath("/inventory");
+  revalidatePath("/tenants/new");
   revalidatePath(`/inventory/${roomId}`);
   return { ok: true };
 }
@@ -227,6 +233,7 @@ export async function setRoomBaseRent(
     .eq("id", roomId);
   if (error) return { error: error.message };
   revalidatePath("/inventory");
+  revalidatePath("/tenants/new");
   revalidatePath(`/inventory/${roomId}`);
   return { ok: true };
 }
@@ -246,6 +253,7 @@ export async function setRoomServicesFee(
     .eq("id", roomId);
   if (error) return { error: error.message };
   revalidatePath("/inventory");
+  revalidatePath("/tenants/new");
   revalidatePath(`/inventory/${roomId}`);
   return { ok: true };
 }
@@ -268,6 +276,7 @@ export async function makeRoomAvailable(
     .eq("id", roomId);
   if (error) return { error: error.message };
   revalidatePath("/inventory");
+  revalidatePath("/tenants/new");
   revalidatePath(`/inventory/${roomId}`);
   return { ok: true };
 }
@@ -289,6 +298,7 @@ export async function deleteListing(
   if (error) return { error: error.message };
   revalidatePath("/inventory");
   revalidatePath("/tenants/new");
+  revalidatePath("/tenants/new");
   return { ok: true };
 }
 
@@ -304,6 +314,7 @@ export async function restoreListing(
     .eq("id", roomId);
   if (error) return { error: error.message };
   revalidatePath("/inventory");
+  revalidatePath("/tenants/new");
   revalidatePath("/tenants/new");
   return { ok: true };
 }
@@ -339,6 +350,7 @@ export async function cancelMoveOut(
   if (roomErr) return { error: roomErr.message };
 
   revalidatePath("/inventory");
+  revalidatePath("/tenants/new");
   revalidatePath(`/inventory/${roomId}`);
   return { ok: true };
 }
@@ -357,6 +369,7 @@ export async function setRoomAvailableFrom(
   });
   if (error) return { error: error.message };
   revalidatePath("/inventory");
+  revalidatePath("/tenants/new");
   revalidatePath(`/inventory/${roomId}`);
   return { ok: true };
 }

@@ -350,6 +350,7 @@ export async function deleteProperty(
     revalidatePath("/tenants");
     revalidatePath("/tenants/history");
     revalidatePath("/inventory");
+    revalidatePath("/tenants/new");
     revalidatePath("/cleaning");
     revalidatePath("/");
 
@@ -493,6 +494,7 @@ export async function restoreProperty(formData: FormData) {
   revalidatePath("/tenants");
   revalidatePath("/tenants/history");
   revalidatePath("/inventory");
+  revalidatePath("/tenants/new");
   revalidatePath("/cleaning");
   revalidatePath("/");
 }
