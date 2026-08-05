@@ -509,7 +509,7 @@ export async function POST(req: Request) {
       .trim();
   const runAgent = (msgs: ConvoMessage[]) =>
     client.beta.messages.toolRunner({
-      model: "claude-opus-4-8",
+      model: "claude-opus-5",
       max_tokens: 16000,
       system: SYSTEM_PROMPT,
       thinking: { type: "adaptive" },
