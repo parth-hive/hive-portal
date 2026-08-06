@@ -17,7 +17,6 @@ import { todayISO } from "@/lib/date";
 import { computeLedger, LEDGER_PAYMENT_CUTOFF } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
 import { buildBalanceDetail, type BalanceDetail } from "@/lib/balance-detail";
-import { isSmallBalance, writeOffSmallBalance } from "@/lib/small-balance";
 import { updateTenancyRent } from "@/lib/rent-history";
 import { applyMoveOut } from "@/lib/move-out";
 import { canEditLedger, LEDGER_ADMIN_ERROR } from "@/lib/access";
@@ -1038,7 +1037,6 @@ export async function sendBalanceReminders(
     await fetchLedgerSidecars(supabase);
 
   let processed = 0;
-  let writtenOff = 0;
   let sent = 0;
   let queued = 0;
   let failed = 0;
@@ -1063,14 +1061,6 @@ export async function sendBalanceReminders(
       rentChanges.get(row.id) ?? [],
     );
     if (netBalance <= 0.01) continue;
-    // A residue under $5 is written off, not chased: post an 'adjustment'
-    // credit that settles the account and skip the reminder.
-    if (isSmallBalance(netBalance)) {
-      if (await writeOffSmallBalance(supabase, row.id, netBalance, today)) {
-        writtenOff++;
-      }
-      continue;
-    }
     processed++;
 
     if (doEmail) {
@@ -1114,12 +1104,6 @@ export async function sendBalanceReminders(
   }
 
   if (processed === 0) {
-    if (writtenOff > 0) {
-      revalidatePath("/tenants");
-      return {
-        success: `No reminders needed — wrote off ${writtenOff} small balance${writtenOff === 1 ? "" : "s"} (under $5) as settled.`,
-      };
-    }
     return { success: "No tenants have an outstanding balance this month." };
   }
 
@@ -1136,10 +1120,6 @@ export async function sendBalanceReminders(
   revalidatePath("/tenants");
   const parts: string[] = [];
   if (sent > 0) parts.push(`Emailed ${sent} balance reminder${sent === 1 ? "" : "s"}.`);
-  if (writtenOff > 0)
-    parts.push(
-      `Wrote off ${writtenOff} small balance${writtenOff === 1 ? "" : "s"} (under $5) as settled.`,
-    );
   if (queued > 0)
     parts.push(
       `${queued} queued for tomorrow — Resend daily limit reached.`,

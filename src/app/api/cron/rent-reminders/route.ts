@@ -2,8 +2,7 @@
  * Monthly rent-reminder cron — fires on the LAST DAY of each month at 11:00 AM
  * Eastern.
  *
- * Tenants are split by their running ledger balance (after first writing off
- * sub-$5 residues as ledger 'adjustment' credits — see small-balance.ts):
+ * Tenants are split by their running ledger balance:
  *  - CLEAN (nothing owed): the generic reminder, as bulk BCC blasts — one
  *    branded Outlook email for non-NY tenants, one unbranded Gmail for NY,
  *    everyone in BCC so they can't see each other.
@@ -41,7 +40,6 @@ import { sendSms } from "@/lib/sms";
 import { todayISO } from "@/lib/date";
 import { computeLedger } from "@/lib/rent";
 import { fetchLedgerSidecars } from "@/lib/rent-data";
-import { isSmallBalance, writeOffSmallBalance } from "@/lib/small-balance";
 import { buildBalanceDetail, type BalanceDetail } from "@/lib/balance-detail";
 
 const MONTH_NAMES = [
@@ -235,7 +233,6 @@ export async function GET(req: NextRequest) {
     row: Row;
   };
   let skipped = 0;
-  let writtenOff = 0;
   const eligible: Eligible[] = [];
   for (const row of (tenancies ?? []) as Row[]) {
     const tenant = Array.isArray(row.tenants) ? row.tenants[0] : row.tenants;
@@ -245,7 +242,7 @@ export async function GET(req: NextRequest) {
       skipped++;
       continue;
     }
-    let { netBalance } = computeLedger(
+    const { netBalance } = computeLedger(
       row,
       row.payments ?? [],
       charges.get(row.id) ?? [],
@@ -253,16 +250,6 @@ export async function GET(req: NextRequest) {
       today,
       rentChanges.get(row.id) ?? [],
     );
-    // A residue under $5 isn't worth dunning: post an 'adjustment' credit
-    // that settles it and treat the tenant as clean (they get the generic
-    // reminder, not a balance email). Idempotent across continuations — once
-    // the charge lands, the recomputed balance is 0.
-    if (isSmallBalance(netBalance)) {
-      if (await writeOffSmallBalance(supabase, row.id, netBalance, today)) {
-        writtenOff++;
-      }
-      netBalance = 0;
-    }
     eligible.push({
       tenancyId: row.id,
       tenantId: row.tenant_id,
@@ -497,7 +484,6 @@ export async function GET(req: NextRequest) {
   return NextResponse.json({
     period,
     total: eligible.length,
-    writtenOff,
     sent,
     queued,
     skipped,

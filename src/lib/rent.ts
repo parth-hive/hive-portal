@@ -24,13 +24,6 @@ import { todayISO } from "@/lib/date";
 export const LEDGER_ANCHOR = "2026-06-01";
 
 /**
- * Balances under this are written off at month end instead of chased: the
- * reminder passes post an 'adjustment' credit for the residue and treat the
- * account as settled, so nobody gets a balance reminder over pocket change.
- */
-export const SMALL_BALANCE_WRITE_OFF_MAX = 5;
-
-/**
  * Rent payments count from here. Rent is collected on a 27th→26th cycle
  * (see currentRentCycle), so the anchor month's rent legitimately arrives
  * from the 27th of the prior month — cutting payments off at the anchor
@@ -264,10 +257,9 @@ export function computeLedger(
   // A 'settlement' charge is the move-out write-off (deposit applied,
   // remainder forgiven): it credits the account without recording money
   // received, so collections analytics stay truthful. An 'adjustment' is the
-  // same mechanic for the month-end small-balance write-off (< $5 residue
-  // forgiven before balance reminders go out); a NEGATIVE adjustment runs the
-  // other way, absorbing a small credit residue (rounded-up payment) so the
-  // account settles to exactly $0.
+  // same mechanic for an operator-posted residue write-off; a NEGATIVE
+  // adjustment runs the other way, absorbing a small credit residue
+  // (rounded-up payment) so the account settles to exactly $0.
   const refunded = paidOf("refund");
   const settled = chargedOf("settlement") + chargedOf("adjustment");
   const netBalance = cents(
@@ -404,7 +396,7 @@ export function buildLedgerEntries(
     if (c.charged_on > todayIso) continue;
     // Settlement and adjustment are credit lines: they reduce the running
     // balance like a payment does, but record forgiveness (move-out write-off
-    // / small-balance write-off), not money received. Mirrors the `- settled`
+    // / residue write-off), not money received. Mirrors the `- settled`
     // term in computeLedger. A NEGATIVE adjustment is the mirror image — it
     // absorbs a small credit residue (tenant rounded a payment up), so it
     // posts on the charge (debit) side.
