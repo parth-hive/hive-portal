@@ -602,9 +602,9 @@ export default async function ReconciliationRunPage({
               return (
               <tr
                 key={m.id}
-                className={`border-t border-stone/40 ${isNew ? "bg-accent/5" : ""}`}
+                className={`h-16 border-t border-stone/40 ${isNew ? "bg-accent/5" : ""}`}
               >
-                <td className="px-5 py-4">
+                <td className="px-5 py-2">
                   <Link
                     href={`/reconciliation/${run.id}/match/${m.id}`}
                     className={
@@ -624,27 +624,27 @@ export default async function ReconciliationRunPage({
                     </span>
                   )}
                 </td>
-                <td className="px-5 py-4 text-ink">{m.property_label ?? "—"}</td>
-                <td className="px-5 py-4 text-ink">{m.room_label ?? "—"}</td>
-                <td className="px-5 py-4 text-right tabular-nums text-ink">
+                <td className="px-5 py-2 text-ink">{m.property_label ?? "—"}</td>
+                <td className="px-5 py-2 text-ink">{m.room_label ?? "—"}</td>
+                <td className="px-5 py-2 text-right tabular-nums text-ink">
                   {fmtMoney(m.expected_rent)}
                 </td>
-                <td className="px-5 py-4 text-right tabular-nums text-ink">
+                <td className="px-5 py-2 text-right tabular-nums text-ink">
                   {fmtMoney(m.actual_amount)}
                 </td>
-                <td className="px-5 py-4 text-right tabular-nums">
+                <td className="px-5 py-2 text-right tabular-nums">
                   <RunBalance
                     n={m.tenancy_id ? balanceAfter.get(m.tenancy_id) : undefined}
                   />
                 </td>
-                <td className="px-5 py-4">
+                <td className="px-5 py-2">
                   <span
                     className={`rounded-full px-2 py-0.5 text-xs font-semibold uppercase tracking-wide ${STATUS_PILL[m.status]}`}
                   >
                     {STATUS_LABEL[m.status]}
                   </span>
                 </td>
-                <td className="px-3 py-4 text-right">
+                <td className="px-3 py-2 text-right">
                   {flagged && m.tenancy_id && m.tenant_id && (
                     <LedgerQuickAdd
                       tenancyId={m.tenancy_id}
