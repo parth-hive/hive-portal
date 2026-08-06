@@ -75,6 +75,12 @@ function fmtMoney(n: number | null) {
   return `$${Number(n).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 }
 
+// KPI cards show whole dollars; the table rows keep their cents.
+function fmtMoneyRounded(n: number | null) {
+  if (n === null || n === undefined) return "—";
+  return `$${Math.round(Number(n)).toLocaleString()}`;
+}
+
 function monthLabel(monthIso: string) {
   const [y, m] = monthIso.split("-").map(Number);
   const d = new Date(Date.UTC(y, m - 1, 1));
@@ -519,7 +525,7 @@ export default async function ReconciliationRunPage({
         {admin && (
           <KpiCard
             label="Expected"
-            value={fmtMoney(run.total_expected)}
+            value={fmtMoneyRounded(run.total_expected)}
             href={hrefWith(new Set())}
             active={activeFilters.size === 0}
           />
@@ -527,7 +533,7 @@ export default async function ReconciliationRunPage({
         {admin && (
           <KpiCard
             label="Collected"
-            value={fmtMoney(run.total_actual)}
+            value={fmtMoneyRounded(run.total_actual)}
             href={hrefWith(new Set())}
             active={false}
           />
