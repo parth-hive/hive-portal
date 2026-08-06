@@ -3,7 +3,7 @@
  *
  * Policy (from August 2026 on): a tenant who hasn't cleared their running
  * ledger balance by the end of the 6th gets one $50 late fee for the month.
- * New York units are exempt, as are balances under $50 and tenants in
+ * New York units are exempt, as are balances under $10 and tenants in
  * their move-in month.
  * Runs from the daily ops cron — the date gate below makes it fire on the
  * first invocation on/after the 7th (Eastern), and a rent_reminder_batches
@@ -27,8 +27,8 @@ const GRACE_DAY = 6;
 
 const LATE_FEE_AMOUNT = 50;
 
-/** Only fee balances of $50+ — a $50 fee on a smaller residue helps no one. */
-const MIN_OWED = 50;
+/** Only fee balances of $10+ — a fee on a smaller residue helps no one. */
+const MIN_OWED = 10;
 
 export type LateFeeResult = {
   ran: boolean;
