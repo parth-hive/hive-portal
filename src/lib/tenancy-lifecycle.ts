@@ -99,10 +99,33 @@ export async function processExpiredTenancies(
     };
   }
 
+  // Back-to-back turnover guard: an ended tenancy's room may already belong
+  // to the incoming tenant (activated moments ago in this same run, or added
+  // earlier). Releasing it would flip an occupied room back to available, so
+  // only rooms with no live tenancy left are released.
+  let releasableRoomIds: string[] = [];
   if (roomIds.length > 0) {
+    const { data: stillHeld, error: heldError } = await supabase
+      .from("tenancies")
+      .select("room_id")
+      .in("room_id", roomIds)
+      .in("status", ["active", "upcoming"]);
+    if (heldError) {
+      return {
+        activated: startingIds.length,
+        ended: ids.length,
+        roomsReleased: 0,
+        error: heldError.message,
+      };
+    }
+    const held = new Set((stillHeld ?? []).map((t) => t.room_id));
+    releasableRoomIds = [...new Set(roomIds)].filter((id) => !held.has(id));
+  }
+
+  if (releasableRoomIds.length > 0) {
     const { error: roomError } = await updateRoomsWithNotification(
       supabase,
-      roomIds,
+      releasableRoomIds,
       { status: "available", listing_action: "no_action" },
     );
     if (roomError) {
@@ -118,6 +141,6 @@ export async function processExpiredTenancies(
   return {
     activated: startingIds.length,
     ended: ids.length,
-    roomsReleased: roomIds.length,
+    roomsReleased: releasableRoomIds.length,
   };
 }
