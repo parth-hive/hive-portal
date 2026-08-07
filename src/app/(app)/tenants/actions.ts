@@ -1063,6 +1063,15 @@ export async function sendBalanceReminders(
     if (netBalance <= 0.01) continue;
     processed++;
 
+    // With this month's late fee already posted, "avoid a late fee" would be
+    // a false promise — the templates switch to fee-included wording.
+    const lateFeeCharged = (charges.get(row.id) ?? []).some(
+      (c) =>
+        c.kind === "late_fee" &&
+        c.charged_on >= `${today.slice(0, 7)}-01` &&
+        c.charged_on <= today,
+    );
+
     if (doEmail) {
       // Mini ledger: the open lines behind the balance, plus statement links
       // for any utility charge in it. Best-effort — a breakdown failure never
@@ -1083,8 +1092,20 @@ export async function sendBalanceReminders(
       // Gmail; everyone else goes through the default Resend sender.
       const isNewYork = one(one(row.rooms)?.properties)?.is_new_york ?? false;
       const res = isNewYork
-        ? await sendBalanceReminderGmail(email, netBalance, monthLabel, detail)
-        : await sendBalanceReminderOutlook(email, netBalance, monthLabel, detail);
+        ? await sendBalanceReminderGmail(
+            email,
+            netBalance,
+            monthLabel,
+            detail,
+            lateFeeCharged,
+          )
+        : await sendBalanceReminderOutlook(
+            email,
+            netBalance,
+            monthLabel,
+            detail,
+            lateFeeCharged,
+          );
       if (res.ok) {
         if ("queued" in res) queued++;
         else sent++;
@@ -1096,7 +1117,7 @@ export async function sendBalanceReminders(
     if (doSms && phone) {
       const smsRes = await sendSms(
         phone,
-        balanceReminderText(netBalance, monthLabel),
+        balanceReminderText(netBalance, monthLabel, lateFeeCharged),
         { type: "rent_balance", context: `${tenant?.full_name ?? "Tenant"} · ${monthLabel}` },
       );
       if (smsRes.ok) texted++;

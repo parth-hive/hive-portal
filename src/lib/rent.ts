@@ -437,7 +437,13 @@ export function buildLedgerEntries(
     rows.push({
       id: c.id,
       date: c.charged_on,
-      description: (KIND_LABEL[c.kind] ?? c.kind) + (c.note ? ` · ${c.note}` : ""),
+      // The deposit CHARGE line says "Charge" explicitly so it can't be
+      // misread as a received deposit; the payment row ("Payment · Security
+      // deposit") keeps the plain KIND_LABEL.
+      description:
+        (c.kind === "security_deposit"
+          ? "Security Deposit Charge"
+          : (KIND_LABEL[c.kind] ?? c.kind)) + (c.note ? ` · ${c.note}` : ""),
       charge: num(c.amount),
       payment: 0,
       // Utility overcharges are managed as a set per bill: deleting a single

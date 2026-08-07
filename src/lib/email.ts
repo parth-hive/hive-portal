@@ -86,12 +86,25 @@ This is a friendly reminder that your rent is due. Please submit payment by the 
 Thanks`;
 
 // Balance-reminder body — identical wording to the Gmail send, reused by the
-// SMS channel so texts match emails.
-export function balanceReminderText(amountDue: number, monthLabel: string): string {
+// SMS channel so texts match emails. Once this month's late fee is already on
+// the account, "avoid a late fee" would be a false promise — the wording
+// flips to say the fee is included in the balance.
+export function balanceReminderText(
+  amountDue: number,
+  monthLabel: string,
+  lateFeeCharged = false,
+): string {
   const amount = `$${Math.round(amountDue).toLocaleString()}`;
-  return `Hi,
+  return lateFeeCharged
+    ? `Hi,
 
-My records show an outstanding rent balance of ${amount} for ${monthLabel}. Please submit payment as soon as possible to avoid a $50 late fee.
+My records show an outstanding rent balance of ${amount} for ${monthLabel}, which includes a $50 late fee that has been applied to your account. Please submit payment as soon as possible. If you've already paid, let me know.
+
+Thanks
+Vinny`
+    : `Hi,
+
+My records show an outstanding rent balance of ${amount} for ${monthLabel}. Please submit payment as soon as possible to avoid a $50 late fee. If you've already paid, let me know.
 
 Thanks
 Vinny`;
@@ -509,9 +522,13 @@ export function balanceReminderGmailEmail(
   amountDue: number,
   monthLabel: string,
   detail?: BalanceDetail,
+  lateFeeCharged = false,
 ): { subject: string; text: string } {
   const subject = `Rent balance due — ${monthLabel}`;
   const amount = `$${Math.round(amountDue).toLocaleString()}`;
+  const closing = lateFeeCharged
+    ? "A $50 late fee has already been applied to your account and is included in the balance above. Please submit payment as soon as possible. If you've already paid, let me know."
+    : "Please submit payment as soon as possible to avoid a $50 late fee. If you've already paid, let me know.";
   const text = detail
     ? `Hi,
 
@@ -519,11 +536,11 @@ My records show an outstanding balance of ${amount} as of ${monthLabel}.
 
 ${balanceBreakdownText(detail, amountDue)}
 
-Please submit payment as soon as possible to avoid a $50 late fee.
+${closing}
 
 Thanks
 Vinny`
-    : balanceReminderText(amountDue, monthLabel);
+    : balanceReminderText(amountDue, monthLabel, lateFeeCharged);
   return { subject, text };
 }
 
@@ -532,11 +549,13 @@ export async function sendBalanceReminderGmail(
   amountDue: number,
   monthLabel: string,
   detail?: BalanceDetail,
+  lateFeeCharged = false,
 ): Promise<SendResult> {
   const { subject, text } = balanceReminderGmailEmail(
     amountDue,
     monthLabel,
     detail,
+    lateFeeCharged,
   );
   const result = await sendGmailMessage({ to, subject, text });
   await logEmail({
@@ -694,9 +713,15 @@ export function balanceReminderEmail(
   amountDue: number,
   monthLabel: string,
   detail?: BalanceDetail,
+  lateFeeCharged = false,
 ): { subject: string; text: string; html: string } {
   const amount = `$${Math.round(amountDue).toLocaleString()}`;
   const subject = `Rent balance due — ${monthLabel}`;
+  // Once this month's late fee is on the account, "avoid a late fee" is a
+  // false promise — acknowledge the fee instead.
+  const closingText = lateFeeCharged
+    ? "A $50 late fee has already been applied to your account and is included in the balance above. Please submit payment as soon as possible. If you've already paid, let us know."
+    : "Please submit payment as soon as possible to avoid a $50 late fee. If you've already paid, let us know.";
   const text = detail
     ? `Hi,
 
@@ -704,12 +729,18 @@ Our records show an outstanding balance of ${amount} as of ${monthLabel}.
 
 ${balanceBreakdownText(detail, amountDue)}
 
-Please submit payment as soon as possible to avoid a $50 late fee. If you've already paid, please disregard this message.
+${closingText}
 
 Thanks`
-    : `Hi,
+    : lateFeeCharged
+      ? `Hi,
 
-Our records show an outstanding rent balance of ${amount} for ${monthLabel}. Please submit payment as soon as possible to avoid a $50 late fee. If you've already paid, please disregard this message.
+Our records show an outstanding rent balance of ${amount} for ${monthLabel}, which includes a $50 late fee that has been applied to your account. Please submit payment as soon as possible. If you've already paid, let us know.
+
+Thanks`
+      : `Hi,
+
+Our records show an outstanding rent balance of ${amount} for ${monthLabel}. Please submit payment as soon as possible to avoid a $50 late fee. If you've already paid, let us know.
 
 Thanks`;
   const html = `<div style="margin:0; padding:20px 12px; background:#f5f2ed; font-family:'DM Sans',Arial,Helvetica,sans-serif;">
@@ -722,7 +753,11 @@ Thanks`;
         <p style="margin:0; font-size:12px; text-transform:uppercase; letter-spacing:0.06em; color:#8a8378;">Outstanding balance</p>
         <p style="margin:4px 0 0; font-size:24px; font-weight:600; color:#1a1a18;">${amount}</p>
       </div>${detail ? balanceBreakdownHtml(detail, amountDue) : ""}
-      <p style="margin:20px 0 0; font-size:15px; color:#1a1a18; line-height:1.5;">Please submit payment as soon as possible to avoid a <strong>$50 late fee</strong>. If you&rsquo;ve already paid, please disregard this message.</p>
+      <p style="margin:20px 0 0; font-size:15px; color:#1a1a18; line-height:1.5;">${
+        lateFeeCharged
+          ? "A <strong>$50 late fee</strong> has already been applied to your account and is included in the balance above. Please submit payment as soon as possible. If you&rsquo;ve already paid, let us know."
+          : "Please submit payment as soon as possible to avoid a <strong>$50 late fee</strong>. If you&rsquo;ve already paid, let us know."
+      }</p>
       <p style="margin:16px 0 0; font-size:15px; color:#1a1a18;">Thanks</p>
     </div>
   </div>
@@ -736,11 +771,13 @@ export async function sendBalanceReminder(
   amountDue: number,
   monthLabel: string,
   detail?: BalanceDetail,
+  lateFeeCharged = false,
 ): Promise<SendResult> {
   const { subject, text, html } = balanceReminderEmail(
     amountDue,
     monthLabel,
     detail,
+    lateFeeCharged,
   );
   return sendViaResend(
     { to, from: resendFrom(), replyTo: process.env.RESEND_REPLY_TO, subject, text, html },
@@ -755,13 +792,15 @@ export async function sendBalanceReminderOutlook(
   amountDue: number,
   monthLabel: string,
   detail?: BalanceDetail,
+  lateFeeCharged = false,
 ): Promise<SendResult> {
   if (!outlookConfigured())
-    return sendBalanceReminder(to, amountDue, monthLabel, detail);
+    return sendBalanceReminder(to, amountDue, monthLabel, detail, lateFeeCharged);
   const { subject, text, html } = balanceReminderEmail(
     amountDue,
     monthLabel,
     detail,
+    lateFeeCharged,
   );
   const result = await sendOutlookMessage({ to, subject, text, html });
   await logEmail({
