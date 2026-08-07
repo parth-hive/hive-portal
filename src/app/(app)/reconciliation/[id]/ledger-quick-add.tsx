@@ -88,7 +88,7 @@ export function LedgerQuickAdd({
         onClick={() => setOpen((v) => !v)}
         aria-expanded={open}
         title={`Record a payment${canCharge ? " or add a charge" : ""} for ${tenantName}`}
-        className="rounded-full border border-stone bg-white px-2.5 py-1 text-xs font-medium text-ink shadow-sm hover:bg-warm"
+        className="whitespace-nowrap rounded-full border border-stone bg-white px-2.5 py-1 text-xs font-medium text-ink shadow-sm hover:bg-warm"
       >
         + Ledger
       </button>
