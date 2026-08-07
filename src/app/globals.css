@@ -66,3 +66,18 @@ button:not(:disabled),
 .bg-white.rounded-2xl {
   border: 1px solid rgba(169, 159, 144, 0.7);
 }
+
+/* Form selects: native pop-up chrome (macOS Safari especially) ignores the
+   shared input padding/radius/font, making the Type dropdown clash with its
+   sibling inputs. `.select-field` strips the native appearance and draws its
+   own chevron so a select styled with the standard field classes renders
+   identically to a text input. */
+.select-field {
+  appearance: none;
+  -webkit-appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16' fill='none' stroke='%238a8378' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M4 6l4 4 4-4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 0.625rem center;
+  background-size: 1rem 1rem;
+  padding-right: 2.25rem;
+}

@@ -58,7 +58,7 @@ export function ChargeForm({
             name="kind"
             value={kind}
             onChange={(e) => setKind(e.target.value)}
-            className={fieldInput}
+            className={`${fieldInput} select-field`}
           >
             <option value="security_deposit">Security deposit</option>
             <option value="late_fee">Late fee</option>

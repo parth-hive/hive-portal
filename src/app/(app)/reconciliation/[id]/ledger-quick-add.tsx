@@ -150,7 +150,11 @@ export function LedgerQuickAdd({
               </div>
               <label className="flex flex-col gap-1">
                 <span className={labelCls}>Type</span>
-                <select name="payment_type" defaultValue="rent" className={inputCls}>
+                <select
+                  name="payment_type"
+                  defaultValue="rent"
+                  className={`${inputCls} select-field`}
+                >
                   <option value="rent">Rent</option>
                   <option value="utility">Utility</option>
                   <option value="late_fee">Late fee</option>
@@ -203,7 +207,11 @@ export function LedgerQuickAdd({
               </div>
               <label className="flex flex-col gap-1">
                 <span className={labelCls}>Kind</span>
-                <select name="kind" defaultValue="late_fee" className={inputCls}>
+                <select
+                  name="kind"
+                  defaultValue="late_fee"
+                  className={`${inputCls} select-field`}
+                >
                   <option value="late_fee">Late fee</option>
                   <option value="security_deposit">Security deposit</option>
                   <option value="other">Other</option>

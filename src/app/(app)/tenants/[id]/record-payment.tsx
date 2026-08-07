@@ -80,7 +80,7 @@ export function PaymentForm({
           <select
             name="payment_type"
             defaultValue="rent"
-            className={fieldInput}
+            className={`${fieldInput} select-field`}
           >
             <option value="rent">Rent</option>
             <option value="security_deposit">Security deposit</option>
