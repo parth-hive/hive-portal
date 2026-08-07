@@ -9,6 +9,7 @@ import {
   normalizeUnitAmenities,
   normalizeBuildingAmenities,
 } from "@/lib/amenities";
+import { todayISO } from "@/lib/date";
 
 // Accept only http(s) web links for ad / photo URLs: a scheme, a host with a
 // dot (or localhost), and no spaces. Guards against pasted plain text or
@@ -313,8 +314,32 @@ export async function restoreListing(
     .update({ pending_tenant: false })
     .eq("id", roomId);
   if (error) return { error: error.message };
+
+  // Clearing the flag alone isn't always enough to re-enter Inventory: an
+  // occupied room qualifies only with a FUTURE available_from, and the date
+  // can go stale while the listing sits deleted. Bump it to today (through
+  // the notification wrapper, since availability changes are watched) so
+  // Restore always lands the room back on the Inventory table.
+  const today = todayISO();
+  const { data: room } = await supabase
+    .from("rooms")
+    .select("status, available_from")
+    .eq("id", roomId)
+    .maybeSingle();
+  if (
+    room &&
+    room.status !== "available" &&
+    (!room.available_from || room.available_from < today)
+  ) {
+    const { error: bumpError } = await updateRoomsWithNotification(
+      supabase,
+      roomId,
+      { available_from: today },
+    );
+    if (bumpError) return { error: bumpError.message };
+  }
+
   revalidatePath("/inventory");
-  revalidatePath("/tenants/new");
   revalidatePath("/tenants/new");
   return { ok: true };
 }
