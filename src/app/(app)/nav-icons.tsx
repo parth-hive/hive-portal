@@ -11,6 +11,7 @@ export type NavIconName =
   | "utilities"
   | "notifications"
   | "profitability"
+  | "developers"
   | "settings";
 
 // Stroke-based 24×24 icons (Feather/Lucide style) matching the inline SVGs
@@ -23,6 +24,12 @@ const PATHS: Record<NavIconName, React.ReactNode> = {
     <>
       <polyline points="22 7 13.5 15.5 8.5 10.5 2 17" />
       <polyline points="16 7 22 7 22 13" />
+    </>
+  ),
+  developers: (
+    <>
+      <polyline points="16 18 22 12 16 6" />
+      <polyline points="8 6 2 12 8 18" />
     </>
   ),
   projects: (

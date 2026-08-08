@@ -6,6 +6,7 @@ import { CommandPalette } from "./command-palette";
 import { NavIcon, type NavIconName } from "./nav-icons";
 import {
   AuthGate,
+  DevelopersNavLink,
   MobileUserInfo,
   ProfitabilityNavLink,
   ProjectsBadge,
@@ -49,6 +50,10 @@ export default function AppLayout({
         extraNav={
           <Suspense>
             <ProfitabilityNavLink
+              className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-ink transition hover:bg-warm hover:text-ink"
+              iconClassName="shrink-0 text-accent"
+            />
+            <DevelopersNavLink
               className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-ink transition hover:bg-warm hover:text-ink"
               iconClassName="shrink-0 text-accent"
             />
@@ -111,6 +116,10 @@ export default function AppLayout({
           ))}
           <Suspense>
             <ProfitabilityNavLink
+              className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-ink transition hover:bg-warm hover:text-ink"
+              iconClassName="shrink-0 text-accent"
+            />
+            <DevelopersNavLink
               className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-ink transition hover:bg-warm hover:text-ink"
               iconClassName="shrink-0 text-accent"
             />

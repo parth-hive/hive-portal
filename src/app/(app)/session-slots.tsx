@@ -3,7 +3,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 import { getSessionUser, type SessionUser } from "@/lib/session";
-import { canViewProfitability, isMaster } from "@/lib/access";
+import { canViewProfitability, isMaster, isOperator } from "@/lib/access";
 import { NamePrompt } from "./name-prompt";
 import { NavIcon } from "./nav-icons";
 
@@ -79,6 +79,27 @@ export async function ProfitabilityNavLink({
     <Link href="/profitability" className={className}>
       <NavIcon name="profitability" className={iconClassName} />
       Profitability
+    </Link>
+  );
+}
+
+/**
+ * Operator-only "Developers" nav entry (API docs) — renders nothing for
+ * everyone else. Same slot pattern as ProfitabilityNavLink.
+ */
+export async function DevelopersNavLink({
+  className,
+  iconClassName,
+}: {
+  className: string;
+  iconClassName: string;
+}) {
+  const user = await getSessionUser();
+  if (!isOperator(user?.email)) return null;
+  return (
+    <Link href="/developers" className={className}>
+      <NavIcon name="developers" className={iconClassName} />
+      Developers
     </Link>
   );
 }
