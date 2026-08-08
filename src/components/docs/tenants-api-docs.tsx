@@ -1,10 +1,10 @@
 import { Section, Code, CodeBlock, ParamTable } from "@/components/api-docs";
 
 /**
- * Tenants API reference content — portal-internal only (the endpoint returns
- * PII, so unlike the inventory docs this is never published on the public
- * /docs site). The API itself lives in src/app/api/tenants/ — keep this in
- * sync when it changes.
+ * Tenants API reference content — served on the PUBLIC /developers page, so
+ * the example payload must stay fictional (never paste real tenant data
+ * here). The API itself lives in src/app/api/tenants/ — keep this in sync
+ * when it changes.
  */
 export function TenantsApiDocs() {
   return (
@@ -42,19 +42,19 @@ export function TenantsApiDocs() {
             ["q", "case-insensitive substring over name and email", "—"],
           ]}
         />
-        <CodeBlock>{`GET /api/tenants?phone=%2B1%20(212)%20365-4373
+        <CodeBlock>{`GET /api/tenants?phone=%2B1%20(212)%20555-0142
 
 {
   "as_of": "2026-08-08",
   "count": 1,
   "tenants": [
     {
-      "id": "e7be6038-7937-4d15-966d-3f9999d78110",
-      "name": "Karthik Vinod",
-      "email": "krtvin18@gmail.com",
-      "phone": "212-365-4373",
-      "unit": "161 Van Wagenen Ave Apt 1001",
-      "room": "3"
+      "id": "27866d1f-eb16-4bc0-bdc1-804fa9354ba9",
+      "name": "Jane Tenant",
+      "email": "jane.tenant@example.com",
+      "phone": "212-555-0142",
+      "unit": "Hudson Park Apt 604",
+      "room": "2"
     }
   ]
 }`}</CodeBlock>
@@ -78,8 +78,8 @@ export function TenantsApiDocs() {
           </li>
           <li>
             <Code>phone=</Code> matching normalizes both sides to digits and
-            compares the last 10 — <Code>+1 (212) 365-4373</Code>,{" "}
-            <Code>212-365-4373</Code> and <Code>2123654373</Code> all resolve
+            compares the last 10 — <Code>+1 (212) 555-0142</Code>,{" "}
+            <Code>212-555-0142</Code> and <Code>2125550142</Code> all resolve
             the same tenant. Fewer than 10 digits is a <Code>400</Code>.
           </li>
         </ul>

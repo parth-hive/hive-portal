@@ -6,6 +6,7 @@ import { CommandPalette } from "./command-palette";
 import { NavIcon, type NavIconName } from "./nav-icons";
 import {
   AuthGate,
+  DevelopersHeaderLink,
   DevelopersNavLink,
   MobileUserInfo,
   ProfitabilityNavLink,
@@ -119,16 +120,15 @@ export default function AppLayout({
               className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-ink transition hover:bg-warm hover:text-ink"
               iconClassName="shrink-0 text-accent"
             />
-            <DevelopersNavLink
-              className="flex items-center gap-2.5 rounded-lg px-3 py-2 text-ink transition hover:bg-warm hover:text-ink"
-              iconClassName="shrink-0 text-accent"
-            />
           </Suspense>
         </nav>
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col">
         <header className="sticky top-0 z-20 hidden h-14 items-center justify-end gap-3 border-b border-stone/60 bg-cream/90 px-10 backdrop-blur md:flex">
+          <Suspense>
+            <DevelopersHeaderLink />
+          </Suspense>
           <Link
             href="/settings"
             aria-label="Admin Settings"

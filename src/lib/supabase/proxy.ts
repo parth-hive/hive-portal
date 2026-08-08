@@ -3,8 +3,8 @@ import { NextResponse, type NextRequest } from "next/server";
 
 // "/s" is the public cleaner schedule page (token in the path, no login);
 // "/sign" is the public tenant lease-signing page (token in the path);
-// "/docs" is public API documentation.
-const PUBLIC_PATHS = ["/login", "/auth", "/s", "/sign", "/docs"];
+// "/docs" and "/developers" are public API documentation.
+const PUBLIC_PATHS = ["/login", "/auth", "/s", "/sign", "/docs", "/developers"];
 
 // Host of the neutral signing domain (SIGN_ORIGIN). Requests arriving on it
 // may only reach the public /sign pages — everything else 404s, so the

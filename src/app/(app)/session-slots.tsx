@@ -85,7 +85,8 @@ export async function ProfitabilityNavLink({
 
 /**
  * Operator-only "Developers" nav entry (API docs) — renders nothing for
- * everyone else. Same slot pattern as ProfitabilityNavLink.
+ * everyone else. Same slot pattern as ProfitabilityNavLink. Used in the
+ * mobile drawer, where the icon-buttons header doesn't exist.
  */
 export async function DevelopersNavLink({
   className,
@@ -100,6 +101,25 @@ export async function DevelopersNavLink({
     <Link href="/developers" className={className}>
       <NavIcon name="developers" className={iconClassName} />
       Developers
+    </Link>
+  );
+}
+
+/**
+ * Icon-only Developers link for the desktop header, beside the settings
+ * gear. Same operator gate as the drawer entry.
+ */
+export async function DevelopersHeaderLink() {
+  const user = await getSessionUser();
+  if (!isOperator(user?.email)) return null;
+  return (
+    <Link
+      href="/developers"
+      aria-label="Developers"
+      title="Developers — API docs"
+      className="flex h-9 w-9 items-center justify-center rounded-lg text-ink transition hover:bg-warm hover:text-accent-text"
+    >
+      <NavIcon name="developers" />
     </Link>
   );
 }
